@@ -165,24 +165,44 @@ export function collapseRepeats(message) {
  *  pattern admits more than one. `close(name)` is what ends that element's body.
  *  `selfClosing` says the pattern also matches the `<name .../>` form, which has no body. */
 export function* elements(text, re, { open, close, selfClosing = false }) {
-  const anchored = new RegExp(re.source, `${re.flags.replace(/[gy]/g, "")}y`);
+  text = String(text);
+  // Search a same-length structural copy, then restore every capture from the original
+  // bytes. A closing-tag spelling inside CDATA or a comment is text, not markup; letting
+  // the element regex see it truncated the element and could even manufacture findings
+  // from commented-out XML. Keeping the offsets identical lets all existing evidence
+  // ranges continue to point at the real document.
+  const structure = xmlStructure(text);
+  const flags = re.flags.replace(/[dgy]/g, "");
+  const anchored = new RegExp(re.source, `${flags}dy`);
   const starts = new RegExp(open.source, `${open.flags.replace(/[gy]/g, "")}g`);
   const lastClose = new Map();
   const closesAfter = (name, at) => {
-    if (!lastClose.has(name)) lastClose.set(name, text.lastIndexOf(close(name)));
+    if (!lastClose.has(name)) lastClose.set(name, structure.lastIndexOf(close(name)));
     return lastClose.get(name) > at;
   };
-  for (let from = 0; from < text.length;) {
+  for (let from = 0; from < structure.length;) {
     starts.lastIndex = from;
-    const start = starts.exec(text);
+    const start = starts.exec(structure);
     if (!start) return;
-    const end = text.indexOf(">", start.index);
+    const end = structure.indexOf(">", start.index);
     if (end === -1) return;
-    if ((selfClosing && text[end - 1] === "/") || closesAfter(start[1], end)) {
+    if ((selfClosing && structure[end - 1] === "/") || closesAfter(start[1], end)) {
       anchored.lastIndex = start.index;
-      const match = anchored.exec(text);
+      const match = anchored.exec(structure);
       if (match) {
-        yield match;
+        // RegExp match arrays are ordinary arrays with a few properties. Rebuild one
+        // whose strings come from the original document while retaining structural
+        // indices for nested readers and evidence mapping.
+        const restored = match.map((value, index) => {
+          const span = match.indices[index];
+          return value === undefined || !span ? value : text.slice(span[0], span[1]);
+        });
+        restored.index = match.index;
+        restored.input = text;
+        restored.groups = match.groups && Object.fromEntries(Object.entries(match.indices.groups)
+          .map(([name, span]) => [name, span ? text.slice(span[0], span[1]) : undefined]));
+        restored.indices = match.indices;
+        yield restored;
         from = start.index + Math.max(match[0].length, 1);
         continue;
       }
@@ -204,8 +224,67 @@ export function firstElement(text, re, options) {
  * tag. Preserve line breaks and length so callers can scan this copy and slice the
  * original document at the resulting offsets. */
 export function xmlStructure(text) {
-  return String(text).replace(/<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->/g,
-    (literal) => literal.replace(/[^\r\n]/g, " "));
+  text = String(text);
+  const out = [];
+  let at = 0;
+  while (at < text.length) {
+    const cdata = text.indexOf("<![CDATA[", at);
+    const comment = text.indexOf("<!--", at);
+    let start, close;
+    if (cdata === -1 || (comment !== -1 && comment < cdata)) {
+      start = comment; close = "-->";
+    } else {
+      start = cdata; close = "]]>";
+    }
+    if (start === -1) { out.push(text.slice(at)); break; }
+    out.push(text.slice(at, start));
+    const found = text.indexOf(close, start + (close === "-->" ? 4 : 9));
+    const end = found === -1 ? text.length : found + close.length;
+    // Preserve CR/LF and every offset. An unterminated literal is inert through EOF;
+    // repeatedly asking a lazy global regex to rediscover that EOF was the quadratic
+    // case this scanner avoids.
+    out.push(text.slice(start, end).replace(/[^\r\n]/g, " "));
+    at = end;
+  }
+  return out.join("");
+}
+
+/** XML character data with comments removed and CDATA returned literally.
+ *
+ * Entity references are decoded only outside CDATA. That distinction matters for a
+ * message such as `expected &lt;x&gt;` inside a literal section: the ampersand is data
+ * there, and decoding it changes what the tool said. */
+export function xmlContent(value) {
+  const text = String(value ?? "");
+  const out = [];
+  let at = 0;
+  while (at < text.length) {
+    const cdata = text.indexOf("<![CDATA[", at);
+    const comment = text.indexOf("<!--", at);
+    const start = cdata === -1 ? comment : comment === -1 ? cdata : Math.min(cdata, comment);
+    if (start === -1) { out.push(xmlText(text.slice(at))); break; }
+    out.push(xmlText(text.slice(at, start)));
+    if (start === cdata) {
+      const end = text.indexOf("]]>", start + 9);
+      if (end === -1) { out.push(text.slice(start + 9)); break; }
+      out.push(text.slice(start + 9, end));
+      at = end + 3;
+    } else {
+      const end = text.indexOf("-->", start + 4);
+      if (end === -1) break;
+      at = end + 3;
+    }
+  }
+  return out.join("");
+}
+
+/** Resolve a SARIF artifact location, including the standard index-only form. */
+export function sarifArtifactUri(run, artifactLocation) {
+  if (typeof artifactLocation?.uri === "string") return artifactLocation.uri;
+  const index = artifactLocation?.index;
+  if (!Number.isInteger(index) || index < 0) return null;
+  const artifact = run?.artifacts?.[index];
+  return typeof artifact?.location?.uri === "string" ? artifact.location.uri : null;
 }
 
 // A line pattern of one shape - a head, whitespace, a lazy message, whitespace, and a tail

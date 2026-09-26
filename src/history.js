@@ -91,20 +91,46 @@ export function legacyRunIdentity({ cwd, tool, argv, id = null }) {
 const fileFor = (identity) => join(cacheDir(), `${identity}.json`);
 
 function readRun(identity, version) {
-  if (!identity) return null;
+  return readRunState(identity, version).record;
+}
+
+/** Read a record without collapsing "absent", "unreadable" and "invalid" into the
+ * same answer. The CLI must not replace a record it failed to understand: doing so
+ * silently erased the last trustworthy baseline and made an old failure look new on a
+ * later run. `loadRun` keeps its historical null-returning API; stateful callers use
+ * this richer result. */
+function readRunState(identity, version) {
+  if (!identity) return { record: null, state: "missing" };
+  let raw;
   try {
-    const saved = JSON.parse(readFileSync(fileFor(identity), "utf8"));
-    if (saved?.version !== version || !Array.isArray(saved.causes)) return null;
-    const id = version === IDENTITY_VERSION ? /^[0-9a-f]{24}$/ : /^[0-9a-f]{8}$/;
-    if (!saved.causes.every((cause) => typeof cause === "string" && id.test(cause))) return null;
-    if (saved.tool !== undefined && saved.tool !== null && typeof saved.tool !== "string") return null;
-    if (saved.ranAt !== undefined && saved.ranAt !== null && typeof saved.ranAt !== "string") return null;
-    return saved;
-  } catch { return null; }
+    raw = readFileSync(fileFor(identity), "utf8");
+  } catch (error) {
+    return { record: null, state: error?.code === "ENOENT" ? "missing" : "unavailable" };
+  }
+  let saved;
+  try { saved = JSON.parse(raw); }
+  catch { return { record: null, state: "invalid" }; }
+  if (saved?.version !== version || !Array.isArray(saved.causes)) return { record: null, state: "invalid" };
+  const id = version === IDENTITY_VERSION ? /^[0-9a-f]{24}$/ : /^[0-9a-f]{8}$/;
+  if (!saved.causes.every((cause) => typeof cause === "string" && id.test(cause))) {
+    return { record: null, state: "invalid" };
+  }
+  if (new Set(saved.causes).size !== saved.causes.length) return { record: null, state: "invalid" };
+  // Current records always spell out the tool, including `null` after a green run.
+  // Missing it bypassed the tool-switch guard and allowed a false "gone" claim.
+  if (version === IDENTITY_VERSION && !Object.hasOwn(saved, "tool")) return { record: null, state: "invalid" };
+  if (saved.tool !== undefined && saved.tool !== null && typeof saved.tool !== "string") {
+    return { record: null, state: "invalid" };
+  }
+  if (saved.ranAt !== undefined && saved.ranAt !== null && typeof saved.ranAt !== "string") {
+    return { record: null, state: "invalid" };
+  }
+  return { record: saved, state: "valid" };
 }
 
 export const loadRun = (identity) => readRun(identity, IDENTITY_VERSION);
 export const loadLegacyRun = (identity) => readRun(identity, LEGACY_IDENTITY_VERSION);
+export const loadRunState = (identity) => readRunState(identity, IDENTITY_VERSION);
 
 /** Write via a temporary file and rename, so an interrupted run leaves the previous
  *  state intact rather than a half-written file that reads as "nothing was failing". */
@@ -113,6 +139,8 @@ export function saveRun(identity, record) {
   const temp = `${target}.${process.pid}.tmp`;
   try {
     mkdirSync(cacheDir(), { recursive: true });
+    const existing = readRunState(identity, IDENTITY_VERSION).state;
+    if (existing === "invalid" || existing === "unavailable") return false;
     writeFileSync(temp, JSON.stringify({ version: IDENTITY_VERSION, ...record }));
     renameSync(temp, target);
     return true;

@@ -417,13 +417,15 @@ test("a mixed log shows every tool in the terminal", () => {
   assert.match(r.stdout, /no-unused-vars/);
 });
 
-test("every failure gets a GitHub annotation, whichever tool found it", () => {
+test("GitHub annotations cover every tool up to the platform limit", () => {
   for (const parts of COMBOS) {
     const r = spawnSync(process.execPath, [cli, "--format", "github"], {
       input: joined(parts), encoding: "utf8", env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
     });
     const errors = (r.stdout.match(/^::error /gm) ?? []).length;
-    assert.equal(errors, alone(parts), `${parts.join(" + ")}: ${errors} annotations for ${alone(parts)} failures`);
+    const failures = alone(parts);
+    assert.equal(errors, Math.min(failures, 10), `${parts.join(" + ")}: ${errors} annotations for ${failures} failures`);
+    if (failures > 10) assert.match(r.stdout, new RegExp(`${failures - 10} additional failures`));
   }
 });
 

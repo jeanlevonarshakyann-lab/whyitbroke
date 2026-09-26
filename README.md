@@ -408,10 +408,12 @@ extracted and shown, each under the tool that found it:
     Expected '!==' and instead saw '!='
 ```
 
-Each tool's failures are grouped using its own vocabulary, and in `--format github`
-every one of them gets an annotation, with the tool named when it is not the one that
-owns the log. In `--json`, `failures` still means what the winning tool reported —
-unchanged — and the rest arrive under `others`.
+Each tool's failures are grouped using its own vocabulary. In `--format github`, the
+first ten get annotations — GitHub's per-step error limit — with the tool named when it
+is not the one that owns the log. Every failure remains in the job summary and JSON
+report, and the log says how many annotations GitHub could not accept. In `--json`,
+`failures` still means what the winning tool reported — unchanged — and the rest arrive
+under `others`.
 
 The same diagnosis is never reported twice: unittest prints its failures *as* Python
 tracebacks, and that is one failure read two ways, not two failures. Two different tools
@@ -515,11 +517,13 @@ What keeps it honest:
   unrelated `assert 1 == 2` failures do not become "one likely cause".
 - Three sites minimum. Two failures sharing a shape is usually coincidence.
 
-Nothing is hidden: `failures` is unchanged in `--json`, and `--format github` still
-emits one annotation per failure — each one is a marker on a line in the diff view, and
-dropping one would hide a line. Grouping only decides what leads: the terminal's five
-slots, the job summary's sections, and the run's notice line. `--no-cluster` turns it
-off everywhere.
+Nothing is hidden silently: `failures` is unchanged in `--json`, and the GitHub job
+summary carries the failure list up to GitHub's 1 MiB step limit before marking its own
+truncation. Workflow annotations are capped at GitHub's ten-error limit and their
+messages stay below 64 KiB; explicit notices point to the summary and `--json` whenever
+a platform limit is reached. Grouping only decides
+what leads: the terminal's five slots, the job summary's sections, and the run's notice
+line. `--no-cluster` turns it off everywhere.
 
 Source context is read from the file on disk. If the file has changed since the command
 ran — you edited it, or you piped in saved output — whyitbroke says so and shows the line
@@ -719,7 +723,9 @@ directory component in between. `O_NOFOLLOW` narrows that window but does not cl
 Anyone with that access could simply put the content in a real file instead.
 
 It runs your command without a shell (`spawn`, not `sh -c`), so nothing in a filename
-or argument is expanded. It has zero dependencies and makes no network calls.
+or argument is expanded. SIGINT, SIGTERM and SIGHUP are forwarded to the command; on
+noninteractive POSIX runs they reach its process group, so cancelling a CI wrapper also
+stops descendants it started. It has zero dependencies and makes no network calls.
 
 It writes to disk in exactly two cases, both of which you have to ask for. When
 `GITHUB_STEP_SUMMARY` is set — which GitHub Actions sets for you — `--format github`

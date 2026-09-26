@@ -1,4 +1,4 @@
-import { elements, firstElement, lineAt, xmlAttributes, xmlStructure, xmlText } from "../util.js";
+import { elements, firstElement, lineAt, xmlAttributes, xmlContent } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // The reports a JVM build leaves behind - Maven Surefire's target/surefire-reports and
 // Gradle's build/test-results - are what a CI job keeps and what every test dashboard
@@ -33,7 +33,6 @@ const CASE_RE = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
 const OUTCOME_RE = /<(failure|error)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/;
 const CASE = { open: /<testcase\b/, close: () => "</testcase>", selfClosing: true };
 const OUTCOME = { open: /<(failure|error)\b/, close: (name) => `</${name}>`, selfClosing: true };
-const CDATA_RE = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
 // `at shop.CartTest.totalsAnInvoice(CartTest.java:9)`, with the classloader prefix
 // Gradle's console adds - `app//` - allowed for.
 const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\s]+\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
@@ -66,13 +65,12 @@ function said(lines) {
 function xmlCases(s) {
   if (!s.includes("<testcase")) return [];
   const out = [];
-  const structure = xmlStructure(s);
-  for (const test of elements(structure, CASE_RE, CASE)) {
+  for (const test of elements(s, CASE_RE, CASE)) {
     if (!test[2]) continue;
     const testRaw = s.slice(test.index, test.index + test[0].length);
     const testOpenEnd = testRaw.indexOf(">");
     const testBody = testRaw.slice(testOpenEnd + 1, -CASE.close().length);
-    const outcome = firstElement(xmlStructure(testBody), OUTCOME_RE, OUTCOME);
+    const outcome = firstElement(testBody, OUTCOME_RE, OUTCOME);
     if (!outcome) continue;
     const outcomeRaw = testBody.slice(outcome.index, outcome.index + outcome[0].length);
     const outcomeOpenEnd = outcomeRaw.indexOf(">");
@@ -84,11 +82,8 @@ function xmlCases(s) {
     const outcomeOpen = outcomeRaw.slice(0, outcomeOpenEnd + 1);
     const a = xmlAttributes(testOpen);
     if (!a.classname || !a.name) continue;
-    const raw = outcomeBody;
     // CDATA is literal text; everything outside it is escaped.
-    const body = raw.includes("<![CDATA[")
-      ? [...raw.matchAll(CDATA_RE)].map((m) => m[1]).join("\n")
-      : xmlText(raw);
+    const body = xmlContent(outcomeBody);
     const lines = body.split("\n");
     // Gradle names the method `totalsAnInvoice()`, and a parameterised one carries its
     // arguments in the brackets; the frame names the method alone.

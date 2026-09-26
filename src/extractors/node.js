@@ -50,7 +50,6 @@ export default {
   extract(s) {
     const lines = s.split("\n");
     const OTHER_DIAGNOSTIC = /^(?:error|Error|warning):[^\S\n]/;
-    const FRAME_GAP = 3;
     const SOURCE_GAP = 4;
     const failures = [];
 
@@ -73,7 +72,13 @@ export default {
       for (let i = errIdx + 1; i < lines.length; i++) {
         if (ERR_RE.test(lines[i]) || OTHER_DIAGNOSTIC.test(lines[i])) break;
         const m = lines[i].match(/^[^\S\n]+at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/);
-        if (!m) { if (frames.length || i - errIdx > FRAME_GAP) break; else continue; }
+        if (!m) {
+          // A blank line is harmless formatting between an exception and its stack.
+          // Arbitrary prose is a boundary: accepting three such lines let an earlier
+          // retry's `Error:` borrow the next attempt's frame and report the wrong file.
+          if (frames.length || lines[i].trim()) break;
+          continue;
+        }
         frames.push({ fn: m[1] ?? "<anonymous>", file: unfile(m[2]), line: +m[3], col: +m[4] });
         end = i + 1;
       }

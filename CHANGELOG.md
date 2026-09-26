@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A second reliability audit fixed shared boundaries rather than papering over individual
+  captures: scoped pnpm wrappers are removed atomically; XML comments and CDATA cannot
+  impersonate markup; Ruff JSON Lines, SARIF artifact indices, TRX quoting and Node TAP
+  quoting accept their valid alternate forms; retry attempts cannot borrow later stack
+  frames; and XML literal masking is linear on malformed input.
+- `--since-last` preserves unreadable or malformed baselines instead of replacing them,
+  and rejects missing tool identity and duplicate causes. GitHub output now stays within
+  the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring
+  every omission, truncation and terminating signal. SIGINT, SIGTERM and SIGHUP are
+  forwarded to the wrapped POSIX process group so terminating whyitbroke does not leave
+  the command or its descendants running.
 - Independent reliability audits now pin and fix eleven shared-boundary failures:
   stdout/stderr fragments cannot combine into invented diagnostics; interrupted or
   unpersistable history cannot make stale claims; nested task wrappers no longer enter

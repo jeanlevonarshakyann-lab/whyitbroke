@@ -101,6 +101,14 @@ try {
   }
   assert.ok(seen > 80, `only ${seen} location lines exercised`);
   assert.deepEqual(unreadable, [], "CI would annotate nothing for these");
+  for (const [line, file] of [
+    ["  dir:odd.ts:7:2  TS100 synthetic", "dir:odd.ts"],
+    ["  C:\\work\\odd.ts:8:3  TS101 synthetic", "C:\\work\\odd.ts"],
+  ]) {
+    const matched = line.match(re);
+    assert.ok(matched, `problem matcher rejected ${JSON.stringify(line)}`);
+    assert.equal(matched[1], file, `problem matcher truncated ${JSON.stringify(file)}`);
+  }
   console.log(`  ok   the problem matcher reads all ${seen} rendered location lines`);
   pass++;
 } catch (e) { console.log(`  FAIL problem matcher coverage\n       ${e.message}`); fail++; }

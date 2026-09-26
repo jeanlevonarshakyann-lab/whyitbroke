@@ -19,7 +19,7 @@ import { alsoFrom, withSource } from "../ownership.js";
 const NOT_OK_RE = /^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*$/;
 const SUBTEST_RE = /^([^\S\n]*)# Subtest:\s/;
 const FAILURE_TYPE_RE = /^[^\S\n]*failureType:[^\S\n]*'(.+?)'[^\S\n]*$/;
-const LOCATION_RE = /^[^\S\n]*location:[^\S\n]*'(.+?):(\d+):(\d+)'[^\S\n]*$/;
+const QUOTED_LOCATION_RE = /^[^\S\n]*location:[^\S\n]*(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')[^\S\n]*$/;
 const NAME_RE = /^[^\S\n]*name:[^\S\n]*'(.+?)'[^\S\n]*$/;
 const ERROR_RE = /^([^\S\n]*)error:[^\S\n]*\|-?[^\S\n]*$/;
 const ERROR_INLINE_RE = /^[^\S\n]*error:[^\S\n]*'?(.+?)'?[^\S\n]*$/;
@@ -31,6 +31,20 @@ const ALT_LOCATION_RE = /^(?:test|suite)[^\S\n]+at[^\S\n]+(.+?):(\d+):(\d+)[^\S\
 const unfile = (path) => path?.startsWith("file://")
   ? decodeURIComponent(path.slice(7))
   : path;
+
+/** Node writes YAML single quotes normally and switches to double quotes when the path
+ * itself contains an apostrophe. Decode that scalar first, then take coordinates from
+ * the right so drive letters and colons in a file name stay part of the file. */
+function tapLocation(line) {
+  const quoted = line.match(QUOTED_LOCATION_RE);
+  if (!quoted) return null;
+  let value;
+  try {
+    value = quoted[1] !== undefined ? JSON.parse(`"${quoted[1]}"`) : quoted[2].replace(/''/g, "'");
+  } catch { return null; }
+  const at = value.match(/^([\s\S]+):(\d+):(\d+)$/);
+  return at ? { file: unfile(at[1]), line: +at[2], col: +at[3] } : null;
+}
 
 function userFrame(lines, start, end) {
   const frames = [];
@@ -260,8 +274,8 @@ export default {
         if (/^[^\S\n]*\.\.\.[^\S\n]*$/.test(lines[j])) { end = j + 1; break; }
         const type = lines[j].match(FAILURE_TYPE_RE);
         if (type) { failureType = type[1]; end = j + 1; continue; }
-        const loc = lines[j].match(LOCATION_RE);
-        if (loc) { file = loc[1]; line = +loc[2]; col = +loc[3]; end = j + 1; continue; }
+        const loc = tapLocation(lines[j]);
+        if (loc) { ({ file, line, col } = loc); end = j + 1; continue; }
         const nm = lines[j].match(NAME_RE);
         if (nm) { errName = nm[1]; end = j + 1; continue; }
 

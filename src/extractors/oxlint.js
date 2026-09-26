@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { locatedPrefix } from "../location.js";
 // oxlint prints one run ten ways, and it chooses among them itself: a terminal gets a
@@ -233,9 +233,10 @@ function findings(s, placed = false) {
     for (const run of value.runs.filter((r) => r?.tool?.driver?.name === "oxlint")) {
       for (const r of run.results ?? []) {
         const where = r?.locations?.[0]?.physicalLocation;
-        if (typeof where?.artifactLocation?.uri !== "string") continue;
+        const uri = sarifArtifactUri(run, where?.artifactLocation);
+        if (!uri) continue;
         const { start, end } = placeOf(r);
-        out.push({ file: where.artifactLocation.uri, line: positive(where.region?.startLine),
+        out.push({ file: uri, line: positive(where.region?.startLine),
           col: positive(where.region?.startColumn), severity: r.level === "error" ? "error" : "warning",
           // A file that does not parse is given an id of oxlint's own, `OXL0001`, where the
           // other formats give none; it is not a rule you could disable.
