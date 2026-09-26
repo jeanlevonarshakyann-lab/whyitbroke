@@ -17,7 +17,7 @@
 // Message and Stack Trace blocks. It may also print xUnit's prefixed copy first; the
 // labelled result is the stable cross-framework surface and is the one parsed below.
 import { joinSources, withSource } from "../ownership.js";
-import { elements, firstElement, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, lineAt, xmlAttributes, xmlContent } from "../util.js";
 
 const MTP_FAILED_RE = /^failed[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\)[^\S\n]*$/;
 // Microsoft.Testing.Platform speaks the SDK's languages too, and translates more than
@@ -107,7 +107,7 @@ const MAX_MESSAGE_LINES = 4;
 // element on its own is not evidence of anything. Each result carries the test's name
 // and outcome as attributes and its message and stack as elements, so the location comes
 // from the same first-frame-in-your-own-code rule the console output is read with.
-const TRX_DOC = /<TestRun\b[^>]*\bxmlns="http:\/\/microsoft\.com\/schemas\/VisualStudio\/TeamTest\//;
+const TRX_DOC = /<TestRun\b[^>]*\bxmlns=(?:"http:\/\/microsoft\.com\/schemas\/VisualStudio\/TeamTest\/|'http:\/\/microsoft\.com\/schemas\/VisualStudio\/TeamTest\/)/;
 const TRX_RESULT_RE = /<UnitTestResult\b([^>]*?)(?:\/>|>([\s\S]*?)<\/UnitTestResult>)/g;
 const TRX_MESSAGE_RE = /<Message>([\s\S]*?)<\/Message>/;
 const TRX_STACK_RE = /<StackTrace>([\s\S]*?)<\/StackTrace>/;
@@ -126,7 +126,7 @@ function trx(s) {
     const message = firstElement(result[2], TRX_MESSAGE_RE, TRX_MESSAGE);
     const stack = firstElement(result[2], TRX_STACK_RE, TRX_STACK);
     let file, line;
-    for (const raw of xmlText(stack?.[1] ?? "").split("\n")) {
+    for (const raw of xmlContent(stack?.[1] ?? "").split("\n")) {
       const at = raw.match(AT_RE);
       if (at && !FRAMEWORK.test(at[1])) { file = at[2]; line = +at[3]; break; }
     }
@@ -134,7 +134,7 @@ function trx(s) {
     out.push(withSource({
       file, line,
       title: shortName(a.testName), subject: shortName(a.testName), severity: "error",
-      message: xmlText(message?.[1] ?? "").split("\n").map((l) => l.trim())
+      message: xmlContent(message?.[1] ?? "").split("\n").map((l) => l.trim())
         .filter(Boolean).slice(0, MAX_MESSAGE_LINES).join("\n"),
     }, lineAt(s, result.index), lineAt(s, result.index + result[0].length - 1) + 1));
   }

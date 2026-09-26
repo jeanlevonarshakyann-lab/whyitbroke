@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../src/index.js";
+import { githubOutput } from "../src/github.js";
+import { createReport } from "../src/report.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fx = (n) => readFileSync(join(here, "fixtures", n), "utf8");
@@ -102,8 +104,8 @@ try {
 } catch (e) { console.log(`  FAIL GitHub source disclosure boundary\n       ${e.message}`); fail++; }
 
 // The step summary is what a human reads in CI, so it leads with causes like the
-// terminal does - while the annotations below it stay one per failure, because each
-// one is a marker on a line and dropping one hides a line.
+// terminal does. GitHub accepts only ten error/warning annotations from one step, so
+// the complete list lives in the summary and the log says how many markers were capped.
 try {
   const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -124,12 +126,63 @@ try {
   assert.match(md, /<details><summary>\d+ (?:case|site)s<\/summary>/, "sites are folded, not listed flat");
   // nothing is hidden: every failure still reaches the summary and the annotations
   for (const f of analysed.failures) assert.ok(md.includes(`${f.file}:${f.line}`), `${f.file}:${f.line} missing`);
-  assert.equal((r.stdout.match(/^::error /gm) ?? []).length, analysed.failures.length);
+  assert.equal((r.stdout.match(/^::error /gm) ?? []).length, 10);
+  assert.match(r.stdout, /80 additional failures are listed in the job summary/);
   assert.match(r.stdout, /^::notice title=whyitbroke::.* likely causes, \d+ sites$/m);
   rmSync(dir, { recursive: true, force: true });
   console.log("  ok   GitHub summary leads with clusters and hides nothing");
   pass++;
 } catch (e) { console.log(`  FAIL GitHub clustered summary\n       ${e.message}`); fail++; }
+
+try {
+  const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "whyitbroke-github-bounds-"));
+  const summary = join(dir, "summary.md");
+  const raw = `Error: ${"x".repeat(1200000)}\n    at boom (/tmp/huge.js:1:1)\n`;
+  const r = spawnSync(process.execPath, [cli, "--github-actions"], {
+    input: raw, encoding: "utf8", maxBuffer: 3 * 1024 * 1024,
+    env: { ...process.env, GITHUB_STEP_SUMMARY: summary },
+  });
+  const annotation = r.stdout.split("\n").find((line) => line.startsWith("::error "));
+  assert.ok(annotation, "the parsed failure had no annotation");
+  assert.ok(Buffer.byteLength(annotation) <= 60 * 1024, "the annotation exceeds its byte budget");
+  assert.match(annotation, /message truncated; use --json/);
+  const markdown = readFileSync(summary, "utf8");
+  assert.ok(Buffer.byteLength(markdown) <= 1024 * 1024, "the summary exceeds GitHub's limit");
+  assert.match(markdown, /Summary truncated to GitHub's limit/);
+  rmSync(dir, { recursive: true, force: true });
+  console.log("  ok   GitHub annotations and summaries stay within platform limits");
+  pass++;
+} catch (e) { console.log(`  FAIL GitHub output bounds\n       ${e.message}`); fail++; }
+
+try {
+  const raw = `bad.py:1:1: E999 synthetic failure\n${"x".repeat(5000)}`;
+  const r = spawnSync(process.execPath, [cli, "--github-actions", "--max-bytes", "1024"], {
+    input: raw, encoding: "utf8", env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
+  });
+  assert.match(r.stdout, /^::error /m, "the recognized diagnostic was lost");
+  assert.match(r.stdout, /^::warning title=whyitbroke::.*capture limit reached/m,
+    "a recognized truncated log gave no visible warning without a summary file");
+  console.log("  ok   recognized GitHub output visibly declares truncation");
+  pass++;
+} catch (e) { console.log(`  FAIL recognized GitHub truncation\n       ${e.message}`); fail++; }
+
+try {
+  // Windows cannot report POSIX child signals. Feed the renderer the signal-bearing
+  // report the POSIX command path creates, so this output contract is tested identically
+  // on every platform; the command-lifecycle cases below test real signal capture where
+  // the operating system supplies it.
+  const raw = "TypeError: cut short\n    at work (/tmp/work.js:3:4)\n";
+  const report = createReport({
+    analysis: analyse(raw), raw, exitCode: null, inputMode: "command", signal: "SIGTERM",
+  });
+  const github = githubOutput(report);
+  assert.match(github.stdout, /whyitbroke command status::Stopped by SIGTERM/);
+  assert.match(github.summary, /Stopped by SIGTERM/);
+  console.log("  ok   parsed GitHub output keeps the command signal");
+  pass++;
+} catch (e) { console.log(`  FAIL parsed GitHub signal\n       ${e.message}`); fail++; }
 
 // A disclosure that says "6 sites" over a list of three is the tool contradicting its
 // own evidence, which is the one thing clustering must never do. Members and distinct
@@ -304,6 +357,39 @@ try {
   console.log("  ok   a diagnosis and the signal that cut the run short are both reported");
   pass++;
 } catch (e) { console.log(`  FAIL diagnosis beside a signal\n       ${e.message}`); fail++; }
+
+try {
+  if (process.platform !== "win32") {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "whyitbroke-forward-signal-"));
+    const helper = join(dir, "helper.mjs");
+    const pidFile = join(dir, "child.pid");
+    writeFileSync(helper, `import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { once } from "node:events";
+const [cli, pidFile] = process.argv.slice(2);
+const childCode = 'require("node:fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)';
+const wrapped = spawn(process.execPath, [cli, "--json", process.execPath, "-e", childCode, pidFile],
+  { stdio: ["ignore", "pipe", "pipe"] });
+const deadline = Date.now() + 5000;
+while (!existsSync(pidFile) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+if (!existsSync(pidFile)) throw new Error("wrapped child never started");
+const childPid = Number(readFileSync(pidFile, "utf8"));
+wrapped.kill("SIGTERM");
+await once(wrapped, "close");
+let alive = true;
+try { process.kill(childPid, 0); } catch (error) { if (error.code === "ESRCH") alive = false; else throw error; }
+process.stdout.write(JSON.stringify({ alive }));
+`);
+    const checked = spawnSync(process.execPath, [helper, cli, pidFile], { encoding: "utf8", timeout: 10000 });
+    assert.equal(checked.status, 0, checked.stderr);
+    assert.equal(JSON.parse(checked.stdout).alive, false, "terminating whyitbroke left its command running");
+    rmSync(dir, { recursive: true, force: true });
+  }
+  console.log("  ok   terminating the wrapper terminates its command tree");
+  pass++;
+} catch (e) { console.log(`  FAIL signal forwarding\n       ${e.message}`); fail++; }
 
 // 127 and 126 are a shell's conventions, and the sentence says so rather than asserting
 // what happened. Every other number is left alone: 1 and 2 are what every program returns.

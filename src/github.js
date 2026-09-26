@@ -12,17 +12,59 @@ const escapeAnnotation = (value) => escapeData(value)
   .replace(/:/g, "%3A")
   .replace(/,/g, "%2C");
 
+// GitHub accepts at most ten warning/error annotations from one workflow step, limits
+// each annotation message to 64 KiB, and caps a step summary at 1 MiB. Stay below the
+// byte limits after workflow-command escaping and always leave room to say what was
+// omitted and where the complete machine-readable report can be found.
+const MAX_ANNOTATIONS = 10;
+const MAX_ANNOTATION_BYTES = 60 * 1024;
+const MAX_PROPERTY_BYTES = 4096;
+const MAX_SUMMARY_BYTES = 1024 * 1024;
+const ANNOTATION_CLIPPED = " [message truncated; use --json for the complete report]";
+const SUMMARY_CLIPPED = "\n\n> Summary truncated to GitHub's limit. Use `--json` for the complete report.\n";
+
+function prefixByBytes(value, budget, encode = String) {
+  let out = "", bytes = 0;
+  for (const char of String(value ?? "")) {
+    const encoded = encode(char);
+    const size = Buffer.byteLength(encoded);
+    if (bytes + size > budget) break;
+    out += encoded;
+    bytes += size;
+  }
+  return out;
+}
+
+function boundText(value, limit, suffix) {
+  const text = String(value ?? "");
+  if (Buffer.byteLength(text) <= limit) return text;
+  return prefixByBytes(text, Math.max(0, limit - Buffer.byteLength(suffix))) + suffix;
+}
+
 function annotation(f, tool) {
   const params = [];
-  if (f.file) params.push(`file=${escapeAnnotation(f.file)}`);
+  if (f.file) {
+    const file = escapeAnnotation(f.file);
+    // A truncated file would point at a different path. Omit an impossible property
+    // instead; the complete location remains in the summary and JSON report.
+    if (Buffer.byteLength(file) <= MAX_PROPERTY_BYTES) params.push(`file=${file}`);
+  }
   if (f.line) params.push(`line=${f.line}`);
   if (f.col) params.push(`col=${f.col}`);
   // Name the producing tool when it is not the one that owns the log, so a reader can
   // tell an eslint marker from a jest one at a glance.
   const label = [tool, f.title].filter(Boolean).join(" ");
-  if (label) params.push(`title=${escapeAnnotation(label)}`);
-  const message = escapeData(f.message ?? f.stmt ?? "Command failed");
-  return `::error${params.length ? ` ${params.join(",")}` : ""}::${message}`;
+  if (label) {
+    const encoded = escapeAnnotation(label);
+    params.push(`title=${Buffer.byteLength(encoded) <= MAX_PROPERTY_BYTES
+      ? encoded : prefixByBytes(label, MAX_PROPERTY_BYTES - 3, escapeAnnotation) + "..."}`);
+  }
+  const prefix = `::error${params.length ? ` ${params.join(",")}` : ""}::`;
+  const raw = f.message ?? f.stmt ?? "Command failed";
+  const whole = prefix + escapeData(raw);
+  if (Buffer.byteLength(whole) <= MAX_ANNOTATION_BYTES) return whole;
+  const budget = Math.max(0, MAX_ANNOTATION_BYTES - Buffer.byteLength(prefix + ANNOTATION_CLIPPED));
+  return prefix + prefixByBytes(raw, budget, escapeData) + ANNOTATION_CLIPPED;
 }
 
 // The step summary is the one screen a human actually reads in CI, so it leads with
@@ -49,6 +91,7 @@ function summaryOf(report) {
 
   const lines = ["## whyitbroke", ""];
   if (report.summary) lines.push(`**${markdown(report.summary)}**`, "");
+  if (report.status?.signal) lines.push(`> ${markdown(report.status.says)}`, "");
   // Which package or container the output came through - `api:test:` says which of a
   // monorepo's packages failed, and nothing else in the summary does.
   if (report.wrappers.length) lines.push(`via ${report.wrappers.map((w) => code(wrapperName(w))).join(" › ")}`, "");
@@ -100,7 +143,7 @@ function summaryOf(report) {
   }
 
   if (report.truncated) lines.push("", "> Output capture limit reached. Increase `--max-bytes` for complete diagnostics.");
-  return `${lines.join("\n")}\n`;
+  return boundText(`${lines.join("\n")}\n`, MAX_SUMMARY_BYTES, SUMMARY_CLIPPED);
 }
 
 // Bound the encoded preview too: newlines/percent signs expand during escaping,
@@ -124,12 +167,19 @@ function capturedOutputAnnotation(raw) {
  *  the job's Summary tab. `quiet` is whether the command's own output was held back. */
 export function githubOutput(report, { quiet = false } = {}) {
   if (report.tool !== null) {
-    // Every failure in the log gets a marker, including the ones a second tool found.
-    // A lint error on line 12 is no less real for arriving in the same log as the tests.
+    // GitHub drops annotations past its per-step limit. Emit the first ten in report
+    // order, then say exactly how many remain in the summary/JSON instead of sending a
+    // stream the runner will silently discard.
     let stdout = "";
-    for (const f of report.failures) stdout += `${annotation(f)}\n`;
+    const annotations = report.failures.map((failure) => ({ failure }));
     for (const other of report.others ?? []) {
-      for (const f of other.failures ?? []) stdout += `${annotation(f, other.tool)}\n`;
+      for (const failure of other.failures ?? []) annotations.push({ failure, tool: other.tool });
+    }
+    for (const { failure, tool } of annotations.slice(0, MAX_ANNOTATIONS)) stdout += `${annotation(failure, tool)}\n`;
+    if (annotations.length > MAX_ANNOTATIONS) {
+      const hidden = annotations.length - MAX_ANNOTATIONS;
+      stdout += `::notice title=whyitbroke::${hidden} additional failure${hidden === 1 ? "" : "s"} ` +
+        `are listed in the job summary and --json report.\n`;
     }
     // the notice is the line shown at the top of the run - it says causes, not just count
     const causes = (report.clusters ?? []).filter((c) => c.reported);
@@ -138,9 +188,13 @@ export function githubOutput(report, { quiet = false } = {}) {
       `${causes.length} likely cause${causes.length > 1 ? "s" : ""}, ${sites} site${sites > 1 ? "s" : ""}`,
       report.since?.compared && `${report.since.fresh.length} new since the last tracked run`,
       report.since?.reason === "unidentified-pipe"
-        && "not tracked: a piped log carries no command to tell it from another (name it with --id NAME)"]
+        && "not tracked: a piped log carries no command to tell it from another (name it with --id NAME)",
+      report.since?.reason === "cache-unavailable"
+        && "history unavailable: the previous baseline was left unchanged"]
       .filter(Boolean).join(" — ");
     if (lead) stdout += `::notice title=whyitbroke::${escapeData(lead)}\n`;
+    if (report.truncated) stdout += `::warning title=whyitbroke::${TRUNCATION_NOTICE}\n`;
+    if (report.status?.signal) stdout += `::warning title=whyitbroke command status::${escapeData(report.status.says)}\n`;
     return { stdout, summary: summaryOf(report) };
   }
   const { fallback, truncated, error } = report;
@@ -169,9 +223,9 @@ export function githubOutput(report, { quiet = false } = {}) {
   const fence = "`".repeat(fenceLength);
   // The annotation says what the status was; a job summary that left it out would be the
   // one place a reader looks and does not find it.
-  const summary = ["## whyitbroke", "", fallback.message, ...(status && !error ? ["", status.says] : []), "",
+  const summary = boundText(["## whyitbroke", "", fallback.message, ...(status && !error ? ["", status.says] : []), "",
     error ? "Launch error:" : "Captured output:", "", fence, context, fence, "",
     ...(truncated ? [`> ${TRUNCATION_NOTICE}`, ""] : []),
-  ].join("\n");
+  ].join("\n"), MAX_SUMMARY_BYTES, SUMMARY_CLIPPED);
   return { stdout, summary };
 }

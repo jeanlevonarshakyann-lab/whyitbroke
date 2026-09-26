@@ -35,6 +35,12 @@ const MAX_LITERAL_CANDIDATES = 4;   // bound the parses a single log can cost
 // relay label is two or more colon-terminated tokens.
 const TASK_LABEL = String.raw`[a-z0-9_@./-]+:(?:[a-z][a-z0-9_.-]*:)+`;
 const TASK_PREFIX = new RegExp(`^(?:${TASK_LABEL}[^\\S\\n])+`);
+// pnpm's append-only reporter uses `<package> <script>: ` rather than Turborepo's
+// `<package>:<script>: `. Treat the whole stamp atomically. Letting literal-prefix
+// discovery try its whitespace boundaries first could accept only `@scope/api `: the
+// parser then saw `test: src/main.rs` as the file, or a generic reader won before the
+// full candidate was tried.
+const PNPM_TASK_PREFIX = /^@[a-z0-9_.-]+\/[a-z0-9_.-]+[^\S\n]+[a-z][a-z0-9_.:-]*:[^\S\n]/;
 const ONE_TASK_PREFIX = new RegExp(TASK_LABEL + `(?=[^\\S\\n])`, "g");
 const taskWrapperLabel = (text) => {
   const labels = new Set();
@@ -107,6 +113,9 @@ function literalPrefix(text) {
 // every shape added here has to be proven against the whole fixture corpus.
 // Bare ISO CI timestamps are not here - stripCiPrefix in util.js already handles them.
 const SHAPES = [
+  { name: "pnpm", re: PNPM_TASK_PREFIX,
+    label: (text) => text.split("\n").find((line) => PNPM_TASK_PREFIX.test(line))?.match(PNPM_TASK_PREFIX)?.[0] ?? "pnpm" },
+
   // Turborepo and similar monorepo runners use `<package>:<task>: `. This grammar is
   // already narrower than a source location above, so it can be treated as a vetted
   // shape instead of relying on a before/after parse. That matters when a parser can

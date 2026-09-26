@@ -9,6 +9,7 @@ import { analyse } from "../src/index.js";
 import { fileReference } from "../src/location.js";
 import { render, setColor } from "../src/render.js";
 import { resetSnippetCache } from "../src/snippet.js";
+import { xmlStructure } from "../src/util.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "bin", "whyitbroke.js");
@@ -64,6 +65,106 @@ test("a nested task wrapper never becomes part of Cargo's file", () => {
   assert.equal(result.tool, "cargo");
   assert.deepEqual(result.failures.map((f) => f.file), ["src/main.rs", "src/main.rs"]);
   assert.ok(result.wrappers?.length, "the removed wrapper was not reported");
+});
+
+test("a scoped pnpm task prefix is removed atomically", () => {
+  const wrap = (text) => text.split("\n").map((line) => line.trim()
+    ? `@scope/api test: ${line}` : line).join("\n");
+  for (const name of ["cargo_short_fail.txt", "biome_fail.txt"]) {
+    const plain = analyse(fx(name));
+    const prefixed = analyse(wrap(fx(name)));
+    assert.equal(prefixed.tool, plain.tool, `${name}: a partial prefix changed the parser`);
+    assert.deepEqual(prefixed.failures, plain.failures, `${name}: the wrapper leaked into the diagnosis`);
+    assert.ok(prefixed.wrappers?.length, `${name}: the removed wrapper was not reported`);
+  }
+});
+
+test("XML comments cannot manufacture a ShellCheck finding", () => {
+  const xml = `<checkstyle version="8.0">
+<!-- <file name="missing.sh"><error line="9" column="2" severity="error" message="fake" source="ShellCheck.SC2086" /></file> -->
+<file name="real.sh"><error line="3" column="4" severity="error" message="real" source="ShellCheck.SC2086" /></file>
+</checkstyle>`;
+  const result = analyse(xml);
+  assert.equal(result.tool, "shellcheck");
+  assert.deepEqual(result.failures.map((f) => [f.file, f.line, f.message]), [["real.sh", 3, "real"]]);
+});
+
+test("a closing tag inside Bun JUnit CDATA stays message text", () => {
+  const xml = `<testsuites name="bun test" tests="1" failures="1">
+<testcase name="literal close" file="test/a.test.ts" line="7">
+<failure type="AssertionError"><![CDATA[expected </failure> literally &lt;raw&gt;]]></failure>
+</testcase></testsuites>`;
+  const result = analyse(xml);
+  assert.equal(result.tool, "bun test");
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].message, "expected </failure> literally &lt;raw&gt;");
+});
+
+test("TRX accepts either XML quote and preserves CDATA literally", () => {
+  const input = fx("dotnettest_trx_fail.txt")
+    .replace('xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"',
+      "xmlns='http://microsoft.com/schemas/VisualStudio/TeamTest/2010'")
+    .replace("<Message>System.InvalidOperationException : fixture exploded</Message>",
+      "<Message><![CDATA[System.InvalidOperationException : fixture exploded &lt;raw&gt;]]></Message>");
+  const result = analyse(input);
+  assert.equal(result.tool, "dotnet test");
+  assert.equal(result.failures.length, 3);
+  assert.match(result.failures[0].message, /&lt;raw&gt;/);
+});
+
+test("Ruff json-lines permits JSON whitespace and member order", () => {
+  const record = JSON.parse(fx("ruff_json_lines_fail.txt").split("\n")[0]);
+  const reordered = {
+    filename: record.filename, message: record.message, location: record.location,
+    severity: record.severity, code: record.code, cell: record.cell,
+  };
+  const result = analyse(`   ${JSON.stringify(reordered)}   \n`);
+  assert.equal(result.tool, "ruff");
+  assert.equal(result.failures[0].file, record.filename);
+  assert.equal(result.failures[0].code, record.code);
+});
+
+test("SARIF locations may name an artifact by index alone", () => {
+  const document = JSON.parse(fx("oxlint_sarif_fail.txt"));
+  for (const result of document.runs[0].results) {
+    delete result.locations[0].physicalLocation.artifactLocation.uri;
+  }
+  const parsed = analyse(JSON.stringify(document));
+  const baseline = analyse(fx("oxlint_sarif_fail.txt"));
+  assert.equal(parsed.tool, "oxlint");
+  assert.deepEqual(parsed.failures.map((f) => f.file), baseline.failures.map((f) => f.file));
+});
+
+test("Node TAP accepts a double-quoted YAML location", () => {
+  const input = `not ok 1 - apostrophe path
+  ---
+  location: "/tmp/dev's/test.js:2:3"
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected 1 to equal 2
+  name: 'AssertionError'
+  ...
+# fail 1
+`;
+  const result = analyse(input);
+  assert.equal(result.tool, "node --test");
+  assert.deepEqual([result.failures[0].file, result.failures[0].line, result.failures[0].col],
+    ["/tmp/dev's/test.js", 2, 3]);
+});
+
+test("unterminated XML literals are masked in linear time", () => {
+  const hostile = "<!--".repeat(100_000);
+  const started = Date.now();
+  const structure = xmlStructure(hostile);
+  const elapsed = Date.now() - started;
+  assert.equal(structure.length, hostile.length);
+  assert.ok(elapsed < 1000, `xmlStructure took ${elapsed}ms for ${hostile.length} bytes`);
+});
+
+test("a Node error cannot borrow a later retry's frame", () => {
+  const result = analyse("Error: attempt 1 failed\nretry 2 begins\n    at nextAttempt (/tmp/retry-2.js:99:1)\n");
+  assert.ok(!result?.failures?.some((f) => f.file === "/tmp/retry-2.js" && /attempt 1/.test(f.message)),
+    "the first attempt was attributed to the second attempt's frame");
 });
 
 test("file URLs remain portable paths and remote hosts remain absolute", () => {

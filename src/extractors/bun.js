@@ -1,4 +1,4 @@
-import { elements, firstElement, isNoise, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, isNoise, lineAt, xmlAttributes, xmlContent } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 
@@ -90,7 +90,7 @@ function junitCases(s) {
     const outcome = firstElement(body, OUTCOME_RE, OUTCOME);
     if (!outcome) continue;
     const a = xmlAttributes(test[1]);
-    const detail = xmlText(outcome[3] ?? "").trim() || xmlAttributes(outcome[2]).message || "";
+    const detail = xmlContent(outcome[3] ?? "").trim() || xmlAttributes(outcome[2]).message || "";
     // The describe block is the classname, and bun's own reporter writes the two with a
     // chevron between them. A test declared outside one has no classname at all.
     const name = [a.classname, a.name].filter(Boolean).join(" > ");

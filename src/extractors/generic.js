@@ -99,10 +99,16 @@ const unfile = (p) => (p.startsWith("file://") ? decodeURIComponent(p.slice(7)) 
  *  said so, when it is a frame. */
 function locate(lines, i, text) {
   // deno prints the offending source line and a caret between the message and the
-  // frames, so stopping at the first line that is not a frame never reaches them.
+  // frames. Those are the only nonblank lines an error may cross: arbitrary prose is a
+  // new event boundary. Without that boundary, "retry 2 begins" let attempt 1 borrow
+  // attempt 2's frame and point at a file the first error never named.
   for (let j = i + 1; j < lines.length && j <= i + 5; j++) {
     const m = lines[j].match(FRAME_RE);
     if (m) return { file: unfile(m[1]), line: +m[2], col: m[3] ? +m[3] : undefined, frame: j };
+    if (!lines[j].trim()) continue;
+    if (/^[^\S\n]*\^+[~^\-]*[^\S\n]*$/.test(lines[j])) continue;
+    if (/^[^\S\n]*\^+[~^\-]*[^\S\n]*$/.test(lines[j + 1] ?? "")) continue;
+    break;
   }
   const inline = text.match(INLINE_LOC_RE);
   return inline ? { file: inline[1], line: +inline[2] } : null;

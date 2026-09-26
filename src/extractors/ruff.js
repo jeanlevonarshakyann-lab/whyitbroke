@@ -1,4 +1,4 @@
-import { elements, jsonDocumentsAt, jsonPlaces, lineAt, xmlAttributes } from "../util.js";
+import { elements, jsonDocumentsAt, jsonPlaces, lineAt, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
 const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
@@ -54,7 +54,6 @@ const fromRecord = (r) => ({
   severity: "error",
   message: [r.message, r.fix?.message].filter(Boolean).join("\n"),
 });
-const JSON_LINE_RE = /^\{"cell":.*"filename":.*\}[^\S\n]*$/;
 
 // The rest of --output-format read as nothing. Three of them name ruff:
 //
@@ -93,11 +92,12 @@ const finding = (file, line, col, code, message) => ({
 /** ruff's json-lines, junit, rdjson, sarif, gitlab and azure outputs. */
 function reported(s, lines) {
   const out = [];
-  if (s.includes('{"cell":')) {
+  if (s.includes('"filename"')) {
     lines.forEach((line, i) => {
-      if (!JSON_LINE_RE.test(line)) return;
+      const record = line.trim();
+      if (!record.startsWith("{") || !record.endsWith("}")) return;
       let r;
-      try { r = JSON.parse(line); } catch { return; }
+      try { r = JSON.parse(record); } catch { return; }
       if (isRecord(r)) out.push(withSource(fromRecord(r), i, i + 1));
     });
   }
@@ -134,9 +134,10 @@ function reported(s, lines) {
       for (const run of doc.runs.filter((r) => r?.tool?.driver?.name === "ruff")) {
         for (const r of run.results ?? []) {
           const at = r?.locations?.[0]?.physicalLocation;
-          if (typeof at?.artifactLocation?.uri !== "string") continue;
+          const uri = sarifArtifactUri(run, at?.artifactLocation);
+          if (!uri) continue;
           const fix = r.fixes?.[0]?.description?.text;
-          out.push(placed(finding(unfile(at.artifactLocation.uri), at.region?.startLine, at.region?.startColumn, r.ruleId,
+          out.push(placed(finding(unfile(uri), at.region?.startLine, at.region?.startColumn, r.ruleId,
             [String(r.message?.text ?? "").trim(), fix].filter(Boolean).join("\n")), where(r)));
         }
       }
@@ -253,7 +254,7 @@ function arrayAt(text, start) {
 export default {
   name: "ruff",
   // Strings a log has to hold for this parser to read anything from it - see src/router.js.
-  signals: ["-->", "fixable", "title=ruff", "\"filename\"", "{\"cell\":", "name=\"ruff\"", "\"diagnostics\"", "\"ruff\"", "\"check_name\"", "##vso[task.logissue"],
+  signals: ["-->", "fixable", "title=ruff", "\"filename\"", "name=\"ruff\"", "\"diagnostics\"", "\"ruff\"", "\"check_name\"", "##vso[task.logissue"],
   category: "lint",
   commands: ["ruff"],
   detect: (s) => (/^Found \d+ errors?\.?$/m.test(s) && /^[^\S\n]*-->\s/m.test(s)) ||

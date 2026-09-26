@@ -159,16 +159,17 @@ test("no previous run means no comparison, not an empty one", () => {
   assert.deepEqual(c.fresh, [], "with nothing to compare against, nothing is 'new'");
 });
 
-test("a record from an older identity scheme is ignored, not misread", () => {
+test("an unexpected-version record is preserved, not replaced", () => {
   for (const version of [1, 2, 3, 4]) {
     const store = cache();
     run(store, fx("pytest_fail.txt"));
     const path = join(store, stored(store)[0]);
     const saved = JSON.parse(readFileSync(path, "utf8"));
     writeFileSync(path, JSON.stringify({ ...saved, version, causes: [] }));
-    const r = run(store, fx("pytest_fail.txt"));
-    assert.match(r.stdout, /first tracked run/, "an old record was treated as comparable");
-    assert.doesNotMatch(r.stdout, /new since your last run/);
+    const before = readFileSync(path, "utf8");
+    const r = JSON.parse(run(store, fx("pytest_fail.txt"), ["--json"]).stdout);
+    assert.equal(r.since.reason, "cache-unavailable");
+    assert.equal(readFileSync(path, "utf8"), before, "an unknown record was overwritten");
   }
 });
 
@@ -588,15 +589,40 @@ else { console.error("TypeError: synthetic boom\\n    at checkout (/app/pay.js:4
     "the passing run did not clear the old failure baseline");
 });
 
-test("a malformed current-version history record is ignored", () => {
+test("malformed current history is neither trusted nor overwritten", () => {
+  const mutations = [
+    (saved) => ({ ...saved, causes: ["corrupt-fingerprint"] }),
+    ({ tool: _tool, ...saved }) => saved,
+    (saved) => ({ ...saved, causes: [saved.causes[0], saved.causes[0]] }),
+  ];
+  for (const mutate of mutations) {
+    const store = cache();
+    run(store, fx("pytest_fail.txt"), ["--json"]);
+    const path = join(store, stored(store)[0]);
+    const saved = JSON.parse(readFileSync(path, "utf8"));
+    writeFileSync(path, JSON.stringify(mutate(saved)));
+    const before = readFileSync(path, "utf8");
+    const next = JSON.parse(run(store, fx("pytest_fail.txt"), ["--json"]).stdout);
+    assert.equal(next.since.compared, false);
+    assert.equal(next.since.reason, "cache-unavailable");
+    assert.equal(next.since.recorded, false);
+    assert.equal(readFileSync(path, "utf8"), before, "the malformed baseline was replaced");
+  }
+});
+
+test("an unreadable current baseline is left in place", () => {
+  if (process.platform === "win32") return;
   const store = cache();
   run(store, fx("pytest_fail.txt"), ["--json"]);
   const path = join(store, stored(store)[0]);
-  const saved = JSON.parse(readFileSync(path, "utf8"));
-  writeFileSync(path, JSON.stringify({ ...saved, causes: ["corrupt-fingerprint"] }));
-  const next = JSON.parse(run(store, fx("pytest_fail.txt"), ["--json"]).stdout);
-  assert.equal(next.since.compared, false);
-  assert.equal(next.since.reason, "no-previous-run");
+  const before = readFileSync(path, "utf8");
+  chmodSync(path, 0o000);
+  try {
+    const next = JSON.parse(run(store, fx("pytest_fail.txt"), ["--json"]).stdout);
+    assert.equal(next.since.reason, "cache-unavailable");
+    assert.equal(next.since.recorded, false);
+  } finally { chmodSync(path, 0o600); }
+  assert.equal(readFileSync(path, "utf8"), before);
 });
 
 test("a cache that cannot save withholds stale comparison claims", () => {

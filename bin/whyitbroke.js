@@ -9,7 +9,7 @@ import { relay } from "../src/stream.js";
 import {
   runIdentity,
   legacyRunIdentity,
-  loadRun,
+  loadRunState,
   loadLegacyRun,
   saveRun,
   compare,
@@ -170,7 +170,13 @@ function track(r, truncated, executionError, code = null, signal = null) {
   // directory. Comparing them claims one pipeline's failures were fixed by another's run.
   if (!identity) return { compared: false, reason: "unidentified-pipe", fresh: [], gone: null, recorded: false };
   const trustworthy = succeeded || (!truncated && !executionError && !signal);
-  let previous = loadRun(identity);
+  const current = loadRunState(identity);
+  // An existing baseline that cannot be read is evidence we do not have, not an empty
+  // run. Preserve it byte-for-byte and make no comparison claims until it is repaired.
+  if (current.state === "invalid" || current.state === "unavailable") {
+    return { compared: false, reason: "cache-unavailable", fresh: [], gone: null, recorded: false };
+  }
+  let previous = current.record;
   let comparisonIds = ids;
   let migrated = false;
   if (!previous) {
@@ -287,10 +293,39 @@ if (argv.length === 0) {
     report("", 127, false, said);
   };
   let child = null;
+  // A background process group must not inherit a terminal's input: POSIX would stop a
+  // reader with SIGTTIN because that group is not the foreground one. Interactive runs
+  // therefore stay in the terminal's group (which already receives Ctrl-C together),
+  // while CI/noninteractive runs get a group whyitbroke can terminate as a tree.
+  const ownProcessGroup = process.platform !== "win32" && !process.stdin.isTTY;
   try {
-    child = spawn(argv[0], argv.slice(1), { stdio: ["inherit", "pipe", "pipe"] });
+    child = spawn(argv[0], argv.slice(1), {
+      stdio: ["inherit", "pipe", "pipe"],
+      // A separate POSIX process group lets one forwarded signal reach the command and
+      // every descendant it started. Otherwise terminating whyitbroke could leave the
+      // build/test process running unattended in CI.
+      detached: ownProcessGroup,
+    });
   } catch (e) { startFailed(e); }
   if (child) {
+    const forwarders = new Map();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      const forward = () => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        try {
+          if (ownProcessGroup) process.kill(-child.pid, signal);
+          else child.kill(signal);
+        } catch (error) {
+          // ESRCH means the command exited between the state check and the signal.
+          if (error?.code !== "ESRCH") process.exitCode ||= 1;
+        }
+      };
+      forwarders.set(signal, forward);
+      process.on(signal, forward);
+    }
+    const stopForwarding = () => {
+      for (const [signal, forward] of forwarders) process.off(signal, forward);
+    };
     // Both streams share one budget, so interleaved stdout/stderr keeps its ordering
     // within each stream and the cap still means what --max-bytes says it means.
     const capture = createCapture(maxBytes);
@@ -312,6 +347,7 @@ if (argv.length === 0) {
     relay(child.stderr, process.stderr, { suppress: quiet && !json, tee: tee("stderr") });
     child.on("error", startFailed);
     child.on("close", (code, signal) => {
+      stopForwarding();
       if (code === 0 && !json) {
         // A successful command clears the previous failure baseline.
         if (sinceLast) track(null, capture.finish().truncated, null, 0, null);
