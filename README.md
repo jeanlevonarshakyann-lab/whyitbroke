@@ -1,14 +1,18 @@
 # whyitbroke
 
-**Find the failure in noisy command output.**
+**Your command failed. Here's what matters.**
 
-whyitbroke runs a test, build, or lint command and turns its output into a short
-report: what failed, where, and why. It runs locally, has no runtime dependencies,
-and does not upload your logs.
+[![Tests](https://github.com/jeanlevonarshakyann-lab/whyitbroke/actions/workflows/test.yml/badge.svg)](https://github.com/jeanlevonarshakyann-lab/whyitbroke/actions/workflows/test.yml)
 
-![whyitbroke report excerpt showing two pytest failures](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/report-preview.svg)
+whyitbroke turns noisy test, build, and lint output into a short diagnosis. It
+runs locally, has no runtime dependencies, and does not upload your logs.
 
-[Watch the terminal demo](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif) · [Supported tools](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/supported-tools.md) · [CLI guide](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/cli.md)
+![Real pytest output followed by the whyitbroke report for the same failing tests](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
+
+*A real pytest run, followed by `whyitbroke -q pytest` on the same tests.
+[Fixture and recording script](https://github.com/jeanlevonarshakyann-lab/whyitbroke/tree/main/demo).*
+
+[Get started](#get-started) · [Supported tools](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/supported-tools.md) · [CLI guide](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/cli.md)
 
 ## Get started
 
