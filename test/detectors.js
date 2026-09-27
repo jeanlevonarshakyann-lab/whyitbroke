@@ -227,7 +227,7 @@ test("no README row denies a parser that exists", () => {
 const LEAKED_PATH = /\/private\/tmp\/|\/scratchpad\/|\/var\/folders\/|(?:^|[\s'"(=])\/Users\/[^/\s]+\//m;
 test("no fixture carries the path of the machine it was captured on", () => {
   // The rule is the guard, so it is pinned too: loosening it later has to be deliberate.
-  for (const leak of ["at /private/tmp/tmp.X1b2/app/y.js:1", "see /Users/jean/.npm/_logs/a.log",
+  for (const leak of ["at /private/tmp/tmp.X1b2/app/y.js:1", "see /Users/example/.npm/_logs/a.log",
     "command: /Users/x/.hermes/node/bin/node", "loadSuiteClassFile('/private/tmp/cl...')",
     '<property name="java.io.tmpdir" value="/var/folders/kk/xtl0000gn/T/"/>']) {
     assert.ok(LEAKED_PATH.test(leak), `${JSON.stringify(leak)} names the capturing machine`);

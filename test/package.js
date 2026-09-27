@@ -84,6 +84,17 @@ try {
   assert.equal(metadata.version, manifest.version);
   assert.deepEqual(manifest.bin, { whyitbroke: "bin/whyitbroke.js" });
   const files = new Set(metadata.files.map(({ path }) => path));
+  const packageRoots = new Set([
+    "bin", "src", "package.json", "report.schema.json", "README.md",
+    "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE",
+  ]);
+  for (const path of files) {
+    assert.equal(
+      packageRoots.has(path.split("/")[0]),
+      true,
+      `${path} does not belong in the npm package`,
+    );
+  }
   for (const required of [
     "package.json",
     "bin/whyitbroke.js",

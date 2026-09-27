@@ -15,5 +15,5 @@ SH
 chmod +x "$STAGE/bin/whyitbroke"
 python3 -m venv "$STAGE/.venv" >/dev/null
 "$STAGE/.venv/bin/pip" -q install pytest >/dev/null
-vhs "$HERE/demo.tape"
+(cd "$HERE" && vhs demo.tape)
 echo "wrote $HERE/demo.gif"
