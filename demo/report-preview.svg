@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="390" viewBox="0 0 960 390" role="img" aria-labelledby="title desc">
+  <title id="title">whyitbroke report excerpt</title>
+  <desc id="desc">A terminal report showing a pytest run with three failed tests and the first two diagnoses: an assertion at test_shop.py line 5 and a KeyError at line 10.</desc>
+  <rect x="1" y="1" width="958" height="388" rx="16" fill="#101827" stroke="#36465f" stroke-width="2"/>
+  <path d="M17 1h926a16 16 0 0 1 16 16v42H1V17A16 16 0 0 1 17 1Z" fill="#19243a"/>
+  <path d="M1 59h958" stroke="#36465f" stroke-width="2"/>
+  <circle cx="29" cy="30" r="6" fill="#f38b83"/>
+  <circle cx="51" cy="30" r="6" fill="#f2c36b"/>
+  <circle cx="73" cy="30" r="6" fill="#6dcba0"/>
+  <text x="112" y="36" fill="#d7e2f1" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="18" font-weight="600">whyitbroke</text>
+  <text x="927" y="35" text-anchor="end" fill="#aabbd1" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="15">report excerpt</text>
+
+  <text x="34" y="100" fill="#80d4cb" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">$</text>
+  <text x="58" y="100" fill="#e4ebf7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">whyitbroke -q pytest</text>
+  <path d="M34 120h892" stroke="#34425a"/>
+
+  <rect x="34" y="139" width="145" height="40" rx="8" fill="#492a36"/>
+  <text x="106" y="166" text-anchor="middle" fill="#ffb8b4" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="19" font-weight="700">3 failed</text>
+  <text x="197" y="166" fill="#b8c8dd" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="18">1 passed in 0.01s</text>
+
+  <rect x="34" y="196" width="892" height="100" rx="10" fill="#19243a"/>
+  <rect x="34" y="196" width="4" height="100" rx="2" fill="#f38b83"/>
+  <text x="58" y="226" fill="#89d6cf" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">test_shop.py:5</text>
+  <text x="250" y="226" fill="#e7eef8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">test_invoice_total</text>
+  <text x="58" y="257" fill="#e7eef8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17">assert 1049 == 1050</text>
+  <text x="58" y="281" fill="#b7c5d9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">+ where 1049 = total([1000, 49], 0.5)</text>
+
+  <rect x="34" y="310" width="892" height="61" rx="10" fill="#19243a"/>
+  <rect x="34" y="310" width="4" height="61" rx="2" fill="#f38b83"/>
+  <text x="58" y="339" fill="#89d6cf" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">test_shop.py:10</text>
+  <text x="250" y="339" fill="#e7eef8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700">test_expired_token</text>
+  <text x="58" y="361" fill="#e7eef8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">KeyError: 'exp'</text>
+</svg>
