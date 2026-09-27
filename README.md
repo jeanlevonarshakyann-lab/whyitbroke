@@ -7,10 +7,10 @@
 whyitbroke turns noisy test, build, and lint output into a short diagnosis. It
 runs locally, has no runtime dependencies, and does not upload your logs.
 
-[![Real whyitbroke report from a pytest run](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/preview.png)](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
+![Real pytest run followed by the whyitbroke report for the same failing tests](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
 
 *A real pytest run, followed by `whyitbroke -q pytest` on the same tests.
-[Watch the recording](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif) · [Fixture and recording script](https://github.com/jeanlevonarshakyann-lab/whyitbroke/tree/main/demo).*
+[Fixture and recording script](https://github.com/jeanlevonarshakyann-lab/whyitbroke/tree/main/demo).*
 
 [Get started](#get-started) · [Supported tools](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/supported-tools.md) · [CLI guide](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/cli.md)
 
