@@ -16,4 +16,5 @@ chmod +x "$STAGE/bin/whyitbroke"
 python3 -m venv "$STAGE/.venv" >/dev/null
 "$STAGE/.venv/bin/pip" -q install pytest >/dev/null
 (cd "$HERE" && vhs demo.tape)
-echo "wrote $HERE/demo.gif"
+ffmpeg -loglevel error -y -i "$HERE/demo.gif" -update 1 "$HERE/preview.png"
+echo "wrote $HERE/demo.gif and $HERE/preview.png"

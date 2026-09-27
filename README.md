@@ -1,835 +1,92 @@
 # whyitbroke
 
-**You ran a command. It printed 400 lines. These are the ones that matter.**
+**Find the failure in noisy command output.**
 
-![whyitbroke turning 38 lines of pytest output into 20](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
+whyitbroke runs your test, build, or lint command and pulls out the useful diagnosis:
+what failed, where, and why. It works locally, has no runtime dependencies, and does
+not send your logs to a service.
 
-```
-  ✗ 3 failed, 2 passed in 0.01s
+[![A concise whyitbroke report for a failing pytest run](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/preview.png)](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
 
-  test_shop.py:4  test_invoice_total
-    assert 1049 == 1050
-    +  where 1049 = total([1000, 49], 0.5)
+[Watch the terminal demo](https://raw.githubusercontent.com/jeanlevonarshakyann-lab/whyitbroke/main/demo/demo.gif)
 
-      2 │ def total(items, tax): return sum(items) + int(tax)
-      3 │ def test_invoice_total():
-      4 │     assert total([1000, 49], 0.5) == 1050
-      5 │ def test_expired_token():
+## Get started
 
-  test_shop.py:7  test_expired_token
-    KeyError: 'exp'
-
-      5 │ def test_expired_token():
-      6 │     tok = {"sub": "u1"}
-      7 │     assert tok["exp"] == 1
+```bash
+npx --yes whyitbroke -q npm test
 ```
 
-No LLM. No API key. No network. Just parsers that know what each tool's output looks like.
-
-Real reductions, measured on the fixtures in this repo:
-
-| | before | after |
-|---|---|---|
-| `cargo build` | 51 lines | 10 |
-| `vitest` | 59 lines | 12 |
-| `pytest` | 40 lines | 20 |
-| `jest` | 37 lines | 9 |
-| `go test` | 22 lines | 12 |
-| `node -e` | 15 lines | 4 |
-
-## Install
+That runs `npm test` and prints a compact report. Install it once if you prefer a
+shorter command:
 
 ```bash
 npm install -g whyitbroke
+whyitbroke cargo build
 ```
 
-Or don't install anything:
+You can also read output you already have:
 
 ```bash
-npx whyitbroke pytest
+npm test 2>&1 | whyitbroke
+whyitbroke < build.log
 ```
 
-Either way the command is `whyitbroke`.
+For a failing pytest run, the report looks like this:
 
-## Use
+```text
+✗ 3 failed, 1 passed in 0.01s
 
-```bash
-whyitbroke npm test        # run it, print the distillation after
-whyitbroke -q cargo build  # hide the command's own output entirely
-npm test 2>&1 | whyitbroke # or pipe into it
-whyitbroke < build.log     # or distil a log file you already saved
-whyitbroke --json npm test # emit a stable result for CI and editor integrations
-whyitbroke --github-actions npm test # add clickable errors to GitHub Actions logs
-whyitbroke --format github npm test # equivalent long-form format selector
-whyitbroke --no-source npm test # show failures without reading source files
-whyitbroke --max-bytes 2000000 npm test # bound captured logs for large CI jobs
+test_shop.py:5  test_invoice_total
+  assert 1049 == 1050
+  + where 1049 = total([1000, 49], 0.5)
+
+test_shop.py:10  test_expired_token
+  KeyError: 'exp'
 ```
 
-When wrapping a command, its exit code is passed straight through, so `whyitbroke`
-can be left in a Makefile or a CI step. Piped input does not carry the upstream
-command's exit status: whyitbroke exits `0` after processing it, which does not mean
-the upstream command succeeded. Wrap the command when you need its exit status.
-An optional `-` supports explicit piped input (`cmd | whyitbroke -`).
+See the [CLI guide](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/cli.md) for quiet mode, saved logs, JSON, and GitHub Actions.
 
-Unknown options and invalid option values exit `2` without starting the command.
-Options belong before the command; its own arguments are passed through unchanged.
-Use `--` to explicitly end whyitbroke's options. `--max-bytes` takes a decimal
-integer of at least 1024.
+## What you can count on
 
-If a failed command produces no recognized diagnostic, whyitbroke reports its exit
-code and shows captured output (or points to output already streamed above).
-If nothing was captured, it says so. Unrecognized piped text is also shown, with
-the upstream status labelled unknown. In GitHub Actions, failed commands get an
-error annotation and a summary; unrecognized pipes get a notice rather than an
-assumed command failure. Captured output remains subject to `--max-bytes` and is
-labelled incomplete when truncated. GitHub fallback annotations show a preview
-capped at 3,500 encoded bytes; job summaries and JSON retain the captured output.
+- **Your command keeps its exit status.** whyitbroke can sit in a CI step without
+  turning a failed command green. A piped log has no upstream exit status to pass on.
+- **Unknown output stays visible.** If no parser recognizes a failed command's log,
+  the report says so and returns the captured text within the configured size limit.
+- **A diagnosis points to evidence.** Tool-specific parsers identify failures and
+  locations; uncertain readings are labelled as guesses. JSON and GitHub output are
+  rendered from the same report.
+- **It stays local.** The CLI makes no network calls. Terminal reports can read
+  nearby source lines inside your working directory; use `--no-source` before sharing
+  output from a sensitive checkout. GitHub annotations and summaries do not add
+  source read from disk.
 
-Use `whyitbroke --help` for all options. `--json` suppresses the wrapped command's
-output so stdout remains valid JSON, and emits a versioned report — `tool`, `summary`,
-`exitCode`, `failures` and the rest, [described below](#github-actions). It is intended
-for CI wrappers and scripts. The wrapped command's stderr remains available on
-stderr for debugging.
+The default capture limit is 10 MiB. Truncated reports say what was left out.
+[Reliability and safety](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/reliability.md) explains the boundaries in detail.
 
-Output capture is bounded to 10 MiB by default. Use `--max-bytes` to tune the
-limit; JSON reports `"truncated": true` if the limit was reached. Live terminal
-output is still streamed normally.
+## Supported tools
 
-Use `--no-source` when logs come from another machine, contain untrusted paths,
-or when a CI job should not read the checkout after the command finishes. The
-failure location, statement, and parser message are still shown.
+whyitbroke recognizes failures from tools across common stacks, including pytest,
+Jest, Vitest, ESLint, TypeScript, Go, Rust, Docker, Terraform, Maven, and Gradle.
+It also reads many structured reporters and logs wrapped by CI or monorepo tools.
 
-Terminal source context can include neighboring lines that the failing tool did not
-print. Those lines may contain secrets even when the reported line does not. Use
-`--no-source` before saving or sharing terminal output, and in checkouts where nearby
-lines may be sensitive. `--format github` never adds source read from disk to its
-annotations or job summary.
+The [full compatibility matrix](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/supported-tools.md) states what each parser
+extracts. Its entries are checked against captured failures in the test suite.
 
-### GitHub Actions
+## Documentation
 
-Keep the raw command available in the job log while adding a compact failure
-summary to the step:
-
-```yaml
-- name: Test
-  run: npx --yes whyitbroke npm test
-```
-
-To turn parsed failures into clickable annotations in the Actions UI:
-
-```yaml
-- name: Test with annotations
-  run: npx --yes whyitbroke --github-actions npm test
-```
-
-When GitHub provides `GITHUB_STEP_SUMMARY`, the same mode also writes a report to the
-job's Summary tab. That report leads with the likely causes, one section each, with
-their sites folded behind a disclosure — the same shape the terminal prints. Failures
-that were not grouped follow it, so the summary stays a complete account of the run.
-
-For workflows that prefer GitHub's problem matcher protocol, add
-`.github/whyitbroke.problem-matcher.json` with:
-
-```yaml
-- run: echo "::add-matcher::.github/whyitbroke.problem-matcher.json"
-- run: npx --yes whyitbroke --quiet npm test
-```
-
-For scripts that need to inspect the result without parsing terminal formatting:
-
-```yaml
-- name: Test (JSON)
-  run: npx --yes whyitbroke --json npm test > whyitbroke.json
-```
-
-The JSON report is versioned, and [`report.schema.json`](report.schema.json) — a JSON
-Schema shipped in the package — describes every field in it. The terminal and
-`--format github` render the same report, so none of the three can say something the
-others do not. A pytest run piped in with `--no-cluster`, all but its first failure left
-out:
-
-```json
-{
-  "version": 1,
-  "tool": "pytest",
-  "summary": "3 failed, 2 passed in 0.01s",
-  "guessed": false,
-  "wrappers": [],
-  "clusters": null,
-  "others": null,
-  "exitCode": 0,
-  "inputMode": "pipe",
-  "commandExitCode": null,
-  "status": null,
-  "fallback": null,
-  "truncated": false,
-  "error": null,
-  "since": null,
-  "failures": [
-    {
-      "tool": "pytest",
-      "category": "test",
-      "file": "test_shop.py",
-      "line": 4,
-      "title": "test_invoice_total",
-      "subject": "test_invoice_total",
-      "severity": "error",
-      "message": "assert 1049 == 1050\n+  where 1049 = total([1000, 49], 0.5)",
-      "stmt": "assert total([1000, 49], 0.5) == 1050",
-      "evidence": [
-        { "start": 9, "end": 16 },
-        { "start": 37, "end": 37 }
-      ]
-    }
-  ]
-}
-```
-
-Every field of the report is always there, and `null` when there is nothing to say. A
-failure leaves out what the output did not say: one with no line has no `line`. `line` and
-`col` count from 1, and `col` is in the tool's own unit — bytes for some tools, UTF-16
-code units or characters for others, with a tab one column to most of them — so on a line
-of plain ASCII with no tabs, every tool agrees. Version 1 only gains fields, and a field it
-has keeps its meaning. Spawn failures set `error` and use exit code `127`.
-
-- `inputMode` is `"command"` or `"pipe"`.
-- `commandExitCode` is the wrapped command's shell-compatible exit code, or `null`
-  for piped input and commands that could not be started. `exitCode` is whyitbroke's
-  own process exit code, including `0` for processed pipes and `127` for spawn failures.
-- `status` is what the exit status says on its own, or `null` when it says nothing:
-  `signal` (the signal that killed the command, as the operating system names it, or
-  `null`), the `code` it was read from, and `says`, one sentence of what that means. See
-  [When nothing was printed](#when-nothing-was-printed).
-- `fallback` is `null` for recognized diagnostics, successful commands, and empty
-  pipes. Otherwise it contains `reason` (`"unrecognized-output"`, `"no-output"`,
-  or `"spawn-error"`), a human-readable `message`, and `rawOutput` containing the
-  captured text. `rawOutput` can be empty. Check the top-level `truncated` field
-  before treating captured text as complete; spawn error details remain in `error`.
-- `wrappers` names what was taken off the output before it could be read — `docker`, or a
-  monorepo runner's `api:test: ` — outermost first. See
-  [When something else is printing your log](#when-something-else-is-printing-your-log).
-- `clusters` groups `failures` by likely cause, and `others` holds the failures other
-  tools printed into the same log. See [One bug, or eighty?](#one-bug-or-eighty).
-- `since` is set by `--since-last`. See [What changed since last time](#what-changed-since-last-time).
-- A failure's `evidence` is the lines of the output it was read from — above, pytest's
-  block for the test and its line in the short summary. The lines count from 1 and end at
-  a line feed, in the output as it arrived: all of a pipe's input, or everything a command
-  wrote. When the capture was cut short, what was left out still counts, so the numbers
-  are the output's own. A script holding the log can show the lines behind each finding.
-
-An empty `failures` array means no diagnostics were extracted. It does not establish
-command success: check `commandExitCode`, and treat `null` as unknown.
-
-Repositories can use the bundled composite action:
-
-```yaml
-- uses: jeanlevonarshakyann-lab/whyitbroke/.github/actions/whyitbroke@v0.5.0
-  with:
-    command: npm test
-    version: 0.5.0
-```
-
-Pin `version` to a known npm release for reproducible CI. The action preserves
-the command's exit status and emits file/line annotations when a parser finds
-them.
-
-## What it promises
-
-These hold whatever the log says, and each is a test that fails the day it stops being
-true.
-
-- **The exit code is the command's own**, in every output mode: the shell's code for a
-  signal, and 127 for a command that could not be started. *(test/guarantees.js)*
-- **A failed command never reads as anything else.** A headline over real failures never
-  sounds like success, and a guess says it is one. *(test/guarantees.js, test/tools/generic.js)*
-- **Output it cannot read is never swallowed.** The command's output streams as it runs
-  unless you pass `-q` or `--json`, and when nothing in it could be read, the captured
-  output comes back in every mode — printed, in JSON's `fallback.rawOutput`, or in the
-  GitHub summary — up to `--max-bytes`, with a note when it was cut. *(test/cli.js)*
-- **Reading takes time in proportion to the log**, whatever it holds.
-  *(test/bounds.js)*
-- **The directory it runs in is only read**, for the source lines around a failure. The
-  cache `--since-last` keeps and the step summary GitHub Actions names are all it writes.
-  *(test/guarantees.js)*
-- **`--json` prints what `report.schema.json` says it does**: for every fixture, every
-  log the fuzz suite damages, and every way the command line can end.
-  *(test/report.js, test/fuzz.js)*
-
-One limit, stated rather than hidden: when whyitbroke runs the command, stdout and stderr
-arrive on two pipes, so their order relative to each other is the order they reached
-whyitbroke, not the order the command wrote them. A program that buffers stdout when it is
-not writing to a terminal — Python does, and so do most C programs — can look reordered.
-Where the interleaving matters, merge the streams in the command itself:
-`whyitbroke sh -c 'pytest 2>&1'`, or set `PYTHONUNBUFFERED=1` for Python.
-
-## What it reads
-
-| Tool | What you get |
+| Guide | When to use it |
 |---|---|
-| **pytest** | test name, `file:line`, the assertion, the `E` explanation |
-| **pytest `--tb=...`** | every traceback style, not just the default: `short` puts the location at the top of the block as `file:line: in name`, `line` and `no` print no block at all, and `native` prints a Python traceback. The short test summary is the backbone — it names each failed test and what it raised in every style — and the traceback is asked only where. With `--tb=line` the two are matched by the message they share rather than by the order they appear in |
-| **unittest** | same, with the deepest *your-code* frame — not the harness |
-| **`python -m` with nothing to run** | `python -m pytest` when pytest is not installed prints one line and stops — the interpreter's path and the module it could not find. No traceback, no location, and it is the whole log of a step that never ran a test |
-| **Python tracebacks** | the frame in your code, not the 9 in site-packages |
-| **deno test** | test name and `file:line` from the header, without the assert-library frames |
-| **deno lint / deno fmt --check** | deno's linter in all three of its formats — the default, `--compact` and `--json` — and its formatter's check. The default is laid out exactly as rustc lays out a compile error, so each finding has to show it is deno's: a lowercase kebab-case rule, not `E` and four digits, on a JavaScript or TypeScript file. The rule's hint stays with the finding. `--json` counts columns from zero where the other two count from one, and is read so that all three agree. `deno fmt --check` names the files it would rewrite |
-| **deno test `--reporter=junit`** | an attribute value may contain newlines, and deno's does — it puts the whole assertion, diff and all, in the failure's `message`. A reader that wanted the start tag on one line found no tag there, so the first failure of every run was skipped and only the ones whose message happened to fit on one line were read. The document is now read by the same rule the pretty reporter is, diff included |
-| **deno run** | the exception class, `file:line:col` and your frames — the message without `error:` and without the `file://` scheme |
-| **deno check** | the `TS` code, the explanation and the location — not the `error: Type checking failed.` tally underneath them |
-| **bun test** | test name, `file:line`, the matcher — not bun's echoed source. bun prints the failure and THEN says whose it was, so each block belongs to the `(fail)` line under it; a run whose capture began mid-stream has a first failure whose block is not in the log, and it says so rather than borrowing the next one's. The block is bounded by its own shape and by bun's opening banner, so it cannot reach a progress bar or the tool that ran before  With colour forced, bun draws a cross where it otherwise writes `(fail)`, and both are read |
-| **bun test `--reporter=junit`** | the document records which tests failed and nothing else: every outcome is a bare `<failure type="AssertionError" />` with no message and no body. It still names each test, the file, and the line it is declared on — which is more than nothing, and nothing was what a job keeping only the XML used to get. The line is the declaration's, since the document has no other |
-| **bun** | a runtime crash read as bun's rather than node's, keyed on the version bun stamps at the foot of one |
-| **node --test** | test name, `file:line`, and the assertion out of TAP's YAML block |
-| **Node stack traces** | the error, the caret, your frames; `node:internal` hidden |
-| **Playwright** | the test name, the line that actually threw, and the offending expression — not the paths to its artifact files |
-| **Playwright `--reporter=json` and `junit`** | the documents a CI job keeps, read as the same run: the JSON report's suites give the describe blocks, its error the location and the source line, and its messages lose the terminal colours they carry; the JUnit report's failure bodies are the console's own blocks, marked as Playwright's by their heading. The `github` reporter's annotations no longer end up inside the message above them |
-| **jest / jest --json** | test name, `file:line`, the matcher, expected vs received; the machine report is read as the same Jest failures when stdout is all the log retained |
-| **jest `--reporters=github-actions`** | the workflow annotations, which carry no tally of their own — the count is what was annotated. The reporter repeats each failure inside a `::group::` as well, and a failure that appears in both is read once. The frame inside the annotation points at the assertion that threw, where the annotation's own `file=` and `line=` only reach the line the test opens on; when a truncated log cuts the frame out of the group block, the annotation puts the location back. What marks these as jest's is the group heading, since eslint, biome and yamllint write the same annotation shape |
-| **tap** | test name, `file:line:col` from its own `at:` block, and the values out of its diff — not the file-level roll-up, which counts failures rather than being one |
-| **bare TAP** (`mocha --reporter tap`, Test::More, `prove`, `prove -v`) | plain TAP with no version line and no YAML: the test name from the `not ok` line, the location from Test::More's `# at file line N` comment or from an indented JS stack, and `got`/`expected` as the message. Bounded by TAP's plan (`1..3`), since a lone `not ok` is a sentence several tools write. `prove -v` prints its diagnostics before the stream rather than under each result, so they are matched back to their test by the name Test::More gives them. Default non-verbose `prove` prints no plan and no results at all, only those diagnostics, so there a complete one - a named test with a location or an expectation - is the bound instead, and the tally comes from Test::More's own `# Looks like you failed 2 tests of 3.` |
-| **jasmine** | spec name, the assertion, and the frame in your spec — its own frames name no file at all, so they cannot be mistaken for yours |
-| **ava** | test name, the assertion and the value it is about — the diff for a comparison, the prose for anything else; a thrown class names the failure without pretending to be its identity |
-| **mocha** | suite and test name, the assertion, and the frame in your test — not the ten `node:internal` ones under it; a timeout reports no location rather than a line inside node's timers. The diff under an assertion is kept, not the `+ expected - actual` legend over it |
-| **mocha --reporter json / json-stream / xunit** | the machine formats a pipeline asks for; json-stream is the same record one event a line, as the run happens. mocha pretty-prints its JSON across forty lines, so unlike eslint's or jest's it cannot be found by scanning for a line that parses — it is found by its own shape, and whitespace outside the strings is normalised on the way in, since a runner that re-indents with a thin space would otherwise leave it unparseable. Both give the test's full name and the line that threw, agreeing with what the human reporters say about the same run |
-| **vitest** | same, with the real source line — not vitest's truncated `…` version |
-| **vitest `--reporter=junit` / `github-actions`** | the document and the annotations, agreeing with the pretty reporter test for test, location included. Both shapes are written by other tools, so both are bounded by something vitest declares: the document names its own suite `vitest tests`, and the annotation opens its title with the test file it is already pointing at — which is also what tells it from Jest's annotation, since Jest never puts the file in the title. The value diff under the message is kept, without the `- Expected / + Received` headers that promise a diff and show none |
-| **vitest `--reporter=json`** | the Jest-shaped document vitest writes on purpose. It leaves `message` empty and puts the failure text in each assertion's `failureMessages` instead, so the report reconstructed from it was empty and the run read as nothing. The two documents say which they are — Jest's carries `wasInterrupted`, vitest's carries `benchmarks` on every assertion — and the test's name is rebuilt from its parts with the separator that tool displays, since `fullName` joins them with a space and neither reporter does. The document stores the assertion's message and not the diff its reporters draw |
-| **vitest writing to a file** | a reporter told to write to a file says so and prints nothing else, so the console log is one line. The run failed, the answer exists, and that log used to read as nothing — when vitest had just said where to look. It now says which report went where |
-| **vitest --reporter=tap / tap-flat** | TAP 13 in vitest's own dialect — `at: "path:line:col"` on one line and the class under `error:`, where node-tap opens a map — so neither TAP parser matched it. The two values come back as the diff the pretty reporter prints, since TAP carries them as fields instead. The nested reporter's file-level roll-up is not a failure; its members report themselves |
-| **eslint** | errors only; warnings counted and set aside |
-| **eslint that never ran** | a broken config makes eslint crash, and the line under its banner is the one that matters — but not every refusal is a crash. An invalid option, a formatter that is no longer part of core, a pattern that matched no files: each is a sentence with no error class, no location and no stack, and a log holding only one of them used to read as nothing over a command that exited 2 and said exactly what was wrong. The advice under the sentence is kept, because it says what to do next |
-| **eslint `-f json`** | the same failures read from eslint's own report — rule, line and column exactly as the table prints them. The report is one line, so it is found wherever it sits in a log, under a package runner's banner included — `-f json-with-metadata` too, which wraps the same array in an object beside the rule metadata |
-| **go test** | test name, `file:line`, the message; panics resolved past the runtime frames, and `-race` reports at the racing line |
-| **go test -json** | the same failures as `go test -v`, from the test2json stream gotestsum and most Go CI keep. Each output event is a line of the verbose log, so the log is rebuilt line for line and read by go's own parser — subtests, parallel tests and panics included |
-| **go build** | compile errors with source context |
-| **go vet** | the location, which sits inside the message when vet reports a package that will not compile |
-| **go mod** | what the module loader could not do, which nothing read before: a go.mod it cannot parse, by file and line; and a module it cannot get, with the reason and the chain of imports that pulled it in — nearest first, because the import you can do something about is yours. Not a bare `go: <sentence>`: `go: downloading …` is the same shape and is progress, and nothing in the line says which it is |
-| **gofmt `-d`** | every region it would rewrite, with the line each one starts at and the source as it stands now. The file is named once and each `@@` says where in it, so one file with two unformatted regions is two places. Not `gofmt -l`, which is how most CI runs it: that prints bare filenames and nothing else, and nothing in a list of paths says gofmt wrote it |
-| **go refusing to run** | the four ways the tool stops before running anything: a flag it does not have, a subcommand it does not have, a sentence it ends by pointing at `go help`, and a package pattern that resolves to nothing because there is no module here — running go in the wrong directory, which is a CI staple. `flag provided but not defined: -x` comes from Go's flag package, which every Go program uses, so that line alone says nothing about whose flag it was; go's own `usage: go <verb>` underneath is what does |
-| **go vet `-json`** | the one form that says which analyzer spoke: plain `go vet` writes `file:line:col: message`, which is a compile error's shape exactly, and nothing in the line says an analyzer produced it. Here `printf` or `copylocks` is the code. It is one document per package, concatenated with nothing between them, so every document is read rather than the first |
-| **cargo test** | test name, `file:line`, the assertion and its left/right values |
-| **cargo build** | error code and the inline annotation — not the 25 lines of trait impls — and `--message-format=short`, which puts the whole diagnostic on one line with no `-->` beneath it. The warnings it hid are counted as cargo counts them, a duplicate once, in every format |
-| **cargo clippy** | the lint name as the title, so you know what to fix or allow |
-| **cargo fmt `--check`** | every place it would rewrite, with the line each one starts at and the source as it stands now — `rustfmt --check` prints the same thing and reads the same way. A file with three unformatted regions is three places, not one file: unlike the other format checks here, rustfmt's diff says where. A file it cannot parse is a rustc diagnostic, and cargo's own parser reads it |
-| **cargo `--message-format=json`** | the same failures, read from the schema rather than the rendered text — `rustc --error-format=json` too. The primary span is the location, and the source line it carries is what gets quoted. cargo compiles a crate once per target that includes it and the stream carries every copy; each diagnostic counts once, as the text form prints it |
-| **less** | the class, message, `file:line:col` and the offending line — lessc puts all of it on one line, with the location as prose at the end |
-| **swc** | the message and location miette drew, not the `Failed to compile 1 file with swc.` tally underneath them |
-| **babel** | the file out of the middle of the message and the marked line of its code frame — not the twenty `@babel/parser` frames underneath |
-| **sass** | the message from the head of its box and the location from the foot — reading only the first line found the problem and never where it was. The box in ASCII too, as `--no-unicode` draws it; the line an error is about where it draws two; a module loop, whose box opens with a file's name; a deprecation made fatal, which explains itself before its box; and its warnings, counted |
-| **webpack** | the module, the line and the explanation — not the forty lines of resolver diary that follow it |
-| **prettier** | which files failed the format check, so a job that exits non-zero on formatting says which ones |
-| **Biome** | the rule path as the code, `file:line:col`, and what is wrong — not the `i` advice lines or the fix diff under them. `parse` and `format` sections count too: they are where biome puts a file it could not read and a file whose formatting differs, and the latter carries no line at all. Severity comes from the glyph biome draws — `×` for what failed, `!` for what it disliked |
-| **Biome `--reporter=`** | all five of them. `json`, `github` and `gitlab` agree with the default output finding for finding — gitlab's format has nowhere to put a column, so none is invented for it. `junit` records no severity at all, so biome's warnings arrive there as failures alongside its errors and the count is higher; its class paths are turned back into biome's own rule categories. `summary` prints no line numbers anywhere, so it reports the files biome would not accept and names the rules on the run's own line. Each is recognised by something biome declares — the annotation's rule title, the document's `command`, the suite named `Biome` — because the annotation, Code Quality and JUnit shapes are all written by other tools too |
-| **oxlint** | the rule name as the code and the finding without the `help:` suggestion appended to it, in all ten of its formats. oxlint chooses among them itself — a terminal gets the drawn report, a pipe the same report in ASCII, a GitHub Actions job workflow annotations, an AI agent one line per finding — and only the last was read. `-f json`, `checkstyle`, `gitlab`, `junit`, `sarif`, `stylish` and `unix` now say the same thing. Where a format's shape is also eslint's, the rule's own spelling, `eslint(no-debugger)`, is what makes a finding oxlint's; a file that does not parse has no rule, and is read where the format names oxlint some other way |
-| **stylelint** | the rule name as the code, `file:line:col`, and the problem — warnings counted and set aside, like eslint |
-| **stylelint `--formatter unix` / `json` / `compact` / `tap`** | the same run in its other formatters. Both name the rule as a code rather than leaving it in parentheses at the end of the sentence, and the JSON report is one value spread over many lines, so it is found by its own shape rather than by looking for a line that parses. `compact` is told from eslint's by its lower-case severity, and `tap` by its block keyed by rule. Every formatter of one run reports the same problems and the same tally — the machine formats used to say only how many errors they read, and nothing about the warnings |
-| **markdownlint** | the rule code, `file:line:col`, and what the rule wanted — `[Expected: 1; Actual: 2]` is the whole answer for a spacing rule, where the quoted context beside it is only your own line read back. A rule may carry several aliases (`MD041/first-line-heading/first-line-h1`) and still be one rule |
-| **markdownlint `--json`** | the same violations as records, worded exactly as the text form words them |
-| **flake8** | the check code as the code and `file:line:col` — the code is what goes in a `noqa` comment — and `--format=pylint`, which brackets the code and prints no column. pylint's own parseable format always names the check in the bracket too, which is how the two stay apart |
-| **pylint** | the symbolic name as the title and the numeric code beside it; when a run has real errors the convention and refactor advice steps aside and is counted. A path may contain a space — the message code after it is what bounds the name |
-| **pylint `-f parseable` / `msvs` / `json` / `json2`** | the same run in its other four formats, agreeing with the text form finding for finding. The two bracketed formats print no column, and none is invented for them; they also put the enclosing class or function after the symbolic name — behind a comma in one and behind nothing in the other — so what is skipped is whatever follows the name, not whatever follows a comma |
-| **black** | which files failed the format check, and for one it cannot parse, the reason and the position |
-| **ruff** | rule code, `file:line`, the message and ruff's own fix hint — and its other `--output-format` settings: `concise`, `grouped`, `github` (a workflow annotation, percent-encoded because it may not span lines) and `json`. `concise` is the same line flake8 prints, so ruff claims it only on something flake8 never writes — the `[*] N fixable` note about its own `--fix` option. `json-lines`, `junit`, `rdjson` and `sarif` too, which name ruff, and `gitlab` and `azure`, which do not and are ruff's by a rule code in its shape on a Python file. `pylint` is exactly flake8's `--format=pylint` line, and reads as flake8 with the same codes |
-| **pyright** | the rule name as the code, the column, and the indented line that says *why* — not the column pasted into the message |
-| **pyright `--outputjson`** | the same failures from the document, basedpyright's too. It counts lines and characters from zero where the text counts from one, and its rule is a field rather than the end of the explanation; the summary's counts are the document's own |
-| **mypy** | error code, `file:line`, the type-checking message; notes and warnings set aside |
-| **mypy `--output=json`** | the same errors as records, one per line, agreeing with the text form. This form always carries a column, which the default output prints only when asked, and a `hint` where the text form writes a note under the error |
-| **Terraform** | the file, the line, the block, and the sentence at the bottom of the box that says what to do |
-| **terraform refusing a command** | `Terraform has no command named "x".` — one sentence, no box, and the whole log of a pipeline that stopped before touching any state |
-| **terraform fmt `-check -diff`** | every region it would rewrite, with the line each one starts at and the source as it stands now. terraform spells its diff's halves `old/<path>` and `new/<path>`, which is what tells it from every other diff a build prints. Not a plain `terraform fmt -check`, which lists bare filenames and nothing else |
-| **CMake** | the script line and the command that raised it — `add_executable`, `find_package` |
-| **CMake refusing to start** | a source directory that is not there, one with no `CMakeLists.txt`, a generator it does not have. The message sits on the banner's own line with no location, because nothing has been read yet, and that one line is usually the whole log |
-| **ninja** | no parser of its own: what fails under it is a compiler, which already has one |
-| **kubectl** | the sentence a person wants, not five identical klog lines from inside client-go |
-| **GCC/Clang** | compiler errors with `file:line:column`, or `file:line` where gcc printed no column — read only for C-family sources there, since without the column that shape is also javac's and mypy's; driver errors that never got as far as a file; warnings and notes set aside. clang counts its own errors, and when the log has been damaged — `make -j` interleaving two compilers mid-line — the headline says how many were read of how many it reported, rather than confidently reporting the smaller number |
-| **clang `-fdiagnostics-format=msvc` / `vi`** | the location moves out of the colon shape — `a.c(2,19):` and `a.c +2:19:` — and both are read as the same diagnostic the default format gives. MSBuild writes the msvc shape for every language it builds, so a C-family source is required. The count clang ends a file with is read whether it says `1 error generated.` or `1 warning and 1 error generated.`, since a broken build seldom has errors and no warnings |
-| **swift test** | both of the test libraries a Swift package can hold, and a package may hold tests of each: XCTest's failures, with the test named and the message without the bracketed repetition of it, and swift-testing's issues with the comment the expectation was given. A test that crashes takes the run with it, and is named as the failure - the frame the runtime prints is inside the standard library and points at nobody's code. The bracketed shape is macOS's; a Linux run writes its test names differently and is not read |
-| **Swift** | the diagnostic and the `[#group]` tag as its code — not the annotation swiftc draws underneath, which repeats the message word for word |
-| **ShellCheck** | the `SCxxxx` code, the source line, and the column the carets are drawn under — from the block format it prints by default as well as `-f gcc`. A run that fails on nothing worse than style still says so, because shellcheck exits non-zero on those too |
-| **ShellCheck `-f json` / `json1` / `checkstyle`** | the three machine formats, agreeing with the block format and with `-f gcc` finding for finding. The code is a number in the JSON forms and `ShellCheck.SC2086` in the checkstyle one, and both are turned back into `SC2086`, so one run printed two ways is one finding rather than two. checkstyle is a shape other linters write as well, so what makes a finding shellcheck's is the check declaring itself. `-f quiet` prints nothing at all, and there is nothing there to read |
-| **yamllint** | the rule, matched as the last parenthesised word so a message like `line too long (106 > 80 characters)` keeps its own brackets. Warnings are set aside: yamllint exits zero on a run that found only those |
-| **yamllint `-f github`** | the workflow annotations every tool's GitHub formatter writes, so what marks these as yamllint's is inside the message: yamllint repeats its own parsable line there, position and rule and all. If that position and the annotation's disagree, the annotation is not yamllint's. The repeated position is removed from the message |
-| **Docker / BuildKit** | the Dockerfile line it marked with `>>>`, and the step's own error rather than the `failed to build: failed to solve:` restatement of it at the end. Not `process "…" did not complete successfully` — that is docker relaying an inner command's exit status, and the tool that actually failed says it better. When the command inside is not a tool anything here reads — `/bin/sh: nosuchcommand: not found` — nothing else can explain the log, and docker is asked again: the step's own last word as the message, on the Dockerfile line that was running. A stopped or unreachable daemon is one environment failure, without the tar-writer fallout some clients print first |
-| **make** | make's own failures — a makefile it cannot parse, a target with no rule, a recipe whose command is not installed. Not `make: *** [target] Error 1`: that relays somebody else's exit status, and the compiler underneath already has a parser. make ends a line `Stop.` when it is refusing to continue and `Error N` when it is only passing one on, and that is the line this parser draws |
-| **RuboCop** | the cop as the code, the column, and the offending line — `[Correctable]` dropped, since it says `-a` would fix it rather than what is wrong. Conventions step behind a real error the way pylint's do. The same run in every format that says where: `simple`, `quiet`, `tap` (which the TAP reader used to claim as one empty failure per file), `json`, `junit`, `github` and `markdown`, which prints no column. The machine formats keep the backticks rubocop's text formats drop |
-| **golangci-lint** | the linter that raised it as the code, so a run of findings from one linter groups as one thing to fix. Told apart from `go build` — whose diagnostics are otherwise identical — by the linter's name in brackets at the end of the line, which go never writes. The same issues from every other output it writes — `tab`, `checkstyle`, `code-climate`, `junit-xml`, `teamcity`, `json` and `sarif` — where the ones that name no tool are Go's by their files and golangci-lint's by the tally it prints after them |
-| **minitest** | Ruby's own test framework, and what a Rails application runs: each failure's test, its message and where it is — from the brackets for an assertion, and from the first frame of your own code for an exception, which may be a helper rather than the test. The diff minitest draws for two long values is kept whole; a skip is not a failure; and `rake test`'s own "Command failed" after the tally says nothing the tally did not |
-| **RSpec** | example name, failure message, and `spec/file:line` location |
-| **RSpec `-f json`** | the same examples as one document, with the line from the backtrace rather than the line the example is declared on, so it agrees with the text reporters. It carries one thing less than they do — the `Failure/Error:` line quoting the example's source, which no reporter puts in the document — and one thing more: the exception's class for every failure, where the text form names it only when the exception is not an unmet expectation. Pending examples are counted, not reported |
-| **Ruby** | the exception class, the line that raised, and the unwind — for a missing gem, the line that asked for it rather than `kernel_require.rb` |
-| **Perl** | the location, which Perl writes as prose at the end of the message — but never out of a TAP comment, which is Test::More reporting a test rather than Perl dying; `near "= ;"` kept, the `@INC` list dropped, warnings told apart from a fatal die by what they say |
-| **javac / Maven / Gradle** | JVM compiler errors with warnings excluded, Surefire test failures, and build scripts that fail to evaluate |
-| **javac in other languages** | javac translates its severity into the three languages it ships — `Fehler:`, `エラー:`, `错误:`, and `Warnung:` or `警告:` for a warning. That set is javac's own and it is closed, so it is named rather than guessed at |
-| **Gradle test failures** | each failed test Gradle names — `CartTest > totalsAnInvoice() FAILED` — at the line in the test that broke, in every console Gradle has: plain, rich, and the full exception format, whose first frames are JUnit's own and are passed over for the frame in the test's class. Before, all of them came back as `Execution failed for task ':test'` labelled a build script error. Under `-q` Gradle prints no test names at all, and that is now a test failure whose tests are not in the log rather than a build script that failed |
-| **JUnit XML from the JVM** | Maven Surefire's `TEST-*.xml` and its `.txt` summary, and Gradle's `build/test-results`. JUnit's XML is a shape every runner writes; what makes a case a JVM test is a Java stack frame naming the case's own class, and that frame is also the location — not the line inside JUnit's assertion builder the generic reader used to report. Surefire's reports are named Maven; Gradle's XML says nothing about which build tool wrote it, so it is named for what it is |
-| **.NET** | compiler error codes with `file:line:column`; warnings set aside |
-| **dotnet format `--verify-no-changes`** | the same shape MSBuild uses, so the same reader: every place it would rewrite, with its line, its column and the rule (`WHITESPACE`, `IMPORTS`, `ANALYZERS`). Those names carry no digits, which is the only reason none of it was read before |
-| **dotnet test** | test name, `file:line`, the assertion; reflection frames dropped |
-| **dotnet test in other languages** | the .NET SDK translates VSTest's console into its UI languages — `Failed` is `Fehler`, `失敗`, `Не пройден`, `Com falha`, and the labels over the message and the stack go with it. Nothing but English was read. No dictionary is needed: the run's tally opens with its failure word in the run's own language, so that word is read from the tally and the labels are read by where they stand. The counts come in the same order in every language. Checked against German, Japanese, French, Simplified Chinese, Korean, Russian and Brazilian Portuguese |
-| **Microsoft.Testing.Platform in other languages** | translates more than VSTest: the outcome (`fehlerhaft`, `operazione non riuscita`, `已失敗`), the assembly line under it, the summary, and the stack frames themselves — `um … in`, `場所: … 場所:`. What no language changes is the assembly line with its framework and architecture, `ShopTests.dll (net10.0\|arm64)`, and only a failure has a stack under it; a heading with both is a failure, and its words read every other heading. `--output detailed` puts the same assembly line under passing tests, which is why the stack is required too. Frames are read by shape and the counts by position. Checked against all fourteen languages the SDK ships |
-| **dotnet test `--logger trx`** | the document a .NET CI job keeps beside its console output, read as the same run: the test's name and outcome from the result's attributes, the message and the stack from the elements under it, and the location from the first frame in your own code — the same rule the console output is read with. A `<TestRun>` element alone is not evidence of anything, so what is required is the namespace the document declares. It prints no tally line, but its counters count the same things |
-| **PHPUnit** | test name, assertion message, and `file:line` location |
-| **PHPUnit `--log-junit` / `--testdox` / `--log-teamcity`** | JUnit is a shape every runner writes, so what makes a result PHPUnit's is inside the element: PHPUnit opens the body by naming the test as `Class::method`, and a result is read only when that name is the case's own. The location is the one the body ends with — the line the assertion failed on, not the line the method is declared on. The document prints no tally, so the sentence comes from the counts on its root suite. `--testdox` renames the class and the test into prose, which is the point of that format, so those are the names reported. TeamCity's service messages are every TeamCity tool's shape; PHPUnit's name each test with a `php_qn://` location, and report an error and a failure alike, so a stream on its own says only how many of how many tests failed |
-| **PHP** | the exception class and the stack; PHP writes every diagnostic twice, and you get it once |
-| **esbuild** | the diagnostic and its source line — not the CLI wrapper's `Command failed:` stack |
-| **vite / rollup** | the rollup error code, `file:line:col` and the offending line |
-| **tsc** | errors grouped by file, with the assignability chain down to the real reason — and `--pretty`, which writes `file:line:col - error TS2322:` instead of `file(line,col):`, and is the default whenever tsc thinks it is talking to a terminal |
-| **git** | the conflicted files, not "Automatic merge failed"; the rejected ref, not five lines of `hint:`; what it refused to merge, pull or pop, not the advice on how to fix it |
-| **npm** | its own failures — a missing script, a bad engine — without the trailing advice |
-| **npm `--json`** | npm says it twice — the same `npm error` block on stderr, a document on stdout — and a pipeline that keeps only stdout keeps only the document. Both now give the same code and the same two lines. A registry failure is coded `E404` and prefixed `404`, because the number is the HTTP status underneath it; the prefix comes off, since the code is already the code |
-| **pnpm** | its error code and message — indented with a thin space, which is why it needed one |
-| **pnpm's boxed errors** | newer pnpm draws the same failure as a box rather than a column — the code on its own line, then what it was doing, then the cause behind an arrow, then `help:`. Nothing read it, so a failed install said `ERR_PNPM_FETCH_404` and never which package, or why. The lines are hard-wrapped and the break lands inside a word often enough to matter: a wrap after a hyphen or a slash is rejoined without a space, so a package name stays one package |
-| **yarn** | the failure without the documentation link that follows it |
-| **composer** | the numbered problems a resolution failure lists, and nothing else it prints: not the two opening lines about the root version and the missing lock file — one of which says "could not" — and not the four guesses under "Potential causes:" or the link to the troubleshooting guide. The package that cannot be had is the subject, including a platform one like `php` or `ext-mbstring`. A boxed fatal gives the file named inside the message rather than the composer source file the box is headed with, and stops before the command usage line composer prints after it |
-| **uv** | the `cause:` line, which is the only part that says which package and why — the headline above it says a resolution failed and nothing more. The explanation is rejoined where uv wrapped it at a deeper indent, but a source echo drawn in a gutter is not more of the sentence. A parse failure gives the file, line and column; uv prints that one twice, once as a warning during settings discovery and once as the error that stopped it, and only the one with a cause under it is read |
-| **Poetry** | the resolver's chain from its first `Because` to the `version solving failed.` that closes it, as one diagnosis rather than one per clause — and not at all without that closing line, since prose read to the end of a buffer takes the next tool's output with it. An invalid `pyproject.toml` gives its path, line and column |
-| **bundle** | which gem could not be found, with the sentence rejoined — bundler wraps it after the repository URL, and the half on the second line is the one saying it is not installed locally either. A version conflict gives the resolver's own "Because … So, because …" explanation, which names the two gems that cannot both be had, rather than the "version solving has failed" that only restates it. A `Gemfile` that will not parse gives its line, the line's text, and what Ruby's parser objected to rather than bundler's "syntax errors found" |
-| **pip** | the exception a build backend actually raised, not `subprocess-exited-with-error`; resolution failures once rather than twice, without the package index pasted in |
-| **a log stamped by CI** | GitHub Actions and `gh run view --log`, Jenkins' Timestamper, Buildkite `--timestamp-lines`, `docker logs --timestamps`, journald — the stamp comes off before anything reads the log |
-| *anything else* | best-effort: lines that look like errors, including plain unix ones like `curl: (7) Failed to connect`, marked as a guess. A `warning:` or `note:` is not one, after a location or not — a javac run that only warned is not a failed build |
-
-Unrecognised output is never silently swallowed — you get a labelled guess, or the raw text back.
-
-A CI job usually runs a linter, then a typechecker, then the tests, and pastes all of
-it into one log. Only one parser can own that output, but every tool's failures are
-extracted and shown, each under the tool that found it:
-
-```
-  ✗ 2 failed | 12 passed (14)
-    this log also contains failures from eslint (90), tsc (5), shown below
-
-  shop.test.js:3  invoice total
-    AssertionError: expected 1049 to be 1050
-
-  — eslint 90 problems (90 errors, 0 warnings)
-    5 likely causes, 52 sites
-
-  lib/adapters/fetch.js:133  eqeqeq  (22 cases)
-    Expected '!==' and instead saw '!='
-```
-
-Each tool's failures are grouped using its own vocabulary. In `--format github`, the
-first ten get annotations — GitHub's per-step error limit — with the tool named when it
-is not the one that owns the log. Every failure remains in the job summary and JSON
-report, and the log says how many annotations GitHub could not accept. In `--json`,
-`failures` still means what the winning tool reported — unchanged — and the rest arrive
-under `others`.
-
-The same diagnosis is never reported twice: unittest prints its failures *as* Python
-tracebacks, and that is one failure read two ways, not two failures. Two different tools
-flagging the same line for different reasons are both kept, because they are. So are two
-runs that say the same thing at the same line: a failure is found where its location is
-written as a location, `src/main.rs:2:22`, before anywhere its numbers merely appear — a
-one-line JSON record is full of numbers, and a byte offset is not a column.
-
-A tool that does not own the log has to say where its failure is, or what it is — a
-diagnostic with no location and no identifier is a stray match on somebody else's text
-far more often than a finding. The tool that *does* own the log is never filtered that
-way, so `error: linking with cc failed`, which has neither, is still the answer when
-cargo owns the output.
-
-One failure read two ways is not two failures. A Python traceback ends
-`KeyError: 'taxrate'`, and Node's parser recognises that shape too — so the second
-reading is dropped, because it says strictly less: its message sits inside the other's
-and it knows less about where the failure is.
-
-Every extracted failure carries a private source range identifying the raw diagnostic
-region that produced it. That ownership never appears in terminal output or JSON v1,
-but it prevents two parsers from reporting the same region. The ordered-pair sweep now
-requires exact recovery of both logs' standalone failures across all 13,414 applicable
-cross-parser fixture pairs, rather than merely checking that the combined count did not
-grow.
-
-CI and log viewers stamp every line — GitHub Actions prefixes an ISO timestamp, Azure
-Pipelines uses `##[debug]`, and `kubectl logs --prefix` identifies the source as
-`[pod/name/container]`. Every parser here anchors on the start of a line, so a stamped
-log would match nothing at all. whyitbroke strips vetted shapes before parsing; inferred
-prefixes are removed only when nearly every line carries one and parsing improves, so a
-log that merely mentions a timestamp is left exactly as it is. Paste a CI log straight
-in.
-
-Repeated identical diagnostics are shown once. Distinct tests or diagnostics
-that happen to share a file and line are preserved.
-
-## What a failure is
-
-Every failure carries what it is, not just a display string:
-
-| field | meaning |
-|---|---|
-| `tool` | which parser produced it |
-| `code` | a diagnostic identifier — `TS2551`, `no-unused-vars`, `E0308` |
-| `subject` | the name of the site that failed — a test name, a method |
-| `label` | a constant the tool prints for a class of failure — `compile error` |
-| `category` | `test`, `lint`, `typecheck`, `compile`, `build`, `runtime`, `package`, `vcs`, `deploy`, or `unknown` for the generic reader's guesses |
-| `severity` | `error` or `warning`; warnings never become failures |
-| `file` `line` `col` `message` `stmt` `trace` | as before; `line` and `col` count from 1 |
-
-`code`, `subject` and `label` are alternatives — a parser declares whichever it actually
-found, and never two. `title` is unchanged and still carries the display string, so
-anything reading it keeps working.
-
-This is what makes grouping work without a lookup table. A `code` is the identity of a
-problem, so it stays in the fingerprint and the echoed source line drops out — the same
-lint in forty places is one thing to fix. A `subject` is the axis being grouped across,
-so it never enters the fingerprint and the failing expression stays as the discriminator.
-Until recently that decision was a hand-maintained table mapping 27 tool names to what
-their `title` happened to mean.
-
-## One bug, or eighty?
-
-Change one string in a library and eighty tests fail. They are one bug. Every tool
-in this space will show you the first five and let you work out the rest.
-
-whyitbroke groups failures that share a likely cause and leads with the count:
-
-```
-  ✗ 85 failed, 1973 passed, 25 skipped in 3.58s
-    2 likely causes, 14 sites (+15 others)
-
-  tests/test_basic.py:642  test_choice_argument_none  (+9 more sites)
-    assert "Error: Missing argument" in "...Failure: Missing argument"
-      also tests/test_options.py:1951
-```
-
-**Over-splitting is cheap; over-merging is fatal.** Split one cause in two and you
-read an extra block. Merge two causes into one and you fix the exemplar, rerun, and
-watch the rest still fail — after which the "likely cause" line is worth nothing
-anywhere. So the grouping refuses whenever it is unsure, and it is designed to be
-able to say nothing at all.
-
-It is deterministic — an exact fingerprint, no similarity score, no model. A fuzzy
-threshold would let the same suite report a different number of causes run to run,
-and "these share this signature" is something you can check by eye in a way that
-"these scored 0.72" is not.
-
-What keeps it honest:
-
-- Quoted text that is short and has no spaces is a **name** and is kept, so
-  `KeyError: 'exp'` never merges with `KeyError: 'sub'`. Longer quoted text is data
-  and is abstracted away.
-- A path must prove itself with separators or a known extension, so `cart.total` is
-  never mistaken for a filename.
-- What a resolver says it could not find is the **operand**, not an incidental path, and
-  is kept whatever it looks like. `Cannot find module './a.js'` and `'./b.js'` are two
-  things to install, not one cause with two sites.
-- A signature carrying fewer than two real words is refused outright — forty
-  unrelated `assert 1 == 2` failures do not become "one likely cause".
-- Three sites minimum. Two failures sharing a shape is usually coincidence.
-
-Nothing is hidden silently: `failures` is unchanged in `--json`, and the GitHub job
-summary carries the failure list up to GitHub's 1 MiB step limit before marking its own
-truncation. Workflow annotations are capped at GitHub's ten-error limit and their
-messages stay below 64 KiB; explicit notices point to the summary and `--json` whenever
-a platform limit is reached. Grouping only decides
-what leads: the terminal's five slots, the job summary's sections, and the run's notice
-line. `--no-cluster` turns it off everywhere.
-
-Source context is read from the file on disk. If the file has changed since the command
-ran — you edited it, or you piped in saved output — whyitbroke says so and shows the line
-the tool itself reported, rather than confidently pointing a caret at the wrong code. Most
-tools count a tab as one column and a terminal draws it wider, so the line under the source
-keeps the source's tabs, and the caret lands under the character the tool pointed at.
-
-## What changed since last time
-
-`--since-last` marks the causes that were not there the last time you ran the same
-command, so a wall of red you have already read does not look the same as a wall that
-just grew.
-
-```console
-$ whyitbroke --since-last pytest
-
-  ✗ 3 failed, 2 passed in 0.01s
-    1 new since your last run
-    1 from that run is no longer reported
-
-  test_shop.py:7  test_expired_token  new
-    KeyError: 'aud'
-```
-
-A cause is identified by the fingerprint the grouping uses, so it survives moving to
-another file, another line, or another position in the output — and two different bugs
-never collapse into one. Where that fingerprint is too thin to group on, the test or
-symbol it happened to is part of the identity as well: `assert 1 == 2` and `assert 3 == 4`
-reduce to the same shape, and without that a second test failing would report nothing new
-and the first being fixed would report nothing gone.
-
-Runs only ever compare against runs of **the same command, in the same directory**.
-`pytest tests/unit` and `pytest tests/api` do not cover the same code, so a cause missing
-from one is not a cause that got fixed; they keep separate histories and never meet. If the
-same command reports a different tool than it did last time — `npm test` moving from jest
-to vitest — the run still compares, but "no longer reported" is withheld, because every
-cause being missing is then a change of tool and not a change of code.
-
-**A run that succeeds is part of the history.** It writes the empty baseline: nothing is
-failing here now — decided by the exit code, not by the output, so a runner that exits
-zero having printed something readable still records that nothing is failing. What it
-printed is still reported in full; only the baseline is empty. Without it, a failure that came back after a green run was compared
-against the run that first found it and called nothing new — which is exactly the moment a
-reader wants to be told. Nothing is printed for a command that worked.
-
-**A piped log has to be named.** `pytest tests/unit | whyitbroke --since-last` carries no
-command at all, so nothing tells it from `pytest tests/api | whyitbroke --since-last` in the
-same directory: they shared one record, overwrote each other, and each reported the other's
-failures as fixed. Guessing the upstream command from its output is not available either —
-the log is the thing in question. So an unnamed pipe is not compared and not recorded, and
-says so; `--id NAME` is how a pipeline says which one it is.
-
-```console
-$ pytest tests/unit | whyitbroke --since-last
-    not tracked: a piped log carries no command to tell it from another. Name it with --id NAME
-
-$ pytest tests/unit | whyitbroke --since-last --id unit
-    1 new since your last run
-```
-
-A name is scoped to the directory it is used in, and to the tool the log turned out to be
-from, so one `--id ci` covering a job that pipes eslint and then pytest still keeps two
-records rather than having each run wipe the other.
-
-For mixed logs, the primary tool identifies the run, and comparison includes every
-reported tool's causes. New failures are marked in their own tool's section; identical
-messages from different tools keep separate identities. The last history format that
-used 32-bit identifiers is compared once during migration, then the completed run is
-saved under the current 96-bit identity — for a wrapped command, which names itself in
-its argv. A record that scheme wrote for a *piped* run was keyed on the directory and the
-tool alone, so it belongs to whichever unnamed pipe wrote it; a `--id` pipeline does not
-adopt one, and starts its own baseline instead. Unchanged causes are not called new; the "no
-longer reported" count is withheld for that transition because a collision in an old
-saved hash cannot be ruled out. Older incompatible records start a fresh baseline.
-
-The two claims are not equally cheap. "New" is a statement about what is present, and
-it is safe. "No longer reported" is a statement about *absence*, and absence is only
-evidence when the run actually got far enough to speak — so it is withheld whenever the
-capture was truncated or the command never started. For the same reason a run like that
-is never recorded: storing its short list would make the next run announce everything it
-lost as newly appeared.
-
-Nothing about tracking can change the outcome of a run. If the cache cannot be read or
-written, whyitbroke says nothing about history and prints the same diagnosis it always
-would.
-
-## When something else is printing your log
-
-Turborepo puts `api:test: ` in front of every line. Docker BuildKit puts `#12 1.234 `.
-pnpm names the package and script, kubectl names the pod. Every parser here anchors on
-the start of a line, so before whyitbroke understood these, a wrapped pytest run produced
-*nothing* — not a worse answer, no answer at all.
-
-whyitbroke finds the prefix and removes it, then says which one it removed, because
-knowing the failure came from `api:test:` is worth keeping.
-
-Nothing is stripped on a hunch. A candidate prefix is removed only if removing it
-demonstrably improves the parse: a real parser finds something it could not find before,
-a different tool turns out to own the log, or the prefix was being swallowed into the
-messages of the parser that did read it. That last one is how perl is handled — it writes
-its location as prose at the end of the message rather than as an anchor at the start, so
-it keeps parsing straight through a wrapper, and the wrapper then splits one diagnosis in
-two. npm's `npm error ` and mypy's repeated source directory, which look exactly like
-wrappers, are left alone: mypy's ends up in the `file` of its failures, which is a parser
-reading a path correctly, and a swallowed wrapper leads the message instead. The
-invariant is not "strip prefixes", it is "never come out worse than going in", and it is
-tested by wrapping every captured fixture in every runner's prefix and requiring the same
-tool and the same failures out the other side.
-
-Docker gets the same treatment. A failing `docker build` ends with
-`ERROR: failed to solve: process "/bin/sh -c npm test" did not complete successfully`,
-which names the mechanism and not the cause — the cause is the step's own output, either
-under BuildKit's `#8 0.234 ` stamps or quoted in the block above that line. whyitbroke
-reads whichever is there and hands it to the tool that actually failed.
-
-Wrappers stack, too: a monorepo runner relaying a container relaying a test run is peeled
-a layer at a time, and each layer is named on the result.
-
-Tools that redraw progress with bare carriage returns pack many logical lines into one
-physical line. A CI collector stamps that blob once, so whyitbroke removes a vetted CI
-stamp before expanding the redraws into lines.
-
-A prefix with no vetted shape — a pod name, a compose service — has to be inferred by
-comparing lines against each other, and a redraw blob is a single physical line with
-nothing to compare it with. That one case is not recoverable. A short log is: the length
-floor that used to guard it is gone, because refusing a strip that does not improve the
-parse is the guard that actually does the work, and a one-line failure inside a runner's
-prefix is exactly the log whose whole diagnosis is that line.
-
-## When the log is too big
-
-`--max-bytes` caps how much output is kept (10 MB by default). The cap keeps a slice of
-the beginning, where the command line and build banner live, bounded windows around
-probable diagnostic lines in the middle, and as much of the end as the remaining budget
-allows. If there are no middle diagnostics, the tail keeps its full share as before.
-
-What is dropped is stated, never silently stitched:
-
-```
-~~~ whyitbroke: 1743102 bytes of output elided here (raise --max-bytes to keep them) ~~~
-```
-
-Cuts land on line boundaries, so a parser is never handed half a line, and multi-byte
-characters are never split.
-
-Reading a log takes time in proportion to its length rather than its square, whatever it
-holds. A log is untrusted input, and a line of one kind repeated thousands of times — a
-brace that never balances, a start tag that never closes, a traceback header with
-nothing under it — used to make a reader walk the rest of the log from each copy: 50 KB
-of braces took 87 seconds. So did one long line that looked like diagnostics, which six
-line patterns read again from every colon in it: 256 KB of repeated compiler errors on a
-single line took eight seconds, and now takes 70 milliseconds. `test/bounds.js` builds
-each shape at one size and at four times it, and fails if the larger takes more than
-eight times as long.
-
-A parser is only asked about a log that holds one of the strings it can read nothing
-without - `Traceback (most recent call last):` for Python's tracebacks, `.go:` or
-`--- FAIL` for go - and one pass over the log finds which are there. 10 MiB of build
-output that no parser reads takes 0.7 seconds, where asking every parser took 3.3; 10 MiB
-of an eslint run takes 0.9 where it took 2.3. A log holding every tool's output at once
-still asks all of them: 10 MiB of the whole corpus takes 5.5 seconds. `npm run bench`
-prints the times on your machine.
-
-One step has a ceiling instead. Telling that two tools read the same line means comparing
-what each one read, and past four million comparisons in one log it stops: both readings
-are kept. A huge log with many tools in it can show a finding twice, rather than hide one
-as a copy of something it was never compared with.
-
-## Safety
-
-whyitbroke reads source context from disk to show you the lines around a failure.
-Output can come from anywhere — a pasted log, a CI artifact, someone else's machine —
-so it will only ever read files **inside the directory you ran it in**. Crafted output
-naming `/etc/passwd` or `~/.ssh/id_rsa` gets the error printed, never the file.
-
-That boundary protects files outside the checkout; it does not classify files inside it.
-Terminal source context may include neighboring lines the original tool never printed,
-including secrets beside a reported setting. Use `--no-source` for shared terminal output
-or sensitive checkouts. GitHub-format annotations and summaries do not add source read
-from disk.
-
-Containment is enforced on the *canonical* path, so a symlink inside the tree pointing
-somewhere else — or a symlinked parent directory — is refused rather than followed. A
-working directory that is itself reached through a link still reads its own files.
-
-Reads are bounded before anything is allocated: the size is taken from the open
-descriptor and files over 2 MiB are skipped. Lines are read whole and narrowed only for
-display — a 200-character window that slides to wherever the reported column is, so the
-caret stays beside the code it marks instead of a screen of spaces away from it. Only
-regular files are read, and they are opened non-blocking, so a directory, socket, device
-or FIFO named in a log cannot stall the run. Any of these refusals drops the snippet and
-keeps the diagnostic — you still get the error, just no source under it.
-
-One honest limit: the check resolves the path and then opens it, so a sufficiently
-determined attacker who can already write inside your working directory could swap a
-directory component in between. `O_NOFOLLOW` narrows that window but does not close it.
-Anyone with that access could simply put the content in a real file instead.
-
-It runs your command without a shell (`spawn`, not `sh -c`), so nothing in a filename
-or argument is expanded. SIGINT, SIGTERM and SIGHUP are forwarded to the command; on
-noninteractive POSIX runs they reach its process group, so cancelling a CI wrapper also
-stops descendants it started. It has zero dependencies and makes no network calls.
-
-It writes to disk in exactly two cases, both of which you have to ask for. When
-`GITHUB_STEP_SUMMARY` is set — which GitHub Actions sets for you — `--format github`
-appends a run summary to that file. And `--since-last` records a list of fingerprints
-under your OS cache directory (`WHYITBROKE_CACHE_DIR` overrides it). Never inside your
-project, never anywhere else, and never at all unless you pass the flag or set the
-variable.
-
-## Why it isn't an LLM
-
-Because you already know what's wrong the instant you can see it. The problem was never comprehension, it was that the answer is on line 312 of 400. A parser that knows pytest's format is faster, free, offline, deterministic, and never invents a stack frame.
-
-## When nothing was printed
-
-A command that is killed writes nothing on the way out. `cargo build` stopped by the
-kernel's out-of-memory killer, a suite cancelled by a job timeout, a crash in a C
-extension — each ends with an empty log and a number, and there is no diagnostic for any
-parser to find. The number is not nothing:
-
-```
-$ whyitbroke -- cargo build
-
-Command failed with exit code 137.
-Killed by SIGKILL, which no program can catch or shut down cleanly for. On a build
-machine that is usually the kernel running out of memory, or a runner enforcing a limit.
-No output was captured.
-```
-
-Two different kinds of thing are said there, and whyitbroke keeps them apart. **A signal is
-a fact**: the operating system reports which one ended the process, and whyitbroke names
-it. **What usually sends that signal is a guess**, written as one — it is the second
-sentence, and it says "usually".
-
-An **exit code** is a number a program chose, so almost none of them mean anything on
-their own: `1` and `2` are what every program in the world returns, and `grep` returns `1`
-for finding nothing. Three are read, as the conventions they are — `127` and `126`, which
-a shell returns for a command that does not exist and one it could not run, and `124`,
-which `timeout` returns when its deadline passed — and only for a command whyitbroke ran
-itself, where the shell in question is the one it spawned. A piped log's upstream status
-never reached whyitbroke and is never guessed at.
-
-A run that was killed part-way still printed whatever it got to print, and that is read as
-usual. The signal is reported beside the diagnosis rather than instead of it, because a
-diagnosis from a run that did not finish is not the whole story:
-
-```
-  ✗ 1 error in 1 file
-
-  bad.ts:3  TS2322
-    Type "x" is not assignable to type "number".
-
-  ! Killed by SIGKILL, which no program can catch or shut down cleanly for. On a build
-    machine that is usually the kernel running out of memory, or a runner enforcing a limit.
-```
-
-## When whyitbroke runs the command itself
-
-`whyitbroke vitest` tells whyitbroke which leaf tool is about to fail, and that is strong
-evidence when two parsers recognise the same log. Each parser declares the commands that
-imply it, and a named leaf tool is tried first — including through a path or launcher, so
-`npx vitest run` and `./node_modules/.bin/vitest` both count.
-
-`python -m pytest` is the same shape and the commonest way pytest is run — the
-interpreter puts the working directory on `sys.path`, which is why projects prefer it. The
-module named after `-m` is the tool; the interpreter that carried it is not. That only
-applies to an interpreter, and only as its first argument: `pytest -m slow` selects a
-marker, and `-m` means something else again to plenty of tools.
-
-Script runners are deliberately different. `npm test`, `pnpm test`, and `yarn build`
-name a parent process whose child produced the useful Jest, Vitest, Vite, or other
-diagnostic. Their lifecycle error remains in the result, but cannot replace the child's
-actionable failure as the primary diagnosis.
-
-It only reorders. The parser still has to recognise the output and find something, so
-naming a tool that did not produce the log changes nothing, and piped logs — which carry
-no command — behave exactly as before.
-
-## Adding a tool
-
-Extractors are ~40 lines and self-contained. Drop a file in `src/extractors/`, export `detect(raw)` and `extract(raw)`, add a **real** captured fixture to `test/fixtures/` and a case to its family's file in `test/tools/`.
-
-Real captured output only — no hand-written samples. Every parser in here was built against output actually produced on a real machine, which is why they work.
-
-## Test
-
-```bash
-npm test
-```
-
-That runs both halves. `npm run test:fast` is everything but the shredded-log suite and
-runs in a few minutes. Each family of tools has a file of its own in `test/tools/`, which
-reads that family's fixtures and holds its formats to each other; `test/reading.js`,
-`test/render.js`, `test/cluster.js` and `test/commandline.js` hold what every reading
-shares. `npm run test:heavy` is `test/mixed.js`, which weaves every pair of
-fixtures into one log, `test/bounds.js`, which feeds each parser logs built to make it
-slow, and `test/router.js`, which holds the router to reading every log as asking every
-parser would. CI runs the fast half on every platform and Node version, and the heavy half on
-Linux with the oldest and newest Node, and everywhere once a night.
+| [CLI and GitHub Actions](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/cli.md) | Commands, options, CI examples, and JSON output |
+| [Supported tools](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/supported-tools.md) | Tool and reporter compatibility |
+| [Reports and history](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/reporting.md) | Evidence, cause grouping, and `--since-last` |
+| [Reliability and safety](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/docs/reliability.md) | Exit codes, large logs, source reads, and limits |
+| [Contributing](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/CONTRIBUTING.md) | Adding a parser and running the tests |
+| [JSON Schema](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/report.schema.json) | The versioned machine-readable report |
 
 ## License
 
-WhyItBroke is source-available under the Apache License 2.0 with
-the Commons Clause. You may use, modify, and redistribute the software, including
-inside a commercial organization, but you may not sell the software itself or a
-product or service whose value derives substantially from its functionality.
-
-This is not an OSI-approved open-source license. See [`LICENSE`](LICENSE) for the terms.
+whyitbroke is **source-available** under the Apache License 2.0 with the Commons
+Clause. Commercial use inside an organization is permitted; selling the software
+itself or a product or service whose value derives substantially from its
+functionality is not. This is not an OSI-approved open-source license. Read the
+full [license](https://github.com/jeanlevonarshakyann-lab/whyitbroke/blob/main/LICENSE) before redistributing it.
