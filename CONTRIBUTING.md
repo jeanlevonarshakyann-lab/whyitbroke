@@ -14,7 +14,7 @@
 5. Add the extractor to `src/extractors/` and register it in `src/index.js`.
    Keep detection specific enough that existing fixtures do not cross-detect, and
    bound what `extract` reads — see "Bound what a parser reads" below.
-6. Add the tool to the README support table and changelog, and name its row for the
+6. Add the tool to the `docs/supported-tools.md` table and changelog, and name its row for the
    parser in `test/support.json`.
 
 An extractor declares itself: `{ name, category, commands, signals, detect, extract }`, where
@@ -62,7 +62,7 @@ their own - nothing has to be registered with them.
 |---|---|
 | a real capture of a failing run, which its parser reads | `test/detectors.js` |
 | a case in its family's file in `test/tools/`, which reads that capture | `test/support.js`, `test/suites.js` |
-| a row in the README's table, named for its parser in `test/support.json` | `test/support.js` |
+| a row in `docs/supported-tools.md`, named for its parser in `test/support.json` | `test/support.js` |
 | `signals`, the strings a log has to hold for it, or a reason in `test/support.json` why it can have none | `test/support.js`, `test/router.js` |
 | a written range for every failure, on its captures and on damaged logs | `test/evidence.js`, `test/fuzz.js` |
 | a report that keeps to `report.schema.json`, and columns that count from 1 | `test/report.js` |

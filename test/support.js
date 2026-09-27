@@ -1,6 +1,6 @@
 // What whyitbroke reads, and what stands behind each claim that it does.
 //
-// The README's table says which tools whyitbroke reads and what you get from each: a row
+// The supported-tools table says which tools whyitbroke reads and what you get from each: a row
 // is a promise, a parser is the code that keeps it, and a fixture is a real capture it is
 // kept against. test/support.json says which rows each parser answers for. This holds the
 // three to each other - no parser without a row, no row without a parser, no capture that
@@ -14,7 +14,7 @@ import { EXTRACTORS } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const support = JSON.parse(readFileSync(join(here, "support.json"), "utf8"));
-const readme = readFileSync(join(here, "..", "README.md"), "utf8").replace(/\r\n?/g, "\n");
+const guide = readFileSync(join(here, "..", "docs", "supported-tools.md"), "utf8").replace(/\r\n?/g, "\n");
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -24,14 +24,15 @@ const test = (name, fn) => {
 
 // The table under "What it reads": a row's name is its first cell, in bold - or in italics
 // for the one that is not a tool, "anything else".
-const start = readme.indexOf("\n## What it reads\n");
-const table = readme.slice(start, readme.indexOf("\n## ", start + 1));
+const start = guide.indexOf("\n## What it reads\n");
+const end = guide.indexOf("\n## ", start + 1);
+const table = end < 0 ? guide.slice(start) : guide.slice(start, end);
 const rows = [...table.matchAll(/^\| (?:\*\*(.+?)\*\*|\*(.+?)\*)/gm)].map((m) => m[1] ?? m[2]);
 const parsers = EXTRACTORS.map((ex) => ex.name);
 
 console.log("\nwhat it reads");
 
-test("the README's table is where the rows are read from", () => {
+test("the supported-tools guide is where the rows are read from", () => {
   assert.ok(start >= 0, "no \"What it reads\" section");
   assert.ok(rows.length > 100, `only ${rows.length} rows read from the table`);
   assert.equal(new Set(rows).size, rows.length, "two rows have the same name");

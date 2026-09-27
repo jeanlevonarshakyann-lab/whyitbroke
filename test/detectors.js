@@ -163,7 +163,7 @@ test("every parser declares what kind of tool it is", () => {
   }
 });
 
-// The README's table is the tool's public claim about what it reads. It went stale
+// The supported-tools table is the tool's public claim about what it reads. It went stale
 // silently: six parsers were added over one stretch of work and none of them appeared in
 // it, so the published page under-sold the tool and, worse, could just as easily have
 // over-sold it. A parser is listed under its own name or under one of the commands that
@@ -180,9 +180,9 @@ test("every parser owns at least one fixture", () => {
   assert.deepEqual(orphans, [], "a parser wins no log in the corpus, so nothing exercises it");
 });
 
-test("every parser appears in the README's table", () => {
-  const readme = readFileSync(join(fixtures, "..", "..", "README.md"), "utf8").toLowerCase();
-  const rows = readme.split("\n").filter((l) => l.startsWith("| **"));
+test("every parser appears in the supported-tools table", () => {
+  const guide = readFileSync(join(fixtures, "..", "..", "docs", "supported-tools.md"), "utf8").toLowerCase();
+  const rows = guide.split("\n").filter((l) => l.startsWith("| **"));
   assert.ok(rows.length > 30, `only ${rows.length} rows found; has the table moved?`);
   const table = rows.join("\n");
   const undocumented = [];
@@ -193,25 +193,25 @@ test("every parser appears in the README's table", () => {
       undocumented.push(ex.name);
     }
   }
-  assert.deepEqual(undocumented, [], "a parser reads a tool the README does not mention");
+  assert.deepEqual(undocumented, [], "a parser reads a tool the supported-tools guide does not mention");
 });
 
 // Being mentioned is not the same as being described. The make row read "no parser of its
 // own" for a while after make got one - the check above passed the whole time, because it
 // looks for the name and the name was right there in the sentence denying it. A row that
-// disclaims a parser the tool actually has is worse than no row: it is the README stating
+// disclaims a parser the tool actually has is worse than no row: it is the guide stating
 // the opposite of the truth.
-test("no README row denies a parser that exists", () => {
-  const readme = readFileSync(join(fixtures, "..", "..", "README.md"), "utf8");
+test("no supported-tools row denies a parser that exists", () => {
+  const guide = readFileSync(join(fixtures, "..", "..", "docs", "supported-tools.md"), "utf8");
   const denied = [];
-  for (const row of readme.split("\n").filter((l) => l.startsWith("| **"))) {
+  for (const row of guide.split("\n").filter((l) => l.startsWith("| **"))) {
     if (!/no parser of its own/i.test(row)) continue;
     const subject = row.match(/^\|[^\S\n]*\*\*(.+?)\*\*/)?.[1]?.toLowerCase();
     if (!subject) continue;
     if (EXTRACTORS.some((ex) => ex.name.toLowerCase() === subject ||
         (ex.commands ?? []).some((c) => c.toLowerCase() === subject))) denied.push(subject);
   }
-  assert.deepEqual(denied, [], "the README says a tool has no parser, and it has one");
+  assert.deepEqual(denied, [], "the guide says a tool has no parser, and it has one");
 });
 
 // Fixtures are captured on a real machine and then given the corpus's neutral paths,

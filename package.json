@@ -1,7 +1,7 @@
 {
   "name": "whyitbroke",
   "version": "0.5.0",
-  "description": "You ran a command. It printed 400 lines. whyitbroke prints the ones that matter.",
+  "description": "Turn noisy test, build, and lint output into concise diagnostics.",
   "type": "module",
   "bin": {
     "whyitbroke": "bin/whyitbroke.js"
