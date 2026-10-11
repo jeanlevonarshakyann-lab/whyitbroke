@@ -95,6 +95,23 @@ export default {
     if (plan) planned = +plan[1];
 
     const named = namedDiagnostics(lines);
+    // Asking the whole list about every result - which of you lies in my block, which of
+    // you has my name - was the cost of a run: eight thousand failures under `prove -v` took
+    // two seconds, and thirty-two thousand half a minute. The list is in the order of the
+    // log, and so are the blocks, so one place moving down it answers the first question;
+    // each name's diagnostics, in order, answer the second.
+    let next = 0;
+    const byName = new Map();
+    for (const d of named) {
+      if (!byName.has(d.name)) byName.set(d.name, { at: 0, list: [] });
+      byName.get(d.name).list.push(d);
+    }
+    const unusedNamed = (name) => {
+      const queue = byName.get(name);
+      if (!queue) return undefined;
+      while (queue.at < queue.list.length && queue.list[queue.at].used) queue.at++;
+      return queue.list[queue.at];
+    };
     // Each failure with the line it was read from, so leftovers below can be put back in
     // the order the log tells it rather than after everything else.
     const found = [];
@@ -134,9 +151,10 @@ export default {
       // Whatever this result's block covered has been read as part of it. Raw Test::More
       // prints the diagnostic directly under the `not ok` it belongs to, and without this
       // the leftover pass below would report every one of them a second time.
-      for (const d of named) if (d.from >= i && d.from < end) d.used = true;
+      while (next < named.length && named[next].from < i) next++;
+      while (next < named.length && named[next].from < end) named[next++].used = true;
       const orphan = (!file && !body.length && got.wanted === undefined)
-        ? named.find((d) => d.name === name && !d.used) : undefined;
+        ? unusedNamed(name) : undefined;
       if (orphan) orphan.used = true;
       if (orphan) { file = orphan.file; at = orphan.line; got.found = orphan.found; got.wanted = orphan.wanted; }
       const failure = withSource({

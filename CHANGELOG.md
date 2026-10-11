@@ -26,6 +26,10 @@
   every omission, truncation and terminating signal. SIGINT, SIGTERM and SIGHUP are
   forwarded to the wrapped POSIX process group so terminating whyitbroke does not leave
   the command or its descendants running.
+- Bare TAP from Test::More reads a run in time that grows with it. Each result used to ask
+  every named diagnostic in the log whether it lay in its block, and a bare `prove -v`
+  result asked them all again for its name: 8,000 failures took two seconds and 32,000
+  more than half a minute.
 - Independent reliability audits now pin and fix eleven shared-boundary failures:
   stdout/stderr fragments cannot combine into invented diagnostics; interrupted or
   unpersistable history cannot make stale claims; nested task wrappers no longer enter
