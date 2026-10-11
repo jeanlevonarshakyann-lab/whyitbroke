@@ -93,9 +93,9 @@ export const EXTRACTORS = [pytest, nodetest, bun, bunRuntime, deno, denoRuntime,
  *  and one under `let count: i32 = "several";`, and they were reported as one: file,
  *  line, column, code and message all matched, and the one field that told them apart
  *  was the one nothing compared. */
+const quoteOf = (f) => String(f.stmt ?? "").trim().replace(/\s+/g, " ");
 function quoteDiffers(a, b) {
-  const quote = (f) => String(f.stmt ?? "").trim().replace(/\s+/g, " ");
-  return !!quote(a) && !!quote(b) && quote(a) !== quote(b);
+  return !!quoteOf(a) && !!quoteOf(b) && quoteOf(a) !== quoteOf(b);
 }
 
 /** A failure's location as a report promises it: a file with a name, and a line and a column
@@ -149,13 +149,29 @@ function dedupeNormalizedFailures(normalized) {
     // source line. Counting those as separate made one crash appear twice in a shredded
     // JUnit/spec stream. Keep one copy, preferring the one that can show the source.
     const key = JSON.stringify([diagnosis(failure), scopeOf(failure)]);
-    const candidates = seen.get(key) ?? [];
-    const index = candidates.find((i) => !quoteDiffers(unique[i], failure));
+    // The first earlier reading of this key whose quote does not differ: the first of
+    // them at all when this one quotes nothing, else the first that quotes nothing or
+    // quotes the same line. Asking each earlier reading in turn was the cost of a log of
+    // one diagnosis quoting a different line each time - two thousand cargo runs of one
+    // E0308, six seconds - so each key keeps where those first ones are instead. A reading
+    // can only gain a quote, when one that has none takes another's, so neither list goes
+    // stale but by a bare reading becoming quoted, which the walk past it settles.
+    let slot = seen.get(key);
+    if (!slot) seen.set(key, slot = { first: undefined, bare: [], next: 0, quoted: new Map() });
+    const q = quoteOf(failure);
+    while (slot.next < slot.bare.length && quoteOf(unique[slot.bare[slot.next]])) slot.next++;
+    const bare = slot.bare[slot.next];
+    const same = q ? slot.quoted.get(q) : undefined;
+    const index = !q ? slot.first : bare === undefined ? same : same === undefined ? bare : Math.min(bare, same);
     if (index === undefined) {
-      seen.set(key, [...candidates, unique.length]);
+      slot.first ??= unique.length;
+      if (q) { if (!slot.quoted.has(q)) slot.quoted.set(q, unique.length); }
+      else slot.bare.push(unique.length);
       unique.push(failure);
     } else if (!unique[index].stmt && failure.stmt) {
       unique[index] = joinSources(failure, unique[index]);
+      const gained = quoteOf(unique[index]);
+      if (gained && !(slot.quoted.get(gained) <= index)) slot.quoted.set(gained, index);
     } else {
       unique[index] = joinSources(unique[index], failure);
     }
@@ -312,8 +328,13 @@ function otherTools(s, winner, mine, cluster, extractors, scoped = (f) => f) {
     const fresh = dedupeNormalizedFailures(r.failures.map(located).map(scoped).map(normalizeFailure)
       .filter((f) => !isClaimed(f))
       .filter((f) => !sameSourceAsClaimed(f))
-      .filter((f) => !f.file || !(locations.get(JSON.stringify([fileName(f.file), f.line ?? null])) ?? [])
-        .some((g) => sameLocatedDiagnostic(f, g)))
+      // Asked within the same budget as the text: eslint and tsc reporting two thousand
+      // different things on one line compared four million pairs here, unbudgeted.
+      .filter((f) => {
+        if (!f.file) return true;
+        const at = locations.get(JSON.stringify([fileName(f.file), f.line ?? null])) ?? [];
+        return !at.length || !within(at.length) || !at.some((g) => sameLocatedDiagnostic(f, g));
+      })
       // A tool's CLI wrapper reports that the tool exited non-zero, and that stack sits
       // entirely in node internals. It is the same failure a second time, told worse.
       .filter((f) => !isNoise(f.file))
@@ -342,7 +363,7 @@ function otherTools(s, winner, mine, cluster, extractors, scoped = (f) => f) {
       failures: fresh.map((f) => preserveSourceRange(f, { tool: r.tool, category: ex.category, ...f })),
     });
   }
-  return dropEchoes(mine, others);
+  return dropEchoes(mine, others, within);
 }
 
 /** Drop a second tool's reading of a failure another tool already reported better.
@@ -355,10 +376,13 @@ function otherTools(s, winner, mine, cluster, extractors, scoped = (f) => f) {
  *  What gives it away is that the echo says strictly less. Its message is contained in
  *  the other's, and it knows less about where the failure is. A tool that genuinely
  *  found something of its own is not a substring of somebody else's finding. */
-function dropEchoes(mine, others) {
+function dropEchoes(mine, others, within = () => true) {
   const anchored = [...mine, ...others.flatMap((o) => o.failures)].filter((f) => f.file);
   if (!anchored.length) return others;
-  const echoes = (f) => !f.file && anchored.some((g) => {
+  // Each unlocated reading searched every located one, with no budget: node's TAP beside
+  // eight thousand `No module named` lines was sixty-four million searches. Past the
+  // budget the reading is kept, as a text comparison past it is.
+  const echoes = (f) => !f.file && within(anchored.length) && anchored.some((g) => {
     const a = String(f.message ?? "").trim();
     const b = String(g.message ?? "").trim();
     return a.length > 0 && a.length < b.length && b.includes(a);

@@ -51,6 +51,14 @@
 - Paths containing spaces are preserved across Deno, Jest, Vitest, Flake8, Oxlint,
   Webpack, Less and AVA output. They are no longer truncated or mistaken for runner
   prefixes, and Windows \`file:///\` stack locations are normalised portably.
+- What every log goes through after its parsers now grows with the log, not its square.
+  Two thousand cargo runs of one E0308, each quoting a different line, took six seconds
+  to de-duplicate; eslint and tsc reporting thousands of different things on one line,
+  and a tool's located findings beside thousands of another tool's unlocated ones, were
+  compared pair by pair outside the budget every other comparison of two tools keeps to;
+  `--all --since-last` looked each failure up in the list of new ones; and a capture
+  whose tail was thousands of short diagnostic lines filtered its saved lines again for
+  each one it let into the middle.
 - Pytest keeps spaces in parameter IDs used for history, and Python tracebacks keep a
   custom exception's type when it was raised without a message.
 
