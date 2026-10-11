@@ -565,8 +565,8 @@ export function findJsonDocument(text, accept) {
 
 let lineStartsOf = { text: null, starts: null };
 
-/** The line of `text` holding character `offset`, counted from 0. */
-export function lineAt(text, offset) {
+/** Where each line of `text` starts, kept for the last text asked about. */
+function lineStarts(text) {
   if (lineStartsOf.text !== text) {
     const starts = [0];
     for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
@@ -578,10 +578,30 @@ export function lineAt(text, offset) {
   // comparison per lookup, a quadratic read of a one-line JSON report. Holding the
   // caller's own string makes every lookup after the first a comparison of one pointer.
   lineStartsOf.text = text;
-  const { starts } = lineStartsOf;
+  return lineStartsOf.starts;
+}
+
+/** The line holding character `offset`, given where each line starts. */
+function lineOf(starts, offset) {
   let lo = 0, hi = starts.length - 1;
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= offset) lo = mid; else hi = mid - 1; }
   return lo;
+}
+
+/** The line of `text` holding character `offset`, counted from 0. */
+export function lineAt(text, offset) {
+  return lineOf(lineStarts(text), offset);
+}
+
+/** `lineAt` for many offsets of one text: the cache is asked once, here, and each offset
+ *  after that is looked up in what it gave. A reader that asked lineAt for two lines of
+ *  every record put the cache's rebuild into one function twice, and Node 18's compiler
+ *  moved the rebuild's first two newline searches ahead of the cache check, so each record
+ *  searched the log up to its second newline - the whole log twice, for a report on one
+ *  line. 16,001 markdownlint records took eight seconds; 4,001 took 300ms. */
+export function lineFinder(text) {
+  const starts = lineStarts(text);
+  return (offset) => lineOf(starts, offset);
 }
 
 /** Where the JSON document `source`, written at offset `at` of `text`, put each of its
@@ -591,7 +611,8 @@ export function lineAt(text, offset) {
  *  the whole document. */
 export function jsonPlaces(text, at, source) {
   const { value, places } = parsePlaced(source);
-  const lines = (open, close) => ({ start: lineAt(text, at + open), end: lineAt(text, at + close) + 1 });
+  const line = lineFinder(text);
+  const lines = (open, close) => ({ start: line(at + open), end: line(at + close) + 1 });
   const whole = lines(0, source.length - 1);
   return { value, where: (node) => { const place = node !== null && typeof node === "object" && places.get(node); return place ? lines(...place) : whole; } };
 }
