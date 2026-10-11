@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
+import { wrapperCandidates } from "../src/normalize.js";
 import { lineAt } from "../src/util.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
@@ -632,11 +633,19 @@ test("each replacement matches exactly what its pattern matched", () => {
  *  own time does not hide the step's. A first read of the larger input within the bound is
  *  enough; one past it is read twice more, so that a pause in the machine does not fail it. */
 function linearStep(read, grow, n) {
+  // An input's time is its fastest read. A read can take a tenth of a millisecond, and a
+  // collection of the heap landing among twenty milliseconds of them takes longer than all
+  // of them together - Node 18 pauses for ten to forty milliseconds at a time late in this
+  // file. A quadratic step is slow on every read.
   const once = (input) => {
-    let runs = 0;
+    let best = Infinity;
     const at = performance.now();
-    do { read(input); runs++; } while (performance.now() - at < FLOOR_MS);
-    return (performance.now() - at) / runs;
+    do {
+      const start = performance.now();
+      read(input);
+      best = Math.min(best, performance.now() - start);
+    } while (performance.now() - at < FLOOR_MS);
+    return best;
   };
   const small = Math.min(...Array.from({ length: 3 }, () => once(grow(n))));
   const big = grow(4 * n - 3);
@@ -703,6 +712,22 @@ test("a capture whose tail is thousands of short diagnostic lines", () => {
   linearStep(capture, (n) => n, 262145);
 });
 
+test("a large log that nothing wraps, asked what wraps it", () => {
+  // Every wrapper shape, and the search for a literal prefix, asked for the log's first two
+  // hundred lines by splitting and filtering all of it: ten readings of the whole log for
+  // each log analysed, a quarter of a second for 10MB with no wrapper on it.
+  const words = ["compiling", "linking", "Resolving", "warning:", "src/a.ts", "npm", "Done", "  at x", "Downloading", "info"];
+  const log = Array.from({ length: 50000 }, (_, k) => `${words[k % 10]} module ${k} of the monorepo`).join("\n");
+  const fastestOf = (read) => Math.min(...Array.from({ length: 5 }, () => {
+    const at = performance.now();
+    read();
+    return performance.now() - at;
+  }));
+  const once = fastestOf(() => log.split("\n").filter((line) => line.trim()));
+  const asked = fastestOf(() => wrapperCandidates(log));
+  assert.ok(asked < once * 5, `${ms(asked)}ms to ask, against ${ms(once)}ms to read the log's lines once`);
+});
+
 test("thousands of failures, every one of them new since the last run", () => {
   // Each failure printed was looked up in the list of new causes, one entry at a time.
   const report = (n) => {
@@ -737,6 +762,21 @@ test("the line of an offset, asked again of a fresh copy of the same log", () =>
   // half a second.
   assert.ok(lookups < Math.max(build, 5) * 4,
     `2,000 lookups on an equal copy took ${lookups.toFixed(0)}ms, against ${build.toFixed(1)}ms to build the cache`);
+});
+
+test("the lines of each of thousands of elements of a report written on one line", () => {
+  // Every reader of an XML report asks lineAt for the line each element starts on and the
+  // line it ends on. Where one function held lineAt twice, Node 18's compiler ran the first
+  // two newline searches of the cache's rebuild on every call, ahead of the check that the
+  // cache still held the log: each element searched the log to its second newline, and a
+  // report written on one line has none. The compiler does this to a rebuild it has seen
+  // run, so the cache is rebuilt a few hundred times first.
+  for (let k = 0; k < 500; k++) lineAt(`a\nb\n${k}`, 3);
+  const report = (n) => ({ n, text: `<testsuites>${'<testcase name="t"><failure/></testcase>'.repeat(n)}</testsuites>` });
+  linearStep(({ n, text }) => {
+    const element = (at, length) => ({ start: lineAt(text, at), end: lineAt(text, at + length - 1) + 1 });
+    for (let k = 0; k < n; k++) element(12 + 40 * k, 40);
+  }, report, 4001);
 });
 
 // ------------------------------------------------------------- runner formats

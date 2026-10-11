@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
+  and the search for a literal prefix, split and filtered the whole log to keep its first
+  two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB
+  that had no wrapper at all. It now reads up to its two hundredth line, and the check for
+  mixed task labels walks the lines without splitting the log.
 - A log read again no longer costs a full comparison per finding. The cache of where a
   log's lines start was checked by comparing strings, which compares their content, and a
   fresh copy of the same log matched without replacing the cached one - so every later
@@ -19,6 +24,12 @@
   so every record searched the report to its second newline, all of it twice when it has
   none. 16,001 markdownlint records took eight seconds; 4,001 took 300ms. Each document
   now asks the cache once and looks up its records' lines in what it gave.
+- An XML report printed on one line no longer risks quadratic time on Node 18. Readers that
+  ask for the lines each element starts and ends on hold the line cache's rebuild twice in
+  one function, and there Node 18 can run its first two newline searches on every call: in
+  0.5.0, bun's JUnit report of 8,001 failed tests on one line took fifteen times as long as
+  one of 2,001. Which readers it reached depended on how Node 18 compiled each; the cache
+  now finds newlines with a search the compiler keeps inside the rebuild.
 - A runner's prefix in front of a line-start location comes off again. Since paths may
   hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
   `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file
