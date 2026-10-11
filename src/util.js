@@ -665,12 +665,20 @@ export function findJsonDocument(text, accept) {
 }
 
 let lineStartsOf = { text: null, starts: null };
+const NEWLINES = /\n/g;
 
 /** Where each line of `text` starts, kept for the last text asked about. */
 function lineStarts(text) {
   if (lineStartsOf.text !== text) {
+    // The newlines are found by a pattern that keeps its place in lastIndex, not by
+    // text.indexOf. A reader asking lineAt for two lines of each element held this rebuild
+    // twice in one function, and there Node 18's compiler ran the first two indexOf
+    // searches ahead of the check above, on every call: each element searched the log up
+    // to its second newline, all of it twice for a report written on one line. A search
+    // that moves lastIndex changes something, so it is run where it is written.
     const starts = [0];
-    for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
+    NEWLINES.lastIndex = 0;
+    while (NEWLINES.test(text)) starts.push(NEWLINES.lastIndex);
     lineStartsOf = { text, starts };
   }
   // `!==` compares strings by content. A caller holding a new string with the same text -
@@ -695,11 +703,7 @@ export function lineAt(text, offset) {
 }
 
 /** `lineAt` for many offsets of one text: the cache is asked once, here, and each offset
- *  after that is looked up in what it gave. A reader that asked lineAt for two lines of
- *  every record put the cache's rebuild into one function twice, and Node 18's compiler
- *  moved the rebuild's first two newline searches ahead of the cache check, so each record
- *  searched the log up to its second newline - the whole log twice, for a report on one
- *  line. 16,001 markdownlint records took eight seconds; 4,001 took 300ms. */
+ *  after that is looked up in what it gave. */
 export function lineFinder(text) {
   const starts = lineStarts(text);
   return (offset) => lineOf(starts, offset);
