@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
+import { wrapperCandidates } from "../src/normalize.js";
 import { lineAt } from "../src/util.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
@@ -693,6 +694,22 @@ test("a capture whose tail is thousands of short diagnostic lines", () => {
     return c.finish();
   };
   linearStep(capture, (n) => n, 262145);
+});
+
+test("a large log that nothing wraps, asked what wraps it", () => {
+  // Every wrapper shape, and the search for a literal prefix, asked for the log's first two
+  // hundred lines by splitting and filtering all of it: ten readings of the whole log for
+  // each log analysed, a quarter of a second for 10MB with no wrapper on it.
+  const words = ["compiling", "linking", "Resolving", "warning:", "src/a.ts", "npm", "Done", "  at x", "Downloading", "info"];
+  const log = Array.from({ length: 50000 }, (_, k) => `${words[k % 10]} module ${k} of the monorepo`).join("\n");
+  const fastestOf = (read) => Math.min(...Array.from({ length: 5 }, () => {
+    const at = performance.now();
+    read();
+    return performance.now() - at;
+  }));
+  const once = fastestOf(() => log.split("\n").filter((line) => line.trim()));
+  const asked = fastestOf(() => wrapperCandidates(log));
+  assert.ok(asked < once * 5, `${ms(asked)}ms to ask, against ${ms(once)}ms to read the log's lines once`);
 });
 
 test("thousands of failures, every one of them new since the last run", () => {
