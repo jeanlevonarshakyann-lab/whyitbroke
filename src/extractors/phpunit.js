@@ -191,8 +191,11 @@ export default {
     // before ever reaching here. Letting it reach here started the scan at line 0 and
     // read jasmine's numbered blocks as PHPUnit's - 5 failures where the two logs hold
     // 3 - which is the same claim the bound above exists to prevent.
-    for (const announced of announcements) {
-    for (let i = announced + 1; i < lines.length && !END_RE.test(lines[i]); i++) {
+    // Each announcement's blocks end at the next announcement, whose blocks they are: read
+    // on to the run's end, every announcement read the blocks of all the others again.
+    for (const [k, announced] of announcements.entries()) {
+    const until = announcements[k + 1] ?? lines.length;
+    for (let i = announced + 1; i < until && !END_RE.test(lines[i]); i++) {
       const header = lines[i].match(/^\d+\)[^\S\n]+(.+)$/);
       if (!header) continue;
       const message = [];

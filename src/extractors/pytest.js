@@ -198,6 +198,26 @@ export default {
       // its own tally said two. A failure already spoken for cannot be claimed again.
       const claimed = new Set();
       const claim = (index) => { claimed.add(index); return index; };
+      // Each summary line asked every failure read before it for its node id, and then for
+      // its name - and with --tb=no a run is nothing but summary lines. Both are looked up
+      // instead. An entry only ever stops answering for good: a failure's subject becomes
+      // its node id once, when a line claims it, and a claim is never undone - so each list
+      // keeps a pointer past the entries that no longer answer.
+      const bySubject = new Map(), byName = new Map();
+      const add = (map, key, index) => {
+        let list = map.get(key);
+        if (!list) map.set(key, list = { at: [], next: 0 });
+        list.at.push(index);
+      };
+      const firstOf = (map, key, answers) => {
+        const list = map.get(key);
+        if (!list) return -1;
+        while (list.next < list.at.length && !answers(list.at[list.next])) list.next++;
+        return list.next < list.at.length ? list.at[list.next] : -1;
+      };
+      failures.forEach((f, i) => { add(bySubject, f.subject, i); add(byName, f.title, i); });
+      // Nothing below this one is unclaimed.
+      let lowest = 0;
       for (const entry of entries) {
         const m = lines[entry].match(SUMMARY_ENTRY_RE);
         if (!m) continue;
@@ -205,14 +225,19 @@ export default {
         const message = (m[2] ?? "").trim();
         // A collection error is summarised as bare "ERROR test_broken.py" - no test id
         // and no message - so it says nothing the block above it has not already said.
-        const collected = message ? -1 : failures.findIndex((f, i) =>
-          !claimed.has(i) && (f.file === file || String(f.title).includes(file)));
+        let collected = -1;
+        if (!message) {
+          while (lowest < failures.length && claimed.has(lowest)) lowest++;
+          for (let i = lowest; i < failures.length; i++) {
+            if (!claimed.has(i) && (failures[i].file === file || String(failures[i].title).includes(file))) { collected = i; break; }
+          }
+        }
         if (collected >= 0) { also(claim(collected), entry); continue; }
         // The whole node id first: a log can hold one run printed twice - as the default
         // traceback and again with --tb=line - or two runs of the same suite, and the same
         // test read from both is one failure. This is what tells that apart from two
         // different tests that happen to share a name, which the bare name cannot.
-        const sameTest = failures.findIndex((f) => f.subject === m[1]);
+        const sameTest = firstOf(bySubject, m[1], (i) => failures[i].subject === m[1]);
         if (sameTest >= 0) { also(sameTest, entry); continue; }
         // Otherwise the name decides which block this line is about - a block's banner
         // names the test but not its file, so there is nothing else to go on. Comparing
@@ -220,7 +245,7 @@ export default {
         // arrives damaged - two tools sharing a pipe - no longer matched its own summary
         // line, and the failure was then counted twice. What the name now has to be is
         // unclaimed: two tests called test_total are two, not one read twice.
-        const named = failures.findIndex((f, i) => !claimed.has(i) && f.title === title);
+        const named = firstOf(byName, title, (i) => !claimed.has(i));
         if (named >= 0) {
           // pytest's node id is the whole name of the test, and the only part of it the
           // banner does not carry is the file. It is what tells two tests of one name
@@ -228,6 +253,7 @@ export default {
           // Set, not copied onto a new object: the range a failure was read from is a
           // non-enumerable property, and spreading one silently leaves it behind.
           failures[named].subject = m[1];
+          add(bySubject, m[1], named);
           also(claim(named), entry);
           continue;
         }
@@ -239,6 +265,7 @@ export default {
           message: message || title,
         }, entry, entry + 1);
         claim(failures.length);
+        add(bySubject, m[1], failures.length);
         failures.push(at ? alsoFrom(failure, at.i, at.i + 1) : failure);
       }
     }

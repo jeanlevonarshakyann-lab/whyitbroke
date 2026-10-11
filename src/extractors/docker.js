@@ -40,12 +40,17 @@ const RELAYED = /^process[^\S\n]+".*"[^\S\n]+did not complete successfully:[^\S\
 // the missing daemon and must not become extra diagnoses.
 const DAEMON = /^(?:failed to connect to the docker API at .+?(?:daemon is running|connect: .+)|Cannot connect to the Docker daemon at .+|error during connect: .*(?:docker daemon|docker_engine).*)$/i;
 
-/** Did this build step print anything of its own? BuildKit tags a step's output with
- *  the step number and the elapsed time - `#9 0.211 FF.` - and nothing else it writes
- *  about a step takes that shape. */
-function printedOutput(lines, step) {
-  const re = new RegExp(`^#${step}[^\\S\\n]+\\d+\\.\\d+[^\\S\\n]`);
-  return lines.some((l) => re.test(l));
+/** The build steps that printed anything of their own. BuildKit tags a step's output
+ *  with the step number and the elapsed time - `#9 0.211 FF.` - and nothing else it
+ *  writes about a step takes that shape. Read in one pass: asking the whole log again for
+ *  each failed step made a log of many relayed steps quadratic. */
+function printingSteps(lines) {
+  const steps = new Set();
+  for (const l of lines) {
+    const tagged = l.match(/^#(\d+)[^\S\n]+\d+\.\d+[^\S\n]/);
+    if (tagged) steps.add(tagged[1]);
+  }
+  return steps;
 }
 
 // BuildKit ends a failed build by quoting the failing step's own output between two
@@ -91,9 +96,10 @@ export default {
   detect(s) {
     const lines = s.split("\n");
     if (lines.some((l) => DAEMON.test(l))) return true;
+    let printing = null;
     return lines.some((l) => {
       const st = l.match(STEP_ERROR);
-      if (st) return !RELAYED.test(st[2]) || !printedOutput(lines, st[1]);
+      if (st) return !RELAYED.test(st[2]) || !(printing ??= printingSteps(lines)).has(st[1]);
       const fin = l.match(FINAL_ERROR);
       return !!fin && !RELAYED.test(fin[1]);
     });
@@ -117,6 +123,7 @@ export default {
 
   extract(s) {
     const lines = s.split("\n");
+    let printing = null;
     const daemonAt = lines.findIndex((l) => DAEMON.test(l));
     if (daemonAt >= 0) {
       const message = lines[daemonAt].trim();
@@ -151,7 +158,7 @@ export default {
       // real one and ignoring the restatement is what stops the doubled report.
       if (st) {
         if (!RELAYED.test(st[2])) { if (step === undefined) { step = st[2]; stepAt = i; } }
-        else if (!relayed && !printedOutput(lines, st[1])) { relayed = st[2]; relayedAt = i; }
+        else if (!relayed && !(printing ??= printingSteps(lines)).has(st[1])) { relayed = st[2]; relayedAt = i; }
         continue;
       }
       const fin = lines[i].match(FINAL_ERROR);

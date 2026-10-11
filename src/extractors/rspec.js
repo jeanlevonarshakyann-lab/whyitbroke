@@ -42,7 +42,10 @@ export default {
       const load = lines[i].match(LOAD_ERROR_RE);
       if (load) {
         let file = load[1], line, message = [], end = i + 1;
-        for (let j = i + 1; j < lines.length && !/^No examples found\.|^Finished in /.test(lines[j]); j++) {
+        // Down to the shared footer, or to the next file that failed to load: rspec reports
+        // each before the one footer, and reading on gave this error the later ones' prose
+        // and frames - and read the rest of the log again from every one of them.
+        for (let j = i + 1; j < lines.length && !/^No examples found\.|^Finished in /.test(lines[j]) && !LOAD_ERROR_RE.test(lines[j]); j++) {
           const at = lines[j].match(/^#[^\S\n]+(.+?):(\d+):in\b/) ?? lines[j].match(LOCATION_RE);
           if (at) { file = at[1]; line = +at[2]; end = j + 1; continue; }
           if (lines[j].trim()) { message.push(lines[j].trim()); end = j + 1; }
