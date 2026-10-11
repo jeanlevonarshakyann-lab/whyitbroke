@@ -34,6 +34,11 @@ import mochaxunit from "../src/extractors/mochaxunit.js";
 import bun, { bunRuntime } from "../src/extractors/bun.js";
 import node from "../src/extractors/node.js";
 import taptext from "../src/extractors/taptext.js";
+import nodetest from "../src/extractors/nodetest.js";
+import junitjvm from "../src/extractors/junitjvm.js";
+import deno from "../src/extractors/deno.js";
+import shellcheck from "../src/extractors/shellcheck.js";
+import { xmlAttributes, xmlText } from "../src/util.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -263,6 +268,93 @@ test("a location search inside a long unbroken token", () => {
   nearOrdinary(tableAndReport(51, "x".repeat(5000)));
 });
 
+// ---------------------------------------------------------------- XML reports
+// A report reader that looks for a case's failure, its document's root or the next literal
+// section from the top of the report, or from where it stands to the end, reads the
+// report again for each case - and a monorepo's report holds thousands of them.
+
+test("a node --test JUnit report of thousands of cases", () => {
+  // Each case looked for its failure from the first line of the log.
+  const report = (n) => [
+    '<?xml version="1.0" encoding="utf-8"?>', "<testsuites>",
+    ...Array.from({ length: n }, (_, k) => [`\t<testcase name="skipped ${k}" time="0.0" classname="test">`, '\t\t<skipped type="skipped" message="true"/>', "\t</testcase>"].join("\n")),
+    '\t<testcase name="fails" time="0.000417" classname="test" failure="Expected">', '\t\t<failure type="testCodeFailure" message="Expected">',
+    "[Error [ERR_TEST_FAILURE]: Expected] {", "      at TestContext.&lt;anonymous> (file:///home/dev/reporter.test.js:7:10)", "}", "\t\t</failure>", "\t</testcase>",
+    `\t<!-- tests ${n + 1} -->`, "\t<!-- pass 0 -->", "\t<!-- fail 1 -->", "</testsuites>",
+  ].join("\n");
+  linearIn(nodetest, report, 1001);
+});
+
+test("a Surefire report of thousands of failed cases", () => {
+  // Each case searched all the log above it for its document's root.
+  const report = (n) => [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    `<testsuite name="shop.CartTest" time="0.004" tests="${n}" errors="0" skipped="0" failures="${n}">`,
+    ...Array.from({ length: n }, (_, k) => [
+      `  <testcase name="totals${k}" classname="shop.CartTest" time="0.002">`,
+      `    <failure message="expected: &lt;${k}&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: expected: <${k}> but was: <${k + 1}>`,
+      `\tat shop.CartTest.totals${k}(CartTest.java:${k + 1})`, "]]></failure>", "  </testcase>",
+    ].join("\n")),
+    "</testsuite>",
+  ].join("\n");
+  linearIn(junitjvm, report, 1001);
+});
+
+test("a deno JUnit report cut off after thousands of testcase starts", () => {
+  // A case that never closed read the rest of the report, from every such case.
+  const report = (n) => [
+    '<testsuites name="deno test" tests="1" failures="1" errors="0" time="0.007">',
+    '    <testsuite name="./reporter_test.ts" tests="1" disabled="0" errors="0" failures="1">',
+    '        <testcase name="adds" classname="./reporter_test.ts" time="0.001" line="1" col="6">',
+    '            <failure message="Uncaught Error: expected three">Error: expected three',
+    "    at file:///home/dev/reporter_test.ts:2:26</failure>", "        </testcase>",
+    ...Array.from({ length: n }, (_, k) => `        <testcase name="t${k}" classname="./reporter_test.ts" time="0.001" line="${k + 3}" col="6">`),
+  ].join("\n");
+  linearIn(deno, report, 2001);
+});
+
+test("deno JUnit reports each right after another tool's TAP plan", () => {
+  // Each report asked every line above it whether deno's own TAP had been printed.
+  const runs = (n) => Array.from({ length: n }, (_, k) => [
+    `ok ${k + 1} - other ${k}`, `1..${k + 1}`,
+    '<testsuites name="deno test" tests="1" failures="1" errors="0" time="0.007">',
+    '    <testsuite name="./reporter_test.ts" tests="1" disabled="0" errors="0" failures="1">',
+    `        <testcase name="adds${k}" classname="./reporter_test.ts" time="0.001" line="1" col="6">`,
+    `            <failure message="Uncaught Error: expected ${k}">Error: expected ${k}`,
+    `    at file:///home/dev/reporter_test.ts:${k + 2}:26</failure>`,
+    "        </testcase>", "    </testsuite>", "</testsuites>",
+  ].join("\n")).join("\n");
+  linearIn(deno, runs, 1001);
+});
+
+test("thousands of XML comments before a report's first CDATA section", () => {
+  // Each comment sent the scan looking for the next CDATA section, to the end of the log.
+  const checkstyle = (n) => [
+    "<?xml version='1.0' encoding='UTF-8'?>", "<checkstyle version='4.3'>", "<file name='bad.sh' >",
+    "<error line='3' column='6' severity='warning' message='a is referenced but not assigned.' source='ShellCheck.SC2154' />",
+    "</file>", ...Array.from({ length: n }, (_, k) => `<!-- c${k} -->`), "<![CDATA[ tail ]]>", "</checkstyle>",
+  ].join("\n");
+  linearIn(shellcheck, checkstyle, 4001);
+  // ...and so did the decoding of a failure's own text.
+  const surefire = (n) => [
+    '<testsuite name="shop.CartTest" tests="1" failures="1">',
+    '  <testcase name="totals" classname="shop.CartTest" time="0.002">',
+    `    <failure message="expected" type="org.opentest4j.AssertionFailedError">${"<!-- c -->".repeat(n)}<![CDATA[org.opentest4j.AssertionFailedError: expected`,
+    "\tat shop.CartTest.totals(CartTest.java:9)", "]]></failure>", "  </testcase>", "</testsuite>",
+  ].join("\n");
+  linearIn(junitjvm, surefire, 4001);
+});
+
+test("a report's tag holding a long run of name characters and no `=`", () => {
+  // An attribute name was tried from every character of the run.
+  const checkstyle = (n) => [
+    "<?xml version='1.0' encoding='UTF-8'?>", "<checkstyle version='4.3'>", `<file name='bad.sh' ${"a".repeat(n)}>`,
+    "<error line='3' column='6' severity='warning' message='a is referenced but not assigned.' source='ShellCheck.SC2154' />",
+    "</file>", "</checkstyle>",
+  ].join("\n");
+  linearIn(shellcheck, checkstyle, 5001);
+});
+
 // ------------------------------------------------------------- one long line
 
 // A line pattern that finds its end by trying every place its start could stop - a lazy
@@ -360,6 +452,16 @@ test("each replacement matches exactly what its pattern matched", () => {
     () => pick(["  ", " ", "\n ", "\r "]) + "at " + pick(["f ", "(", "a (b) ", ""]) + pick(["(", "(("]) + pick(["x.js", "", ":1"]) + ":" + pick(["1", "x"]) + ":" + pick(["2", ""]) + ")" + pick(["", "\n", "\u2028", " "]));
   agrees("surefire tally", testing(/Time elapsed:.*<<<[^\S\n]+(?:FAILURE|ERROR)!/), testing(FAILED_TALLY),
     () => pick(["", "Tests run: 1, ", "x"]) + "Time elapsed:" + pick([" 0.01 s ", "", "\u2028", "\n"]) + pick(["<<<", "<<", ""]) + gap() + pick(["FAILURE!", "ERROR!", "FAIL"]) + pick(["", " -- in T"]));
+  // Every attribute of a tag, as the pattern xmlAttributes used to read them.
+  const attributes = (read) => (tag) => { const found = Object.entries(read(tag)); return found.length ? found : null; };
+  agrees("xml attributes", attributes((tag) => {
+    const found = {};
+    for (const match of tag.matchAll(/([\w:.-]+)=(?:"([^"]*)"|'([^']*)')/g)) found[match[1]] = xmlText(match[2] ?? match[3]);
+    return found;
+  }), attributes(xmlAttributes),
+  () => pick(["<file", "<testcase", "<a", ""]) + gap() + pick(["name", "a:b", "x.y-z", "", "aaaa", "1", "\u00e9"]) + pick(["=", "", "=="]) +
+      pick(['"v"', "'v'", '"a b"', "'it''s'", "v", '""', '"x', "&amp;"]) + gap() + pick(["name", "classname", "a", "-", ":"]) + pick(["=", ""]) +
+      pick(['"1"', "'2'", "3", ""]) + pick([">", "/>", ""]));
 });
 
 // ------------------------------------------------------ what every log goes through

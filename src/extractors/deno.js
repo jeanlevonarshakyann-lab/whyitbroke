@@ -143,7 +143,7 @@ function denoTapFailures(text) {
  *  other report's closing tally immediately, with nothing between but the declaration.
  *  Two separate runs always have a run boundary in between - `error: Test failed`, or
  *  the next run's `Check`/`running` line - so a second run is never mistaken for this. */
-function precededByItsOwnRun(lines, rootAt) {
+function precededByItsOwnRun(lines, rootAt, firstDiagnostic) {
   for (let i = rootAt - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (!line || /^<\?xml\b/.test(line)) continue;
@@ -154,7 +154,8 @@ function precededByItsOwnRun(lines, rootAt) {
     // TAP above it is deno's, which its own YAML diagnostic says and no other dialect
     // writes.
     if (!/^1\.\.\d+$/.test(line)) return false;
-    return lines.slice(0, i).some((l) => DENO_TAP_DIAGNOSTIC.test(l));
+    const first = firstDiagnostic();
+    return first !== -1 && first < i;
   }
   return false;
 }
@@ -190,17 +191,24 @@ function denoJunit(text) {
   const lines = text.split("\n");
   const failures = [];
   let passed = 0;
+  // The first line of deno's own TAP, found once. Every report root after a TAP plan asked
+  // every line above that plan again.
+  let first;
+  const firstDiagnostic = () => (first ??= lines.findIndex((l) => DENO_TAP_DIAGNOSTIC.test(l)));
   for (let rootAt = 0; rootAt < lines.length; rootAt++) {
     if (!/<testsuites\b[^>]*\bname="deno test"/.test(lines[rootAt])) continue;
     const root = xmlAttributes(lines[rootAt]);
     let rootEnd = rootAt + 1;
     while (rootEnd < lines.length && !/<\/testsuites>/.test(lines[rootEnd])) rootEnd++;
     // The same run, already reported above in another form. It has nothing to add.
-    if (precededByItsOwnRun(lines, rootAt)) { rootAt = rootEnd; continue; }
+    if (precededByItsOwnRun(lines, rootAt, firstDiagnostic)) { rootAt = rootEnd; continue; }
     for (let i = rootAt + 1; i < rootEnd; i++) {
       if (!/<testcase\b/.test(lines[i])) continue;
       const test = xmlAttributes(lines[i]);
-      for (let j = i + 1; j < rootEnd && !/<\/testcase>/.test(lines[j]); j++) {
+      // A case runs to its closing tag - or, in a report cut off before that tag, to where
+      // the next case starts. Reading on past it gave the next case's failure this case's
+      // name, and read the rest of the report again from every case that never closed.
+      for (let j = i + 1; j < rootEnd && !/<\/testcase>/.test(lines[j]) && !/<testcase\b/.test(lines[j]); j++) {
         const kind = lines[j].match(/<(failure|error)\b/);
         if (!kind) continue;
         const open = startTag(lines, j, rootEnd);
