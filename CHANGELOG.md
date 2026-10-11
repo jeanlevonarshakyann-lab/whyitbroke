@@ -36,6 +36,14 @@
   Cargo paths; file URLs preserve Windows drives and remote hosts; Deno TAP keeps diffs;
   JUnit CDATA cannot close an element; source comparisons are exact; unsafe coordinates
   are discarded; and emoji grapheme sequences keep terminal carets aligned.
+- The same failure in two packages is two failures. Go prints a test file's basename alone
+  and names the package only in the line that closes it, each module prints its files from
+  its own root, and a monorepo runner relays each package's own paths with the package in
+  the prefix it stamps on every line - so packages failing alike were merged into one: a
+  real `go test ./...` over 40 packages reported 64 of its 2,560 failing tests. Only copies
+  that name two different packages are kept apart; a copy that names none, like the plain
+  text of a run inside a `go test -json` stream, is still the same failure. `go test -json`
+  also keeps each package's output with its own tests when packages run in parallel.
 - \`--max-bytes\` is now a strict bound on the complete captured text, including
   whyitbroke's generated elision markers. Incomplete line fragments at a truncation
   boundary are discarded so text inside a clipped structured record cannot become an

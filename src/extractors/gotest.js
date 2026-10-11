@@ -1,5 +1,5 @@
 import { uniqueFailures } from "../util.js";
-import { alsoFrom, withSource } from "../ownership.js";
+import { alsoFrom, sourceRange, withScope, withSource } from "../ownership.js";
 
 const FAIL_RE = /^[^\S\n]*--- (FAIL|SKIP): (\S+)/;
 const PANIC_RE = /^panic: (.+?)(?:[^\S\n]\[recovered.*\])?$/m;
@@ -70,6 +70,48 @@ const RESULT_RE = /^[^\S\n]*--- (PASS|FAIL|SKIP): (\S+)/;
 // as the same test as a TestAdd in the next.
 const TRAILER_RE = /^(?:(?:FAIL|ok)[^\S\n]+\S+[^\S\n]+(?:[\d.]+s|\(cached\))|FAIL|PASS)[^\S\n]*$/;
 
+// The package a stretch of the log belongs to. `go test ./...` closes each package with a
+// line naming it, `FAIL\texample.com/mono/pkg1\t0.012s`, and the testing package prints a
+// file's basename alone - so the same failing test in two packages writes the very same
+// lines, and only that closing line tells them apart. `go build` and `go vet` head each
+// package's errors with `# example.com/mono/pkg1` instead.
+const PACKAGE_TRAILER_RE = /^(?:FAIL|ok)[^\S\n]+(\S+)[^\S\n]+(?:[\d.]+s|\(cached\)|\[[^\]\n]*\])/;
+const PACKAGE_HEADER_RE = /^#[^\S\n]+(\S+(?:[^\S\n]+\[[^\]\s]+\])?)[^\S\n]*$/;
+
+/** The package go means by `desc`. A package compiled for its tests is named with the test
+ *  binary after it, `example.com/mono/pkg [example.com/mono/pkg.test]`, its external test
+ *  package as `example.com/mono/pkg_test [example.com/mono/pkg.test]`, and vet calls the
+ *  test variant `[example.com/mono/pkg]` - all of them one package, whose tests run as
+ *  `example.com/mono/pkg`. */
+export function goPackage(desc) {
+  const named = String(desc ?? "").trim();
+  const binary = named.match(/\[([^\]\s]+)\]$/)?.[1];
+  return binary ? binary.replace(/\.test$/, "") : named.split(/\s/)[0];
+}
+
+/** Each failure under the package it was reported in - see SCOPE in ownership.js. A test's
+ *  package is named by the first closing line at or after it, a compile error's by the
+ *  last header above it - unless the caller knows a line's package outright, as `go test
+ *  -json` says on every event. A stream of events can carry plain lines too, and those
+ *  are named by their own closing lines and headers, never by an event's. */
+function packaged(failures, lines, packageOf) {
+  const closing = new Array(lines.length + 1).fill(null), heading = new Array(lines.length).fill(null);
+  for (let k = lines.length - 1; k >= 0; k--) {
+    closing[k] = (!packageOf?.(k) && lines[k].match(PACKAGE_TRAILER_RE)?.[1]) || closing[k + 1];
+  }
+  for (let k = 0, last = null; k < lines.length; k++) {
+    const header = !packageOf?.(k) && lines[k].match(PACKAGE_HEADER_RE)?.[1];
+    heading[k] = last = header ? goPackage(header) : last;
+  }
+  return failures.map((failure) => {
+    const at = sourceRange(failure)?.start;
+    if (at === undefined) return failure;
+    const known = packageOf?.(at);
+    if (known) return withScope(failure, known);
+    return withScope(failure, failure.title === "compile error" ? heading[at] : closing[at]);
+  });
+}
+
 /** What one test printed: its location, its messages, and a panic's own frame - and the
  *  lines of the log each came from, `at[j]` being where `block[j]` was. */
 function details(block, at) {
@@ -96,24 +138,34 @@ function details(block, at) {
  *  "--- FAIL" line. Resolved only once the package is read: a panic's dump comes after
  *  the test's result line, and still belongs to it. A plain log has no frames, and gets
  *  an empty map. */
-function verboseBlocks(lines) {
+function verboseBlocks(lines, packageOf) {
   const out = new Map();
   if (!lines.some((l) => FRAME_RE.test(l))) return out;
-  let seg = new Map(), current = null;
+  // Where each line's package is known, each package frames its own tests: a TestAdd in
+  // one package is not the TestAdd in the next, and `go test -json` closes every package
+  // only once all of them have run.
+  const packages = new Map();
+  const state = (i) => {
+    const key = packageOf?.(i) ?? "";
+    let st = packages.get(key);
+    if (!st) packages.set(key, st = { seg: new Map(), current: null });
+    return st;
+  };
   const pending = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
+    const st = state(i);
     const f = l.match(FRAME_RE);
-    if (f) { current = f[1]; continue; }
+    if (f) { st.current = f[1]; continue; }
     const r = l.match(RESULT_RE);
-    if (r) { if (r[1] === "FAIL") pending.push([i, r[2], seg]); continue; }
-    if (TRAILER_RE.test(l)) { current = null; seg = new Map(); continue; }
-    if (current == null) continue;
+    if (r) { if (r[1] === "FAIL") pending.push([i, r[2], st.seg]); continue; }
+    if (TRAILER_RE.test(l)) { st.current = null; st.seg = new Map(); continue; }
+    if (st.current == null) continue;
     // Each line with where it was: parallel tests interleave, so a test's lines are
     // not one stretch of the log.
-    if (!seg.has(current)) seg.set(current, { block: [], at: [] });
-    seg.get(current).block.push(l);
-    seg.get(current).at.push(i);
+    if (!st.seg.has(st.current)) st.seg.set(st.current, { block: [], at: [] });
+    st.seg.get(st.current).block.push(l);
+    st.seg.get(st.current).at.push(i);
   }
   for (const [i, name, s] of pending) out.set(i, s.get(name) ?? { block: [], at: [] });
   return out;
@@ -159,7 +211,8 @@ export default {
     (PANIC_RE.test(s) && /^goroutine \d+ \[/m.test(s)) ||
     refusal(s.split("\n")) !== null,
 
-  extract(s) {
+  /** `packageOf(k)`, where given, is the package line k of `s` came from. */
+  extract(s, { packageOf } = {}) {
     const lines = s.split("\n");
     const failures = [];
 
@@ -204,7 +257,7 @@ export default {
     }
 
     // --- test failures ---
-    const attributed = verboseBlocks(lines);
+    const attributed = verboseBlocks(lines, packageOf);
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(FAIL_RE);
       if (!m || m[1] !== "FAIL") continue;
@@ -217,7 +270,9 @@ export default {
       let found = own ? details(own.block, own.at) : { msg: [], used: [] };
       if (!found.msg.length && !found.file) {
         const ahead = [], at = [];
-        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]); j++) { ahead.push(lines[j]); at.push(j); }
+        // ...and never into another package's lines, which `go test -json` interleaves.
+        const mine = (j) => !packageOf || packageOf(j) === packageOf(i);
+        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]) && mine(j); j++) { ahead.push(lines[j]); at.push(j); }
         found = details(ahead, at);
       }
       const { file, line, msg, used } = found;
@@ -229,7 +284,7 @@ export default {
       failures.push(failure);
     }
 
-    const distinct = uniqueFailures(failures);
+    const distinct = uniqueFailures(packaged(failures, lines, packageOf));
     failures.length = 0;
     failures.push(...distinct);
     const builds = failures.filter((f) => f.title === "compile error").length;

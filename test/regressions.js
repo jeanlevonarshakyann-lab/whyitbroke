@@ -142,6 +142,262 @@ test("A spaced directory shared by every line is still part of the path", () => 
   }
 });
 
+// `go test ./...` over a module whose three packages each fail the same three tests, captured
+// from go 1.24 - verbose, and as `go test -json` (its output events). The testing package
+// prints a file's basename alone, so the packages write the very same failures.
+const GO_THREE_PACKAGES = [
+    "=== RUN   TestOk1",
+    "--- PASS: TestOk1 (0.00s)",
+    "=== RUN   TestInvoice2",
+    "    shop_test.go:6: computing invoice 2",
+    "    shop_test.go:6: Total() = 4, want 5",
+    "--- FAIL: TestInvoice2 (0.00s)",
+    "=== RUN   TestOk3",
+    "--- PASS: TestOk3 (0.00s)",
+    "=== RUN   TestInvoice4",
+    "    shop_test.go:8: computing invoice 4",
+    "    shop_test.go:8: Total() = 8, want 9",
+    "--- FAIL: TestInvoice4 (0.00s)",
+    "=== RUN   TestOk5",
+    "--- PASS: TestOk5 (0.00s)",
+    "=== RUN   TestInvoice6",
+    "    shop_test.go:10: computing invoice 6",
+    "    shop_test.go:10: Total() = 12, want 13",
+    "--- FAIL: TestInvoice6 (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/mono/pkg1\t0.005s",
+    "=== RUN   TestOk1",
+    "--- PASS: TestOk1 (0.00s)",
+    "=== RUN   TestInvoice2",
+    "    shop_test.go:6: computing invoice 2",
+    "    shop_test.go:6: Total() = 4, want 5",
+    "--- FAIL: TestInvoice2 (0.00s)",
+    "=== RUN   TestOk3",
+    "--- PASS: TestOk3 (0.00s)",
+    "=== RUN   TestInvoice4",
+    "    shop_test.go:8: computing invoice 4",
+    "    shop_test.go:8: Total() = 8, want 9",
+    "--- FAIL: TestInvoice4 (0.00s)",
+    "=== RUN   TestOk5",
+    "--- PASS: TestOk5 (0.00s)",
+    "=== RUN   TestInvoice6",
+    "    shop_test.go:10: computing invoice 6",
+    "    shop_test.go:10: Total() = 12, want 13",
+    "--- FAIL: TestInvoice6 (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/mono/pkg2\t0.004s",
+    "=== RUN   TestOk1",
+    "--- PASS: TestOk1 (0.00s)",
+    "=== RUN   TestInvoice2",
+    "    shop_test.go:6: computing invoice 2",
+    "    shop_test.go:6: Total() = 4, want 5",
+    "--- FAIL: TestInvoice2 (0.00s)",
+    "=== RUN   TestOk3",
+    "--- PASS: TestOk3 (0.00s)",
+    "=== RUN   TestInvoice4",
+    "    shop_test.go:8: computing invoice 4",
+    "    shop_test.go:8: Total() = 8, want 9",
+    "--- FAIL: TestInvoice4 (0.00s)",
+    "=== RUN   TestOk5",
+    "--- PASS: TestOk5 (0.00s)",
+    "=== RUN   TestInvoice6",
+    "    shop_test.go:10: computing invoice 6",
+    "    shop_test.go:10: Total() = 12, want 13",
+    "--- FAIL: TestInvoice6 (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/mono/pkg3\t0.003s",
+    "FAIL",
+  ].join("\n");
+const GO_THREE_PACKAGES_JSON = [
+    "{\"Time\":\"2026-10-11T01:36:08.73824125Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk1\",\"Output\":\"=== RUN   TestOk1\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738295511Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk1\",\"Output\":\"--- PASS: TestOk1 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738309158Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice2\",\"Output\":\"=== RUN   TestInvoice2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738312123Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: computing invoice 2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73831541Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: Total() = 4, want 5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738319015Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice2\",\"Output\":\"--- FAIL: TestInvoice2 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738327418Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk3\",\"Output\":\"=== RUN   TestOk3\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738330751Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk3\",\"Output\":\"--- PASS: TestOk3 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738338091Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice4\",\"Output\":\"=== RUN   TestInvoice4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738340403Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: computing invoice 4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738342966Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: Total() = 8, want 9\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738346083Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice4\",\"Output\":\"--- FAIL: TestInvoice4 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738355645Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk5\",\"Output\":\"=== RUN   TestOk5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738358468Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestOk5\",\"Output\":\"--- PASS: TestOk5 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738365324Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice6\",\"Output\":\"=== RUN   TestInvoice6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738367536Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: computing invoice 6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738369767Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: Total() = 12, want 13\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738381429Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Test\":\"TestInvoice6\",\"Output\":\"--- FAIL: TestInvoice6 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738386607Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Output\":\"FAIL\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738398928Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk1\",\"Output\":\"=== RUN   TestOk1\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738410934Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk1\",\"Output\":\"--- PASS: TestOk1 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73841987Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice2\",\"Output\":\"=== RUN   TestInvoice2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738422258Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: computing invoice 2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738424527Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: Total() = 4, want 5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738427422Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice2\",\"Output\":\"--- FAIL: TestInvoice2 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738439578Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk3\",\"Output\":\"=== RUN   TestOk3\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738442335Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk3\",\"Output\":\"--- PASS: TestOk3 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738449507Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice4\",\"Output\":\"=== RUN   TestInvoice4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738451826Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: computing invoice 4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738454188Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: Total() = 8, want 9\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738457056Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice4\",\"Output\":\"--- FAIL: TestInvoice4 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738464281Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk5\",\"Output\":\"=== RUN   TestOk5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738466724Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestOk5\",\"Output\":\"--- PASS: TestOk5 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73847353Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice6\",\"Output\":\"=== RUN   TestInvoice6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738479347Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: computing invoice 6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738485732Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: Total() = 12, want 13\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738488608Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Test\":\"TestInvoice6\",\"Output\":\"--- FAIL: TestInvoice6 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738493177Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Output\":\"FAIL\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73850508Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk1\",\"Output\":\"=== RUN   TestOk1\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738516559Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk1\",\"Output\":\"--- PASS: TestOk1 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738523345Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice2\",\"Output\":\"=== RUN   TestInvoice2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738525676Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: computing invoice 2\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738528139Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice2\",\"Output\":\"    shop_test.go:6: Total() = 4, want 5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738531035Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice2\",\"Output\":\"--- FAIL: TestInvoice2 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738537695Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk3\",\"Output\":\"=== RUN   TestOk3\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738540377Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk3\",\"Output\":\"--- PASS: TestOk3 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73854704Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice4\",\"Output\":\"=== RUN   TestInvoice4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738549262Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: computing invoice 4\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738552413Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice4\",\"Output\":\"    shop_test.go:8: Total() = 8, want 9\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73855562Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice4\",\"Output\":\"--- FAIL: TestInvoice4 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738562622Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk5\",\"Output\":\"=== RUN   TestOk5\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738565161Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestOk5\",\"Output\":\"--- PASS: TestOk5 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738574807Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice6\",\"Output\":\"=== RUN   TestInvoice6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.73857706Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: computing invoice 6\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738579425Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice6\",\"Output\":\"    shop_test.go:10: Total() = 12, want 13\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738582138Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Test\":\"TestInvoice6\",\"Output\":\"--- FAIL: TestInvoice6 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.738586829Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Output\":\"FAIL\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.739269464Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg2\",\"Output\":\"FAIL\\texample.com/mono/pkg2\\t0.004s\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.739273225Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg3\",\"Output\":\"FAIL\\texample.com/mono/pkg3\\t0.003s\\n\"}",
+    "{\"Time\":\"2026-10-11T01:36:08.739411699Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg1\",\"Output\":\"FAIL\\texample.com/mono/pkg1\\t0.004s\\n\"}",
+  ].join("\n");
+// The same events go wrote for pkg5's TestCart91 and pkg6's TestInvoice10, in the order it
+// wrote them: running packages in parallel, it put pkg6's assertion right under pkg5's
+// result line.
+const GO_INTERLEAVED_JSON = [
+    "{\"Time\":\"2026-10-11T01:32:23.975725067Z\",\"Action\":\"run\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975727049Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91\",\"Output\":\"=== RUN   TestCart91\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975729341Z\",\"Action\":\"run\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/a\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.97573176Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/a\",\"Output\":\"=== RUN   TestCart91/a\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975736112Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/a\",\"Output\":\"    shop_test.go:95: case a broke\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975741047Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/a\",\"Output\":\"--- FAIL: TestCart91/a (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975743824Z\",\"Action\":\"fail\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/a\",\"Elapsed\":0}",
+    "{\"Time\":\"2026-10-11T01:32:23.975746989Z\",\"Action\":\"run\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/b\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975749737Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/b\",\"Output\":\"=== RUN   TestCart91/b\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975752368Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/b\",\"Output\":\"    shop_test.go:95: case b broke\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975755458Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/b\",\"Output\":\"--- FAIL: TestCart91/b (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.975758427Z\",\"Action\":\"fail\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91/b\",\"Elapsed\":0}",
+    "{\"Time\":\"2026-10-11T01:32:23.976748523Z\",\"Action\":\"run\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976750692Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\",\"Output\":\"=== RUN   TestInvoice10\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976753162Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\",\"Output\":\"    shop_test.go:14: computing invoice 10\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976747717Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91\",\"Output\":\"--- FAIL: TestCart91 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976755905Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\",\"Output\":\"    shop_test.go:14: Total() = 20, want 21\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976757712Z\",\"Action\":\"fail\",\"Package\":\"example.com/mono/pkg5\",\"Test\":\"TestCart91\",\"Elapsed\":0}",
+    "{\"Time\":\"2026-10-11T01:32:23.976759629Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\",\"Output\":\"--- FAIL: TestInvoice10 (0.00s)\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.976763107Z\",\"Action\":\"fail\",\"Package\":\"example.com/mono/pkg6\",\"Test\":\"TestInvoice10\",\"Elapsed\":0}",
+    "{\"Time\":\"2026-10-11T01:32:23.977034231Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Output\":\"FAIL\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.977089724Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg5\",\"Output\":\"FAIL\\texample.com/mono/pkg5\\t0.008s\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.979023584Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Output\":\"FAIL\\n\"}",
+    "{\"Time\":\"2026-10-11T01:32:23.979085767Z\",\"Action\":\"output\",\"Package\":\"example.com/mono/pkg6\",\"Output\":\"FAIL\\texample.com/mono/pkg6\\t0.010s\\n\"}",
+  ].join("\n");
+
+test("The same failure in two Go packages is two failures", () => {
+  for (const [name, text] of [["verbose", GO_THREE_PACKAGES], ["json", GO_THREE_PACKAGES_JSON]]) {
+    const result = analyse(text, { cluster: false });
+    assert.equal(result.tool, "go test", name);
+    assert.equal(result.failures.length, 9, name);
+    assert.equal(result.summary, "9 tests failed", name);
+  }
+});
+
+test("A Go test's output is read from its own package when go test -json interleaves packages", () => {
+  const result = analyse(GO_INTERLEAVED_JSON, { cluster: false });
+  assert.deepEqual(result.failures.map((f) => [f.title, f.message.split("\n").pop()]), [
+    ["TestCart91/a", "case a broke"], ["TestCart91/b", "case b broke"], ["TestInvoice10", "Total() = 20, want 21"],
+  ]);
+});
+
+test("Two packages failing alike under a monorepo runner are two packages' failures", () => {
+  for (const name of ["jest_fail.txt", "pytest_fail.txt", "vitest_fail.txt"]) {
+    const bare = analyse(fx(name), { cluster: false });
+    const both = analyse([wrapped(fx(name), "api:test: "), wrapped(fx(name), "web:test: ")].join("\n"), { cluster: false });
+    assert.equal(both.tool, bare.tool, name);
+    assert.equal(both.failures.length, 2 * bare.failures.length, name);
+    // ...while one package printed twice is still one package's failures.
+    const twice = analyse([wrapped(fx(name), "api:test: "), "unrelated output", wrapped(fx(name), "api:test: ")].join("\n"), { cluster: false });
+    assert.equal(twice.failures.length, bare.failures.length, name);
+  }
+});
+
+// `go test ./...`, `go test -json ./...` and `go vet ./...` run in each of two modules whose
+// util.go has the same mistake, captured from go 1.24. Each module prints its files from its
+// own root, so both write `./util.go:8:15: undefined: missing`, and only the header above
+// it says which module it was. go names a package compiled for its tests with the test
+// binary after it, and vet names it `[example.com/billing]`.
+const GO_TWO_MODULES = {
+  plain: [
+    "# example.com/billing [example.com/billing.test]",
+    "./util.go:8:15: undefined: missing",
+    "FAIL\texample.com/billing [build failed]",
+    "FAIL",
+    "# example.com/shipping [example.com/shipping.test]",
+    "./util.go:8:15: undefined: missing",
+    "FAIL\texample.com/shipping [build failed]",
+    "FAIL",
+  ].join("\n"),
+  json: [
+    "{\"ImportPath\":\"example.com/billing [example.com/billing.test]\",\"Action\":\"build-output\",\"Output\":\"# example.com/billing [example.com/billing.test]\\n\"}",
+    "{\"ImportPath\":\"example.com/billing [example.com/billing.test]\",\"Action\":\"build-output\",\"Output\":\"./util.go:8:15: undefined: missing\\n\"}",
+    "{\"ImportPath\":\"example.com/billing [example.com/billing.test]\",\"Action\":\"build-fail\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.349699836Z\",\"Action\":\"start\",\"Package\":\"example.com/billing\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.349861987Z\",\"Action\":\"output\",\"Package\":\"example.com/billing\",\"Output\":\"FAIL\\texample.com/billing [build failed]\\n\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.349876136Z\",\"Action\":\"fail\",\"Package\":\"example.com/billing\",\"Elapsed\":0,\"FailedBuild\":\"example.com/billing [example.com/billing.test]\"}",
+    "{\"ImportPath\":\"example.com/shipping [example.com/shipping.test]\",\"Action\":\"build-output\",\"Output\":\"# example.com/shipping [example.com/shipping.test]\\n\"}",
+    "{\"ImportPath\":\"example.com/shipping [example.com/shipping.test]\",\"Action\":\"build-output\",\"Output\":\"./util.go:8:15: undefined: missing\\n\"}",
+    "{\"ImportPath\":\"example.com/shipping [example.com/shipping.test]\",\"Action\":\"build-fail\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.527527666Z\",\"Action\":\"start\",\"Package\":\"example.com/shipping\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.527565591Z\",\"Action\":\"output\",\"Package\":\"example.com/shipping\",\"Output\":\"FAIL\\texample.com/shipping [build failed]\\n\"}",
+    "{\"Time\":\"2026-10-11T02:08:19.527572982Z\",\"Action\":\"fail\",\"Package\":\"example.com/shipping\",\"Elapsed\":0,\"FailedBuild\":\"example.com/shipping [example.com/shipping.test]\"}",
+  ].join("\n"),
+  vet: [
+    "# example.com/billing",
+    "# [example.com/billing]",
+    "vet: ./util.go:8:15: undefined: missing",
+    "# example.com/shipping",
+    "# [example.com/shipping]",
+    "vet: ./util.go:8:15: undefined: missing",
+  ].join("\n"),
+};
+
+test("The same compile error in two Go modules is two failures, however go printed it", () => {
+  for (const [name, text] of Object.entries(GO_TWO_MODULES)) {
+    const result = analyse(text, { cluster: false });
+    assert.equal(result.failures.length, 2, name);
+    assert.equal(result.summary, name === "vet" ? "2 errors" : "2 compile errors", name);
+  }
+});
+
+test("One Go run printed two ways is read once", () => {
+  // A package's own failures, as text and as events, or as go test and go vet saw them,
+  // are that package's whichever way they were printed...
+  for (const [a, b] of [["plain", "json"], ["json", "plain"], ["vet", "plain"]]) {
+    const result = analyse(`${GO_TWO_MODULES[a]}\n${GO_TWO_MODULES[b]}`, { cluster: false });
+    assert.equal(result.failures.length, 2, `${a} + ${b}`);
+  }
+  const plain = fx("gotest_build_and_tests_fail.txt"), json = fx("gotest_build_and_tests_json_fail.txt");
+  for (const [name, text, summary] of [
+    ["text + events", `${plain}\n${json}`, "1 compile error, 3 tests failed"],
+    ["events + text", `${json}\n${plain}`, "1 compile error, 3 tests failed"],
+    ["go build + go vet", `${fx("go_windows_build_fail.txt")}\n${fx("go_windows_vet_fail.txt")}`, "4 errors"],
+    // ...and a copy whose closing line was cut off, so that it names no package at all, is
+    // still the same failure as the copy that names one.
+    ["events + text cut short", `${json}\n${plain.split("\n").slice(0, 10).join("\n")}`, "1 compile error, 3 tests failed"],
+  ]) {
+    const result = analyse(text, { cluster: false });
+    assert.equal(result.summary, summary, name);
+    assert.equal(result.failures.length, 4, name);
+  }
+});
+
 test("Oxlint agent and unix paths accept spaces", () => {
   for (const name of ["oxlint_agent_same_fail.txt", "oxlint_unix_fail.txt"]) {
     const text = fx(name).replaceAll("src/", "my project/src/");
