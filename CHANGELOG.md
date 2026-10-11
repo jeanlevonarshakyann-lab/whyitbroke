@@ -46,6 +46,16 @@
   Go panics, Less, PHP, mypy, .NET, cargo, CMake, Ruby and Minitest lines, and Perl's
   warning phrases each read the rest of a long line again from every place their pattern
   could stop. Each reader is held, on random lines, to the pattern it replaces.
+- Output past `--max-bytes` keeps what is printed after a progress bar. The capture ended
+  lines only at a newline, where every parser also breaks one at a bare carriage return:
+  an error printed after a redraw was part of the bar's line, and in the middle of a
+  large log a bar longer than 64KiB was skipped whole, error and all, while output made
+  only of redraws kept nothing but the marker. A tail that began exactly where a line did
+  lost that line anyway; when it was PHPUnit's start of the failing test, the failure
+  went with it. Output that arrives a few bytes at a time no longer costs more per byte:
+  the tail moved every chunk it held for each one that arrived, so 12MB written a line at
+  a time took four seconds past the default cap, and a line longer than the scan copied
+  its last 64KiB again for every chunk.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring
