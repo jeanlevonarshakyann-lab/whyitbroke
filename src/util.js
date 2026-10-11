@@ -1,4 +1,4 @@
-import { joinSources } from "./ownership.js";
+import { adoptScopes, joinSources, scopeOf } from "./ownership.js";
 
 // CSI covers colours plus cursor/erase controls; OSC covers terminal hyperlinks and
 // window-title commands, terminated by BEL or ST. Both have seven- and eight-bit
@@ -34,11 +34,12 @@ export const stripAnsi = (s) => {
 export function uniqueFailures(failures) {
   const seen = new Map();
   const unique = [];
-  for (const failure of failures) {
-    const key = JSON.stringify([
-      failure.file ?? null, failure.line ?? null, failure.col ?? null,
-      failure.title ?? "", failure.message ?? "", failure.stmt ?? "",
-    ]);
+  const diagnosis = (f) => JSON.stringify([
+    f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? "", f.message ?? "", f.stmt ?? "",
+  ]);
+  // The same failure in two packages is two failures - see SCOPE in ownership.js.
+  for (const failure of adoptScopes(failures, diagnosis)) {
+    const key = JSON.stringify([diagnosis(failure), scopeOf(failure)]);
     // A copy says where it was read, and the first keeps that.
     if (seen.has(key)) unique[seen.get(key)] = joinSources(unique[seen.get(key)], failure);
     else { seen.set(key, unique.length); unique.push(failure); }
