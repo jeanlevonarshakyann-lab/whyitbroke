@@ -11,6 +11,13 @@
 // so both readings of it are kept: a finding shown twice rather than one hidden.
 export const SOURCE_RANGE = Symbol("whyitbroke.sourceRange");
 const PARSER = Symbol("whyitbroke.parser");
+// Which package a failure was reported under, where the log says. A monorepo runs one tool
+// in many packages, and a test file's path is often the package's own: Go prints the
+// basename alone and names the package in the line that closes it, and a runner relaying
+// each package's jest or pytest prints their paths from inside the package, its name in the
+// prefix it stamps every line with. Two packages failing alike then write the very same
+// failure, and without this they were read as one. Private, as the source range is.
+const SCOPE = Symbol("whyitbroke.scope");
 const LINES = Symbol("whyitbroke.lines");
 
 /** Record that `failure` was read from lines [start, end) of the text its parser was given.
@@ -75,7 +82,7 @@ export function joinSources(kept, dropped) {
     places.every((p, i) => p.start === placesOf(a.value)[i].start && p.end === placesOf(a.value)[i].end);
   if (unchanged) return kept;
   const [first, ...also] = places;
-  const copy = { ...kept };
+  const copy = preserveScope(kept, { ...kept });
   Object.defineProperty(copy, SOURCE_RANGE, { value: also.length ? { ...first, also } : first, enumerable: false, configurable: true });
   return copy;
 }
@@ -90,7 +97,7 @@ export function throughOrigin(failure, origin) {
   const [first, ...also] = placesOf(own.value)
     .map(({ start, end }) => ({ start: origin[start], end: origin[end - 1] + 1 }))
     .reduce(withPlace, []);
-  const copy = { ...failure };
+  const copy = preserveScope(failure, { ...failure });
   Object.defineProperty(copy, SOURCE_RANGE, { value: also.length ? { ...first, also } : first, enumerable: false, configurable: true });
   return copy;
 }
@@ -98,6 +105,45 @@ export function throughOrigin(failure, origin) {
 export function preserveSourceRange(from, to) {
   const own = from && Object.getOwnPropertyDescriptor(from, SOURCE_RANGE);
   if (own) Object.defineProperty(to, SOURCE_RANGE, { ...own, enumerable: false });
+  return preserveScope(from, to);
+}
+
+/** `failure`, reported under the package `scope` - see SCOPE. An empty scope is none. */
+export function withScope(failure, scope) {
+  if (scope) Object.defineProperty(failure, SCOPE, { value: String(scope), enumerable: false, configurable: true });
+  return failure;
+}
+
+export function scopeOf(failure) {
+  return failure?.[SCOPE] ?? null;
+}
+
+/** `failures`, each copy that names no package taken to be under the package the first
+ *  other copy of its diagnosis names - `same(failure)` says which diagnosis it is. A log
+ *  need not say a package on every line that repeats a failure - a stream of events can
+ *  carry the plain text of a run too, and a closing line can be cut off - and a copy that
+ *  names none could be any package's. So only copies that name two different packages are
+ *  two failures; the rest stay one, as they were before packages were read at all. */
+export function adoptScopes(failures, same) {
+  let named = null;
+  for (const failure of failures) {
+    const scope = scopeOf(failure);
+    if (scope === null) continue;
+    named ??= new Map();
+    const key = same(failure);
+    if (!named.has(key)) named.set(key, scope);
+  }
+  if (!named) return failures;
+  return failures.map((failure) => {
+    if (scopeOf(failure) !== null) return failure;
+    const scope = named.get(same(failure));
+    return scope === undefined ? failure : withScope(preserveSourceRange(failure, { ...failure }), scope);
+  });
+}
+
+function preserveScope(from, to) {
+  const own = from && Object.getOwnPropertyDescriptor(from, SCOPE);
+  if (own) Object.defineProperty(to, SCOPE, { ...own, enumerable: false });
   return to;
 }
 

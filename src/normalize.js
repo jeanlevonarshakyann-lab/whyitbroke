@@ -113,7 +113,7 @@ function literalPrefix(text) {
 // every shape added here has to be proven against the whole fixture corpus.
 // Bare ISO CI timestamps are not here - stripCiPrefix in util.js already handles them.
 const SHAPES = [
-  { name: "pnpm", re: PNPM_TASK_PREFIX,
+  { name: "pnpm", re: PNPM_TASK_PREFIX, source: true,
     label: (text) => text.split("\n").find((line) => PNPM_TASK_PREFIX.test(line))?.match(PNPM_TASK_PREFIX)?.[0] ?? "pnpm" },
 
   // Turborepo and similar monorepo runners use `<package>:<task>: `. This grammar is
@@ -121,7 +121,7 @@ const SHAPES = [
   // shape instead of relying on a before/after parse. That matters when a parser can
   // read through the stamp but mistakes it for part of every file name (cargo did).
   // TASK_PREFIX consumes consecutive labels, so nested runners come off atomically.
-  { name: "turborepo", re: TASK_PREFIX, label: taskWrapperLabel },
+  { name: "turborepo", re: TASK_PREFIX, source: true, label: taskWrapperLabel },
 
   // Azure Pipelines prefixes debug output with a workflow command rather than a
   // timestamp. It is adjacent to the relayed text: "##[debug]Error: ...".
@@ -130,7 +130,7 @@ const SHAPES = [
   // `kubectl logs --prefix` uses the source pod and container in a bracketed prefix:
   // "[pod/api-7d9/api] ". The two slash-delimited components and closing bracket keep
   // this narrower than a guessed bare pod-name prefix.
-  { name: "kubectl logs", re: /^\[pod\/[^/\]\n]+\/[^/\]\n]+\][^\S\n]/ },
+  { name: "kubectl logs", re: /^\[pod\/[^/\]\n]+\/[^/\]\n]+\][^\S\n]/, source: true },
 
   // Docker BuildKit: "#12 1.234 " - step number constant, elapsed seconds counting up.
   //
@@ -211,8 +211,25 @@ function mixedTaskPrefixes(text) {
   return {
     kind: "literal",
     wrapper: [...found].sort().join(" | "),
+    source: true,
     text: text.split("\n").map((line) => line.replace(TASK_PREFIX, "")).join("\n"),
   };
+}
+
+/** The package a runner names in front of `line`, or "": `api:test`, `@scope/api test`,
+ *  `pod/api-7d9/api`. A runner that relays many packages' output into one stream stamps
+ *  each line with the package it came from, and that stamp is all that tells the same
+ *  failure in two packages apart - see SCOPE in ownership.js. A CI stamp may stand in front
+ *  of it, and is not part of it: only the shapes above that name a source are read here. */
+export function runnerLabel(line) {
+  let rest = String(line);
+  for (const { re, source } of SHAPES) if (!source) rest = rest.replace(re, "");
+  for (const { re, source } of SHAPES) {
+    if (!source) continue;
+    const label = rest.match(re)?.[0];
+    if (label) return label.trim().replace(/:$/, "");
+  }
+  return "";
 }
 
 /** A progress renderer uses bare carriage returns inside physical lines. A CI collector
@@ -286,6 +303,7 @@ export function wrapperCandidates(text) {
   for (const shape of SHAPES) {
     if (uniform(text, shape.re, SHAPE_UNIFORM)) out.push({
       kind: "shape", wrapper: shape.label?.(text) ?? shape.name, text: stripShape(text, shape.re),
+      ...(shape.source ? { source: true } : {}),
     });
   }
   const block = buildkitBlock(text);

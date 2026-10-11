@@ -79,8 +79,8 @@ import generic from "./extractors/generic.js";
 import { stripAnsi, stripCiPrefix, isNoise, collapseRepeats } from "./util.js";
 import { clusterFailures } from "./cluster.js";
 import { readers } from "./router.js";
-import { stripRedrawnCiPrefix, wrapperCandidates } from "./normalize.js";
-import { joinSources, preserveSourceRange, rangesOverlap, setLines, setParser, sourceRange } from "./ownership.js";
+import { runnerLabel, stripRedrawnCiPrefix, wrapperCandidates } from "./normalize.js";
+import { adoptScopes, joinSources, preserveSourceRange, rangesOverlap, scopeOf, setLines, setParser, sourceRange, withScope } from "./ownership.js";
 import { portablePath } from "./location.js";
 
 // order matters: most specific first, generic last
@@ -139,15 +139,16 @@ function normalizeFailure(failure) {
 function dedupeNormalizedFailures(normalized) {
   const seen = new Map();
   const unique = [];
-  for (const failure of normalized) {
+  const diagnosis = (f) => JSON.stringify([
+    f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? "", f.message ?? "",
+  ]);
+  // The same failure in two packages is two failures - see SCOPE in ownership.js.
+  for (const failure of adoptScopes(normalized, diagnosis)) {
     // `stmt` is optional context for rendering, not part of a diagnosis's identity.
     // Two reporters can preserve the same failure while only one keeps the offending
     // source line. Counting those as separate made one crash appear twice in a shredded
     // JUnit/spec stream. Keep one copy, preferring the one that can show the source.
-    const key = JSON.stringify([
-      failure.file ?? null, failure.line ?? null, failure.col ?? null,
-      failure.title ?? "", failure.message ?? "",
-    ]);
+    const key = JSON.stringify([diagnosis(failure), scopeOf(failure)]);
     const candidates = seen.get(key) ?? [];
     const index = candidates.find((i) => !quoteDiffers(unique[i], failure));
     if (index === undefined) {
@@ -230,7 +231,7 @@ const MAX_TEXT_COMPARISONS = 4_000_000;
  *
  *  `failures` still means "what the winning tool reported", unchanged, so nothing that
  *  reads it sees a different shape. Everything else arrives here, attributed. */
-function otherTools(s, winner, mine, cluster, extractors) {
+function otherTools(s, winner, mine, cluster, extractors, scoped = (f) => f) {
   const exact = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? "", f.message ?? ""]);
   const claimed = new Map();
   const claim = (f) => claimed.set(exact(f), [...(claimed.get(exact(f)) ?? []), f]);
@@ -308,7 +309,7 @@ function otherTools(s, winner, mine, cluster, extractors) {
     if (!r?.failures?.length) continue;
     // A shared location does not prove a shared diagnostic, and missing locations
     // say nothing at all. Compare diagnostic content consistently for the winner and other tools.
-    const fresh = dedupeNormalizedFailures(r.failures.map(located).map(normalizeFailure)
+    const fresh = dedupeNormalizedFailures(r.failures.map(located).map(scoped).map(normalizeFailure)
       .filter((f) => !isClaimed(f))
       .filter((f) => !sameSourceAsClaimed(f))
       .filter((f) => !f.file || !(locations.get(JSON.stringify([fileName(f.file), f.line ?? null])) ?? [])
@@ -591,6 +592,8 @@ function unwrap(s, command, extractors) {
   // taking that too swaps a correct parse for a different, worse one. Genuine stacking
   // is already handled: a shared prefix spanning two wrappers is found in a single pass.
   let literalsTaken = 0;
+  // Whether a layer taken off named the package each line came from - see runnerLabel.
+  let labelled = false;
   for (let layer = 0; layer < MAX_WRAPPER_LAYERS; layer++) {
     let found = null;
     // A strip that lets nothing but the fallback read the log is kept only if no other
@@ -614,7 +617,7 @@ function unwrap(s, command, extractors) {
         if (inner.kind === "literal" && (literalsTaken || c.kind === "literal")) continue;
         const deeper = parse(inner.text, command, extractors);
         if (better(inner, deeper, hit)) {
-          const both = { ...c, text: inner.text, wrapper: c.wrapper, hit: deeper, then: inner.wrapper, origin: through(c.origin, inner.origin) };
+          const both = { ...c, text: inner.text, wrapper: c.wrapper, hit: deeper, then: inner.wrapper, origin: through(c.origin, inner.origin), source: !!(c.source || inner.source) };
           if (real(deeper)) { found = both; break; }
           guess ??= both;
         }
@@ -624,13 +627,14 @@ function unwrap(s, command, extractors) {
     found ??= guess;
     if (!found) break;
     if (found.kind === "literal") literalsTaken++;
+    if (found.source) labelled = true;
     text = found.text;
     hit = found.hit;
     origin = through(origin, found.origin);
     wrappers.push(found.wrapper);
     if (found.then) wrappers.push(found.then);
   }
-  return { text, hit, wrappers, origin };
+  return { text, hit, wrappers, origin, labelled };
 }
 
 /** How the lines a parser was given are lines of the log as it arrived, whose lines end at
@@ -708,6 +712,20 @@ function collapseExactRetries(text) {
   }
 }
 
+/** Each failure under the package its runner stamped on the line it was read from, where a
+ *  runner relaying many packages' output was taken off the log - see SCOPE in ownership.js.
+ *  `origin` says which line of `base` each line the parsers read is, where not every line
+ *  was kept. A failure the parser already scoped keeps its own. */
+function scopedByRunner(base, origin) {
+  const lines = base.split("\n");
+  return (failure) => {
+    const range = sourceRange(failure);
+    if (!range || scopeOf(failure)) return failure;
+    const label = runnerLabel(lines[origin ? origin[range.start] : range.start] ?? "");
+    return label ? withScope(preserveSourceRange(failure, { ...failure }), label) : failure;
+  };
+}
+
 function analyseWhole(raw, { cluster = true, command = null, route = true } = {}) {
   // Windows tools, and logs pasted out of Windows CI, arrive with CRLF. Every
   // parser anchors on $, so a stray \r makes all of them silently match nothing.
@@ -720,15 +738,16 @@ function analyseWhole(raw, { cluster = true, command = null, route = true } = {}
   // The parsers that could read anything from this log, asked once for the log and every
   // wrapper stripped from it - see src/router.js.
   const extractors = route ? readers(base, EXTRACTORS) : EXTRACTORS;
-  const { text: s, hit, wrappers, origin } = unwrap(base, command, extractors);
+  const { text: s, hit, wrappers, origin, labelled } = unwrap(base, command, extractors);
   if (!hit) return null;
   const r = hit.result;
+  const scoped = labelled ? scopedByRunner(base, origin) : (f) => f;
   // dedupe first: it collapses the SAME diagnostic printed twice, so cluster
   // sizes end up counting real distinct sites rather than print repetitions.
-  const failures = dedupeFailures(r.failures.map(located))
+  const failures = dedupeFailures(r.failures.map(located).map(scoped))
     .map((f) => preserveSourceRange(f, { tool: r.tool, category: hit.extractor.category, ...f }));
   const clusters = cluster ? clusterFailures(failures) : null;
-  const others = otherTools(s, hit.extractor, failures, cluster, extractors);
+  const others = otherTools(s, hit.extractor, failures, cluster, extractors, scoped);
   const answer = {
     ...r, failures, clusters,
     ...(others.length ? { others } : {}),

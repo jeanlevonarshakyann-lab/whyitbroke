@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { readdirSync } from "node:fs";
 import { analyse } from "../src/index.js";
-import { parserOf, sourceRange } from "../src/ownership.js";
+import { parserOf, scopeOf, sourceRange } from "../src/ownership.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "bin", "whyitbroke.js");
@@ -866,12 +866,22 @@ test("two tools writing into one pipe never crash it or double a diagnosis", () 
         const [a, b] = logs.map((t) => t.includes(q) || t.includes(JSON.stringify(q).slice(1, -1)));
         return a === b ? null : a ? 0 : 1;
       };
+      // The package a diagnosis was reported under is the same kind of evidence (see SCOPE
+      // in src/ownership.js): two modules failing alike are two failures. A copy in the weave
+      // can sit above the other log's closing line, so it is each log read alone that says
+      // - when each reports the diagnosis only under packages no line of the other names.
+      const every = (o) => [...o.failures, ...(o.others ?? []).flatMap((t) => t.failures)];
+      const key = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? "", f.message ?? ""]);
+      const ownPackages = (k) => [solo.get(names[x]), solo.get(names[y])]
+        .map((o) => [...new Set(every(o).filter((f) => key(f) === k).map(scopeOf))])
+        .every((packages, at) => packages.length > 0 && packages.every((p) => p !== null && side(p) === at));
       const apart = (f, g) => {
         const [p, q] = [f, g].map((v) => String(v.stmt ?? "").trim());
-        return !!p && !!q && p !== q && side(p) !== null && side(q) !== null && side(p) !== side(q);
+        if (!!p && !!q && p !== q && side(p) !== null && side(q) !== null && side(p) !== side(q)) return true;
+        return scopeOf(f) !== scopeOf(g) && ownPackages(key(f));
       };
-      for (const f of [...r.failures, ...(r.others ?? []).flatMap((o) => o.failures)]) {
-        const k = JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? "", f.message ?? ""]);
+      for (const f of every(r)) {
+        const k = key(f);
         const earlier = seen.get(k) ?? [];
         if (earlier.some((g) => !apart(f, g))) {
           doubled.push(`${names[x]} + ${names[y]} (${r.tool}): ${f.file}:${f.line} ${f.title}`);
