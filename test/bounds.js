@@ -26,6 +26,7 @@ import pytest from "../src/extractors/pytest.js";
 import swift from "../src/extractors/swift.js";
 import markdownlint from "../src/extractors/markdownlint.js";
 import gotest, { PANIC_LINE, panicMessage } from "../src/extractors/gotest.js";
+import terraform from "../src/extractors/terraform.js";
 import rspec from "../src/extractors/rspec.js";
 import ruff from "../src/extractors/ruff.js";
 import vitest from "../src/extractors/vitest.js";
@@ -255,6 +256,21 @@ test("the first two lines of a terraform report, over and over", () => {
   // terraform balanced the braces of every report-looking line down to wherever they
   // balanced, and these never do.
   linear(repeat(`{\n  "format_version": "1.0",`), 401);
+});
+
+test("a log of a million empty lines that names format_version once", () => {
+  // terraform counted the braces of every line of any log that named its schema identifier,
+  // into three arrays as long as the log in lines: sixteen bytes a line, and 16MB to decide
+  // whether this log of 1MB was its own.
+  // A collection during one call can free what that call made, so the most any of three
+  // calls leaves behind is what is measured.
+  const log = '"format_version"\n' + "\n".repeat(1_000_000);
+  const grew = Math.max(...[1, 2, 3].map(() => {
+    const before = process.memoryUsage().arrayBuffers;
+    terraform.detect(log);
+    return process.memoryUsage().arrayBuffers - before;
+  }));
+  assert.ok(grew < log.length, `deciding a ${(log.length / 1e6).toFixed(0)}MB log took ${(grew / 1e6).toFixed(0)}MB of arrays`);
 });
 
 test("two tools whose findings share no text", () => {
