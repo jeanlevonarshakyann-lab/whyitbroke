@@ -1,4 +1,4 @@
-import { elements, jsonDocuments, jsonDocumentsAt, lineAt, stripAnsi, xmlAttributes, xmlText } from "../util.js";
+import { append, elements, jsonDocuments, jsonDocumentsAt, lineAt, stripAnsi, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
 // Playwright numbers each failure and heads it with the location of the TEST, then the
 // error, then an excerpt of the source with the offending line marked, then the location
@@ -144,7 +144,7 @@ function junit(s) {
     if (first < 0 || !JUNIT_HEAD_RE.test(lines[first])) continue;
     // A block inside a report is read from the failure element that holds it.
     const element = [lineAt(s, outcome.index), lineAt(s, outcome.index + outcome[0].length - 1) + 1];
-    out.push(...blocks(lines.slice(first), JUNIT_HEAD_RE, () => element));
+    append(out, blocks(lines.slice(first), JUNIT_HEAD_RE, () => element));
   }
   return out;
 }
