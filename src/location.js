@@ -26,6 +26,20 @@ export function fileReference(value) {
   return file;
 }
 
+/** Whether `text` could be part of a path that a project shares between platforms.
+ *
+ * A path may hold a space, so text that reads as the start of a path need not be one: a CI
+ * stamp in front of a line-start location reads as the file `12:34:56 lint_me.py`. Windows
+ * forbids `"*:<>?|` in a name, so no path a cross-platform project shares holds one - apart
+ * from the colon after a drive letter and the one that ends a URL's scheme. A POSIX name may
+ * still hold any of them, which is why this only ever breaks a tie and never rejects a
+ * location on its own.
+ */
+export function portablePath(text) {
+  const rest = String(text).replace(/^[A-Za-z]:(?=[\\/]|$)|^[A-Za-z][\w+.-]*:\/\//, "");
+  return !/[|<>"?*:]/.test(rest);
+}
+
 /** A Node-style stack frame, including paths that contain spaces.
  *
  * `{ fn, file, line, col }` for a named frame and `{ file, line, col }` for a location

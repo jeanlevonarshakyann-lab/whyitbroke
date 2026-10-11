@@ -93,6 +93,55 @@ test("Flake8 paths containing spaces are not stripped as wrappers", () => {
   assert.equal(result.wrappers, undefined);
 });
 
+// A path may hold a space, so a line-start location reads a runner's stamp as the start of
+// its file: `12:34:56 lint_me.py`. The strip that takes the stamp off then reads the same
+// tool and the same count, which is how a repeated source directory looks too. Before
+// paths could hold spaces, none of these lines read at all until the stamp came off.
+const wrapped = (text, prefix) => text.split("\n").map((line) => (line ? prefix + line : line)).join("\n");
+
+test("A stamp in front of a line-start location is a wrapper, not part of the path", () => {
+  const located = (result) => [result.tool, result.failures.map((f) => [f.file, f.line, f.col, f.code ?? f.title])];
+  const names = [
+    "flake8_fail.txt", "flake8_pylint_fail.txt", "oxlint_agent_same_fail.txt", "oxlint_unix_fail.txt",
+    // The same mistake made other ways: pyright and dotnet indent the path the stamp sits
+    // in front of, deno lint writes it as a file URL, Ruby's tab-indented frames share the
+    // stamp and the tab, and dotnet's MSBUILD is no file at all.
+    "pyright_fail.txt", "dotnet_terminal_logger_fail.txt", "dotnet_noproject_fail.txt",
+    "denolint_compact_fail.txt", "ruby_keyerror_fail.txt", "ruby_require_fail.txt", "ruff_github_fail.txt",
+  ];
+  for (const prefix of ["12:34:56 ", "web-1  | ", "ci> "]) {
+    for (const name of names) {
+      const label = `${name} under ${JSON.stringify(prefix)}`;
+      const result = analyse(wrapped(fx(name), prefix), { cluster: false });
+      assert.deepEqual(located(result), located(analyse(fx(name), { cluster: false })), label);
+      assert.deepEqual(result.wrappers, [prefix], label);
+    }
+  }
+});
+
+test("A wrapper of five words is still taken off whole", () => {
+  // Task's prefixed output writes whatever prefix a task names. Five words have four stops
+  // in front of the whole prefix, and the candidate list stopped at four. In a short log the
+  // shared prefix runs on into the tool's own text, so the label has to be found among them.
+  const located = (result) => [result.tool, result.failures.map((f) => [f.file, f.line, f.col, f.code ?? f.title])];
+  const prefix = "[api backend integration test shard] ";
+  for (const name of ["jest_fail.txt", "mocha_fail.txt", "pytest_fail.txt", "eslint_json_fail.txt", "gotest_json_fail.txt", "cargo_short_fail.txt"]) {
+    const result = analyse(wrapped(fx(name), prefix), { cluster: false });
+    assert.deepEqual(located(result), located(analyse(fx(name), { cluster: false })), name);
+    assert.deepEqual(result.wrappers, [prefix], name);
+  }
+});
+
+test("A spaced directory shared by every line is still part of the path", () => {
+  for (const directory of ["my project/", "C:\\My Project\\"]) {
+    const text = fx("flake8_fail.txt").replaceAll("lint_me.py", `${directory}lint_me.py`);
+    const result = analyse(text, { cluster: false });
+    assert.equal(result.failures.length, 8, directory);
+    assert.ok(result.failures.every((failure) => failure.file === `${directory}lint_me.py`), directory);
+    assert.equal(result.wrappers, undefined, directory);
+  }
+});
+
 test("Oxlint agent and unix paths accept spaces", () => {
   for (const name of ["oxlint_agent_same_fail.txt", "oxlint_unix_fail.txt"]) {
     const text = fx(name).replaceAll("src/", "my project/src/");

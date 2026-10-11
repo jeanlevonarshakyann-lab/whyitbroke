@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A runner's prefix in front of a line-start location comes off again. Since paths may
+  hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
+  `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file
+  name, and the strip that removed it was refused as data. An inferred prefix of five or
+  more words, like Task's `[api backend integration test shard] `, is now tried whole, and
+  a strip that only lets the fallback guess no longer wins over one a real parser reads.
 - A second reliability audit fixed shared boundaries rather than papering over individual
   captures: scoped pnpm wrappers are removed atomically; XML comments and CDATA cannot
   impersonate markup; Ruff JSON Lines, SARIF artifact indices, TRX quoting and Node TAP
