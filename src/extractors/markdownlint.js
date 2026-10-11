@@ -40,6 +40,15 @@ export default {
   extract(s) {
     const failures = [];
     const seen = new Map();
+    // The first violation at each file, line and rule, whatever its column - what a record,
+    // which carries no column, is matched to. Looked up, where each new record used to be
+    // compared with every violation before it.
+    const placed = new Map();
+    const spot = (file, line, code) => JSON.stringify([file, line, code]);
+    const remember = (failure, index) => {
+      const key = spot(failure.file, failure.line, failure.code);
+      if (!placed.has(key)) placed.set(key, index);
+    };
     const lines = s.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(VIOLATION_RE);
@@ -53,6 +62,7 @@ export default {
       }, i, i + 1);
       if (seen.has(key)) { failures[seen.get(key)] = joinSources(failures[seen.get(key)], failure); continue; }
       seen.set(key, failures.length);
+      remember(failure, failures.length);
       failures.push(failure);
     }
     // --json: the same violations as records. Read whatever the text form gave, since a
@@ -82,10 +92,10 @@ export default {
           // failure rather than two that differ in punctuation.
           message: described,
         }, place.start, place.end);
-        const earlier = seen.has(key) ? seen.get(key)
-          : failures.findIndex((f) => f.file === r.fileName && f.line === r.lineNumber && f.code === code);
+        const earlier = seen.has(key) ? seen.get(key) : placed.get(spot(r.fileName, r.lineNumber, code)) ?? -1;
         if (earlier >= 0) { failures[earlier] = joinSources(failures[earlier], failure); continue; }
         seen.set(key, failures.length);
+        remember(failure, failures.length);
         failures.push(failure);
       }
       break;
