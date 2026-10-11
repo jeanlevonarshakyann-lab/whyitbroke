@@ -65,6 +65,14 @@ function said(lines) {
 function xmlCases(s) {
   if (!s.includes("<testcase")) return [];
   const out = [];
+  // Every document root in the log, found once, and the last one that ends before the case
+  // being read - cases come in order. Each case searched all the log above it again.
+  let roots = null, last = -1;
+  const rootBefore = (at) => {
+    roots ??= [...s.matchAll(/<testsuite\b[^>]*>/g)];
+    while (last + 1 < roots.length && roots[last + 1].index + roots[last + 1][0].length <= at) last++;
+    return roots[last]?.[0] ?? "";
+  };
   for (const test of elements(s, CASE_RE, CASE)) {
     if (!test[2]) continue;
     const testRaw = s.slice(test.index, test.index + test[0].length);
@@ -94,8 +102,7 @@ function xmlCases(s) {
     // Which document a case belongs to decides who wrote it, and that is read from the
     // document's own root - not from the log, which can hold Maven's console beside
     // Gradle's report and would then rename Gradle's report after Maven.
-    const roots = [...s.slice(0, test.index).matchAll(/<testsuite\b[^>]*>/g)];
-    const root = roots.at(-1)?.[0] ?? "";
+    const root = rootBefore(test.index);
     // The test case, from its opening tag to its closing one.
     out.push({
       ...at, title: name, subject: name, category: "test", severity: "error",

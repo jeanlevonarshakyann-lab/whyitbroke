@@ -228,9 +228,13 @@ export function xmlStructure(text) {
   text = String(text);
   const out = [];
   let at = 0;
+  // Where the next of each opener is, looked for again only once the scan has passed it.
+  // A report of many comments before its first CDATA section otherwise searched the rest
+  // of the document for that section once per comment.
+  let cdata = text.indexOf("<![CDATA["), comment = text.indexOf("<!--");
   while (at < text.length) {
-    const cdata = text.indexOf("<![CDATA[", at);
-    const comment = text.indexOf("<!--", at);
+    if (cdata !== -1 && cdata < at) cdata = text.indexOf("<![CDATA[", at);
+    if (comment !== -1 && comment < at) comment = text.indexOf("<!--", at);
     let start, close;
     if (cdata === -1 || (comment !== -1 && comment < cdata)) {
       start = comment; close = "-->";
@@ -259,9 +263,11 @@ export function xmlContent(value) {
   const text = String(value ?? "");
   const out = [];
   let at = 0;
+  // As in xmlStructure, each opener is looked for again only once the scan has passed it.
+  let cdata = text.indexOf("<![CDATA["), comment = text.indexOf("<!--");
   while (at < text.length) {
-    const cdata = text.indexOf("<![CDATA[", at);
-    const comment = text.indexOf("<!--", at);
+    if (cdata !== -1 && cdata < at) cdata = text.indexOf("<![CDATA[", at);
+    if (comment !== -1 && comment < at) comment = text.indexOf("<!--", at);
     const start = cdata === -1 ? comment : comment === -1 ? cdata : Math.min(cdata, comment);
     if (start === -1) { out.push(xmlText(text.slice(at))); break; }
     out.push(xmlText(text.slice(at, start)));
@@ -365,7 +371,11 @@ export function xmlText(value) {
  *  read the whole document as empty. */
 export function xmlAttributes(tag) {
   const attributes = {};
-  for (const match of tag.matchAll(/([\w:.-]+)=(?:"([^"]*)"|'([^']*)')/g)) {
+  // A name is read whole, from where no name character stands before it. A long run of
+  // name characters with no `=` after it was otherwise tried from each of its characters,
+  // and from each one backtracked through the rest of the run: one malformed tag of
+  // eighty thousand characters took half a minute.
+  for (const match of tag.matchAll(/(?<![\w:.-])(?=([\w:.-]+))\1=(?:"([^"]*)"|'([^']*)')/g)) {
     attributes[match[1]] = xmlText(match[2] ?? match[3]);
   }
   return attributes;

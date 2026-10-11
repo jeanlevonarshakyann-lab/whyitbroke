@@ -20,6 +20,14 @@
   frame inside eval'd code points at the call to eval, a method name holding ` (` is no
   longer read as part of the path, and Mocha's TAP keeps frames whose paths hold spaces
   or brackets.
+- XML reports are read in time that grows with them. node --test's JUnit reader looked
+  for each case's failure from the top of the log and deno's from each unclosed case to
+  the end of the report, the JVM reader searched all of the log above each failed case
+  for its document's root, deno asked every line above each report whether its own TAP
+  was there, and the shared XML reader looked for the next CDATA section past every
+  comment and tried an attribute name from each character of a long run: one malformed
+  Checkstyle tag of 80,000 characters took half a minute. A testcase cut off before its
+  closing tag no longer takes the next test's failure in deno's and node's JUnit reports.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring

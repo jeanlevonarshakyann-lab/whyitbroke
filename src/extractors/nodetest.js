@@ -216,10 +216,17 @@ function nodeJunit(text) {
       if (!/<testcase\b/.test(lines[i])) continue;
       if (/\/>[^\S\n]*$/.test(lines[i])) continue;
       const test = xmlAttributes(lines[i]);
+      // A case runs to its closing tag - or, in a report cut off before that tag, to where
+      // the next case starts, whose failure is that case's and not this one's.
       let testcaseEnd = i + 1;
-      while (testcaseEnd < rootEnd && !/<\/testcase>/.test(lines[testcaseEnd])) testcaseEnd++;
-      const failureAt = lines.findIndex((line, index) => index > i && index < testcaseEnd && /<failure\b/.test(line));
-      if (failureAt < 0) { i = testcaseEnd; continue; }
+      while (testcaseEnd < rootEnd && !/<\/testcase>/.test(lines[testcaseEnd]) && !/<testcase\b/.test(lines[testcaseEnd])) testcaseEnd++;
+      const cut = testcaseEnd < rootEnd && !/<\/testcase>/.test(lines[testcaseEnd]);
+      const next = cut ? testcaseEnd - 1 : testcaseEnd;
+      // Its failure is under it. Searching from the top of the log read every line above
+      // the case again, for each case.
+      let failureAt = i + 1;
+      while (failureAt < testcaseEnd && !/<failure\b/.test(lines[failureAt])) failureAt++;
+      if (failureAt === testcaseEnd) { i = next; continue; }
       let failureEnd = failureAt + 1;
       while (failureEnd < testcaseEnd && !/<\/failure>/.test(lines[failureEnd])) failureEnd++;
       const location = userFrame(lines, failureAt + 1, failureEnd);
@@ -228,8 +235,8 @@ function nodeJunit(text) {
         file: location?.file ?? opaqueFile, line: location?.line, col: location?.col,
         title: test.name || "test", subject: test.name || "test", severity: "error",
         message: alternateMessage(lines, failureAt + 1, failureEnd),
-      }, i, Math.min(testcaseEnd + 1, lines.length)));
-      i = testcaseEnd;
+      }, i, Math.min(cut ? testcaseEnd : testcaseEnd + 1, lines.length)));
+      i = next;
     }
     const count = (kind) => [...document.matchAll(new RegExp(String.raw`<!--[^\n]*\b${kind}[^\S\n]+(\d+)[^\S\n]*-->`, "g"))]
       .reduce((total, match) => total + Number(match[1]), 0);

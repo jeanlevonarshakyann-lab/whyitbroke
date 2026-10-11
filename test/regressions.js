@@ -535,4 +535,36 @@ test("Every reader of V8 frames reads them the same way", () => {
   }
 });
 
+test("A JUnit testcase cut off before its closing tag does not take the next test's failure", () => {
+  // A report cut off before a case's closing tag - a capture limit, a killed runner - still
+  // holds the cases after it, and the next failure is the next case's own.
+  const deno = [
+    "Check reporter_test.ts", '<?xml version="1.0" encoding="UTF-8"?>',
+    '<testsuites name="deno test" tests="2" failures="1" errors="0" time="0.007">',
+    '    <testsuite name="./reporter_test.ts" tests="2" disabled="0" errors="0" failures="1">',
+    '        <testcase name="cut off" classname="./reporter_test.ts" time="0.001" line="1" col="6">',
+    '        <testcase name="adds" classname="./reporter_test.ts" time="0.001" line="4" col="6">',
+    '            <failure message="Uncaught Error: expected three">Error: expected three',
+    "    at file:///home/dev/reporter_test.ts:5:26</failure>",
+    "        </testcase>", "    </testsuite>", "</testsuites>", "error: Test failed",
+  ].join("\n");
+  const node = [
+    '<?xml version="1.0" encoding="utf-8"?>', "<testsuites>",
+    '\t<testcase name="cut off" time="0.000303" classname="test">',
+    '\t<testcase name="fails" time="0.000417" classname="test" failure="Expected 2 to equal 3">',
+    '\t\t<failure type="testCodeFailure" message="Expected 2 to equal 3">',
+    "[Error [ERR_TEST_FAILURE]: Expected 2 to equal 3] {",
+    "      at TestContext.&lt;anonymous> (file:///home/dev/reporter.test.js:7:10)", "}",
+    "\t\t</failure>", "\t</testcase>", "\t<!-- tests 2 -->", "\t<!-- pass 0 -->", "\t<!-- fail 1 -->", "</testsuites>",
+  ].join("\n");
+  for (const [text, tool, want] of [
+    [deno, "deno test", ["adds", "./reporter_test.ts", 4]],
+    [node, "node --test", ["fails", "/home/dev/reporter.test.js", 7]],
+  ]) {
+    const result = analyse(text, { cluster: false });
+    assert.equal(result.tool, tool);
+    assert.deepEqual(result.failures.map((f) => [f.title, f.file, f.line]), [want], tool);
+  }
+});
+
 if (!process.exitCode) console.log("\n" + passed + " regression tests passed");
