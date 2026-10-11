@@ -1,6 +1,6 @@
 import { elements, firstElement, isNoise, lineAt, xmlAttributes, xmlContent } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
-import { fileReference } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 // node writes stack paths as file:// URLs when a module throws; bun writes plain paths,
 // but a bun process running an ESM entry can produce either.
@@ -52,7 +52,8 @@ const ERROR_RE = /^error:[^\S\n]*(.+)$/;
 // in this log" while its output sat right above the (fail) line, and node's parser then
 // read those same lines as a crash of its own, under node's name.
 const CLASS_ERROR_RE = /^\w*(?:Error|Exception):[^\S\n]/;
-const AT_RE = /^[^\S\n]*at[^\S\n]+.*?\((.+?):(\d+):(\d+)\)[^\S\n]*$/;
+// A frame of the failing test always names its place in brackets - see v8Frame.
+const atFrame = (line) => { const frame = v8Frame(line); return frame?.closed ? frame : null; };
 const SOURCE_RE = /^[^\S\n]*\d+[^\S\n]*\|/;              // bun's echoed source context
 const CARET_RE = /^[^\S\n]*\^+[^\S\n]*$/;
 const DIFF_COUNT_RE = /^[-+][^\S\n]*(Expected|Received)[^\S\n]+[-+][^\S\n]*\d+[^\S\n]*$/;
@@ -154,7 +155,7 @@ export default {
           break;
         }
         if (ERROR_RE.test(t) || CLASS_ERROR_RE.test(t)) { sawError = true; start = j; continue; }
-        if (AT_RE.test(raw) || SOURCE_RE.test(raw) || CARET_RE.test(raw)) { start = j; continue; }
+        if (atFrame(raw) || SOURCE_RE.test(raw) || CARET_RE.test(raw)) { start = j; continue; }
         // what bun prints under "error:" - the diff, and the pair it compared
         if (/^[-+]/.test(t) || /^(?:Expected|Received):/.test(t)) { start = j; continue; }
         start = j + 1;
@@ -164,8 +165,8 @@ export default {
       let file, line, col;
       const msg = [];
       for (let j = start; j < i; j++) {
-        const at = lines[j].match(AT_RE);
-        if (at) { if (!file) { file = unfile(at[1]); line = +at[2]; col = +at[3]; } continue; }
+        const at = atFrame(lines[j]);
+        if (at) { if (!file) { file = unfile(at.file); line = at.line; col = at.col; } continue; }
         const t = lines[j].trim();
         if (!t || msg.length >= MAX_MESSAGE_LINES) continue;
         // the echoed source, its caret, and the diff's own tallies are not the message
@@ -238,7 +239,7 @@ const BUN_FOOTER = /^Bun v[\d.]+[^\S\n]+\(/m;
 // bun writes the class for a thrown builtin and a bare "error:" for its own diagnostics.
 const RUNTIME_ERR_RE = /^(?:(\w*(?:Error|Exception)): |error: )(.+)$/;
 // Frames come both ways: named with parentheses, and bare when there is no function.
-const RUNTIME_AT_RE = /^[^\S\n]+at[^\S\n]+(?:(.+?)[^\S\n]+\()?(.+?):(\d+):(\d+)\)?[^\S\n]*$/;
+const runtimeFrame = (line) => v8Frame(line, { indented: true, unclosed: "split" });
 const RUNTIME_SRC_RE = /^[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 
 export const bunRuntime = {
@@ -265,15 +266,15 @@ export const bunRuntime = {
     if (foot < 0) return null;
 
     let at = foot - 1;
-    while (at >= 0 && (!lines[at].trim() || RUNTIME_AT_RE.test(lines[at]))) at--;
+    while (at >= 0 && (!lines[at].trim() || runtimeFrame(lines[at]))) at--;
     const m = at >= 0 ? lines[at].match(RUNTIME_ERR_RE) : null;
     if (!m) return null;
 
     const frames = [];
     for (let j = at + 1; j < foot; j++) {
-      const f = lines[j].match(RUNTIME_AT_RE);
+      const f = runtimeFrame(lines[j]);
       if (!f) { if (frames.length) break; else continue; }
-      frames.push({ fn: f[1] ?? "<anonymous>", file: unfile(f[2]), line: +f[3], col: +f[4] });
+      frames.push({ fn: f.fn ?? "<anonymous>", file: unfile(f.file), line: f.line, col: f.col });
     }
     const user = frames.filter((f) => !isNoise(f.file));
     const where = user[0] ?? frames[0];

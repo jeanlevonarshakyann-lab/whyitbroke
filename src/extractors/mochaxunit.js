@@ -7,9 +7,10 @@
 // what tells this apart from every other tool that writes a JUnit-shaped report.
 import { xmlText, xmlAttributes, isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
+import { v8Frame } from "../location.js";
 
 const ROOT_RE = /<testsuite\b[^>]*\bname="Mocha Tests"/;
-const FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:(.+?)[^\S\n]+\()?(.+?):(\d+):(\d+)\)?[^\S\n]*$/;
+const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
 const MAX_MESSAGE_LINES = 3;
 
 export default {
@@ -42,9 +43,9 @@ export default {
       let file, line, col;
       const message = [];
       for (const raw of text) {
-        const frame = raw.match(FRAME_RE);
+        const frame = frameAt(raw);
         if (frame) {
-          if (!file && !isNoise(frame[2])) { file = frame[2]; line = +frame[3]; col = +frame[4]; }
+          if (!file && !isNoise(frame.file)) { file = frame.file; line = frame.line; col = frame.col; }
           continue;
         }
         const t = raw.trim();

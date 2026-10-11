@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
+import { nodeFrame } from "../src/location.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const fx = (name) => readFileSync(join(fixtures, name), "utf8");
@@ -183,6 +184,99 @@ test("AVA keeps locations whose paths contain spaces", () => {
   assert.equal(result.tool, "ava");
   assert.ok(result.failures.every((failure) => failure.file === "my project/av/sum.test.js"));
   assert.deepEqual(result.failures.map((failure) => [failure.line, failure.col]), [[3, 38], [4, 69]]);
+});
+
+// Captured from node 22 and mocha 10; only the capturing machine's directory is rewritten.
+const NODE_EVAL = [
+    "<anonymous_script>:2",
+    "null.price;",
+    "     ^",
+    "",
+    "TypeError: Cannot read properties of null (reading 'price')",
+    "    at eval (eval at run (/home/dev/my project/evalcase.js:2:3), <anonymous>:2:6)",
+    "    at run (/home/dev/my project/evalcase.js:2:3)",
+    "    at Object.<anonymous> (/home/dev/my project/evalcase.js:4:1)",
+    "    at Module._compile (node:internal/modules/cjs/loader:1706:14)",
+    "    at Object..js (node:internal/modules/cjs/loader:1839:10)",
+    "    at Module.load (node:internal/modules/cjs/loader:1441:32)",
+    "    at Function._load (node:internal/modules/cjs/loader:1263:12)",
+    "    at TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+    "    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)",
+    "    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)",
+    "",
+    "Node.js v22.22.0",
+  ].join("\n");
+const NODE_COMPUTED_NAME = [
+    "/home/dev/my project/computed.js:1",
+    "const cache = { [\"cache (layer\"]() { throw new Error(\"stale layer\"); } };",
+    "                                     ^",
+    "",
+    "Error: stale layer",
+    "    at cache (layer (/home/dev/my project/computed.js:1:44)",
+    "    at Object.<anonymous> (/home/dev/my project/computed.js:2:22)",
+    "    at Module._compile (node:internal/modules/cjs/loader:1706:14)",
+    "    at Object..js (node:internal/modules/cjs/loader:1839:10)",
+    "    at Module.load (node:internal/modules/cjs/loader:1441:32)",
+    "    at Function._load (node:internal/modules/cjs/loader:1263:12)",
+    "    at TracingChannel.traceSync (node:diagnostics_channel:328:14)",
+    "    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24)",
+    "    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)",
+    "    at node:internal/main/run_main_module:36:49",
+    "",
+    "Node.js v22.22.0",
+  ].join("\n");
+const MOCHA_TAP_SPACED = [
+    "not ok 1 cart totals an invoice",
+    "  Expected values to be strictly equal:",
+    "  ",
+    "  4 !== 5",
+    "  ",
+    "  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+    "  ",
+    "  4 !== 5",
+    "  ",
+    "      at Context.<anonymous> (My Project (v2)/test/cart.test.js:4:12)",
+    "      at process.processImmediate (node:internal/timers:485:21)",
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+    "1..1",
+  ].join("\n");
+
+test("A frame inside eval'd code points at the call to eval", () => {
+  const result = analyse(NODE_EVAL, { cluster: false });
+  assert.equal(result.tool, "node");
+  assert.deepEqual([result.failures[0].file, result.failures[0].line, result.failures[0].col],
+    ["/home/dev/my project/evalcase.js", 2, 3]);
+});
+
+test("A method name holding ` (` is not part of the path", () => {
+  const result = analyse(NODE_COMPUTED_NAME, { cluster: false });
+  assert.equal(result.tool, "node");
+  assert.equal(result.failures[0].file, "/home/dev/my project/computed.js");
+  assert.equal(result.failures[0].line, 1);
+});
+
+test("Mocha TAP keeps a frame whose path holds spaces and brackets", () => {
+  const result = analyse(MOCHA_TAP_SPACED, { cluster: false });
+  assert.equal(result.tool, "tap");
+  assert.deepEqual([result.failures[0].file, result.failures[0].line, result.failures[0].col],
+    ["My Project (v2)/test/cart.test.js", 4, 12]);
+});
+
+test("Every reader of V8 frames reads them the same way", () => {
+  const frames = {
+    "    at eval (eval at outer (eval at inner (/app/t.js:9:2), <anonymous>:1:1), <anonymous>:2:3)": ["eval", "/app/t.js", 9, 2],
+    "    at cache (layer (/app/x.js:1:44)": ["cache (layer", "/app/x.js", 1, 44],
+    "    at fn (/home/dev/my (copy)/x.js:1:2)": ["fn", "/home/dev/my (copy)/x.js", 1, 2],
+    "      at async file:///home/dev/app/lib/runner.js:515:21": [undefined, "/home/dev/app/lib/runner.js", 515, 21],
+    "    at new Promise (<anonymous>)": null,
+    "    at async Promise.all (index 0)": null,
+  };
+  for (const [line, want] of Object.entries(frames)) {
+    const frame = nodeFrame(line);
+    assert.deepEqual(frame && [frame.fn, frame.file, frame.line, frame.col], want, line);
+  }
 });
 
 if (!process.exitCode) console.log("\n" + passed + " regression tests passed");

@@ -7,16 +7,17 @@
 // `stats` with a failure count, and a `failures` array. A log can hold other JSON.
 import { isNoise, jsonDocuments, jsonDocumentsAt } from "../util.js";
 import { withSource } from "../ownership.js";
+import { v8Frame } from "../location.js";
 
 const MARKER = /"fullTitle"[^\S\n]*:/;
 // The same frame shape mocha's human reporter is read with, so both point at the line
 // that threw rather than at the test file as a whole.
-const FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:(.+?)[^\S\n]+\()?(.+?):(\d+):(\d+)\)?[^\S\n]*$/;
+const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
 
 function firstUserFrame(lines) {
   for (const line of lines) {
-    const f = line.match(FRAME_RE);
-    if (f && !isNoise(f[2])) return { file: f[2], line: +f[3], col: +f[4] };
+    const f = frameAt(line);
+    if (f && !isNoise(f.file)) return { file: f.file, line: f.line, col: f.col };
   }
   return null;
 }

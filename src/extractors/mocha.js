@@ -1,5 +1,6 @@
 import { isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
+import { v8Frame } from "../location.js";
 
 // mocha numbers its failures under a tally, and splits each one over two lines: the
 // suite on the numbered line, the test indented under it with a trailing colon.
@@ -24,7 +25,8 @@ const NAME_RE = /^[^\S\n]+(\S.*):[^\S\n]*$/;
 // A bare "Error:" is as common as a named class here - a hook that throws, a timeout -
 // so the class name cannot require a prefix.
 const ERROR_RE = /^[^\S\n]*(\w*(?:Error|Exception)(?:[^\S\n]+\[[\w_]+\])?):[^\S\n]*(.*)$/;
-const FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:(.+?)[^\S\n]+\()?(.+?):(\d+):(\d+)\)?[^\S\n]*$/;
+// A frame under the error, as V8 writes it - see v8Frame.
+const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
 // A file mocha could not even load never reaches the tally. Deliberately not anchored:
 // such a log is almost entirely stack frames, so a runner prefix and the frames' own
 // indentation share a prefix, and stripping it takes the indentation with it. "Exception
@@ -92,8 +94,8 @@ export default {
       let message = "", code, frames = [], last = i + 1;
       for (let j = i + 2; j < lines.length && j <= i + 40; j++) {
         if (HEAD_RE.test(lines[j]) && NAME_RE.test(lines[j + 1] ?? "")) break;
-        const f = lines[j].match(FRAME_RE);
-        if (f) { frames.push({ fn: f[1] ?? "<anonymous>", file: f[2], line: +f[3], col: +f[4] }); last = j; continue; }
+        const f = frameAt(lines[j]);
+        if (f) { frames.push({ fn: f.fn ?? "<anonymous>", file: f.file, line: f.line, col: f.col }); last = j; continue; }
         if (frames.length) break;
         const e = lines[j].match(ERROR_RE);
         if (e && !code) { code = e[1].split(/\s+/)[0]; message = e[2].trim(); last = j; continue; }

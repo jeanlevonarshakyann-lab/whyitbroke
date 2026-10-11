@@ -16,6 +16,7 @@
 // several tools write; a plan - `1..3`, exactly once, naming how many tests there are -
 // is TAP declaring the document's shape, and nothing else in the corpus prints one.
 import { alsoFrom, withSource } from "../ownership.js";
+import { v8Frame } from "../location.js";
 
 const PLAN_RE = /^[^\S\n]*1\.\.(\d+)[^\S\n]*$/m;
 const NOT_OK_RE = /^[^\S\n]*not ok(?:[^\S\n]+(\d+))?[^\S\n]*(?:-[^\S\n]*)?(.*?)[^\S\n]*$/;
@@ -44,8 +45,10 @@ const FAILED_NAMED_RE = /^[^\S\n]*#[^\S\n]*Failed test[^\S\n]*'(.+?)'/i;
 // stream with "Dubious, test returned 2" at column zero, which belongs to no test.
 const BLOCK_LINE_RE = /^(?:[^\S\n]*#|[^\S\n]+\S)/;
 // A JS harness indents a stack under the failure instead: `at Context.<anonymous>
-// (test_shop.cjs:4:12)`. Frames inside the runtime are never the reader's code.
-const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:.*?\()?([^\s()]+?):(\d+):(\d+)\)?[^\S\n]*$/;
+// (test_shop.cjs:4:12)`, read as V8 writes it, so a path may hold spaces and brackets -
+// mocha writes `My Project (v2)/test/cart.test.js` as it is. Frames inside the runtime
+// are never the reader's code.
+const frameAt = (line) => v8Frame(line, { unclosed: "split" });
 const INTERNAL_RE = /^node:|[\\/]node_modules[\\/]|^(?:internal|timers)[\\/]/;
 // A result that opens a brace is a group's roll-up - vitest's nested TAP wraps a file's
 // tests in one - and its members report themselves below it. tap.js skips the same thing
@@ -117,9 +120,9 @@ export default {
         if (g) { got.found ??= g[1]; end = j + 1; continue; }
         const w = lines[j].match(WANTED_RE);
         if (w) { got.wanted ??= w[1]; end = j + 1; continue; }
-        const frame = lines[j].match(FRAME_RE);
+        const frame = frameAt(lines[j]);
         if (frame) {
-          if (!file && !INTERNAL_RE.test(frame[1])) { file = frame[1]; at = +frame[2]; col = +frame[3]; }
+          if (!file && !INTERNAL_RE.test(frame.file)) { file = frame.file; at = frame.line; col = frame.col; }
           end = j + 1;
           continue;
         }

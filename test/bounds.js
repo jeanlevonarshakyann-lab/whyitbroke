@@ -23,6 +23,14 @@ import { gccLine } from "../src/extractors/shellcheck.js";
 import { raiseLine } from "../src/extractors/ruby.js";
 import { FRAME_WITH_CALL } from "../src/extractors/node.js";
 import { FAILED_TALLY } from "../src/extractors/junitjvm.js";
+import jest from "../src/extractors/jest.js";
+import ava from "../src/extractors/ava.js";
+import jasmine from "../src/extractors/jasmine.js";
+import mocha from "../src/extractors/mocha.js";
+import mochaxunit from "../src/extractors/mochaxunit.js";
+import bun, { bunRuntime } from "../src/extractors/bun.js";
+import node from "../src/extractors/node.js";
+import taptext from "../src/extractors/taptext.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +100,24 @@ function nearOrdinary(text) {
 // An even number of identical lines is an exact retry of itself and collapses before any
 // parser sees it, so every repeated shape is repeated an odd number of times.
 const repeat = (line) => (n) => Array(n).fill(line).join("\n");
+
+/** `linear`, for one parser asked about the log on its own. A parser whose cost is the
+ *  whole question needs no other parser's time in the comparison. */
+function linearIn(extractor, grow, n) {
+  const read = (text) => { if (extractor.detect(text)) extractor.extract(text); };
+  const once = (text) => {
+    let runs = 0;
+    const at = performance.now();
+    do { read(text); runs++; } while (performance.now() - at < FLOOR_MS);
+    return (performance.now() - at) / runs;
+  };
+  const small = Math.min(...Array.from({ length: 5 }, () => once(grow(n))));
+  const big = grow(4 * n - 3);
+  let large = once(big);
+  if (large < small * 8) large = Math.min(large, once(big), once(big));
+  assert.ok(large < small * 8,
+    `${extractor.name}: ${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
+}
 
 console.log("\nhostile logs");
 
@@ -241,6 +267,23 @@ test("one long line of ruby frames", () => {
 
 test("one long line of node frames with calls in them", () => {
   linear(oneLine("    at Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual[T](T expected, T actual, IEqualityComparer`1 comparer, String message"), 401);
+});
+
+test("a frame line padded with spaces, under every reader of V8 frames", () => {
+  // A frame was read with a lazy name, an optional ` (` and a path held to the end of the
+  // line, which tried the rest of the line from every place the name could stop. Two
+  // thousand spaces after `at` cost jest, AVA and jasmine ten seconds a line.
+  const padded = (name) => (n) => {
+    const lines = readFileSync(join(here, "fixtures", name), "utf8").split("\n");
+    const at = lines.findIndex((line) => /^[^\S\n]+at[^\S\n]/.test(line));
+    lines.splice(at + 1, 0, `${lines[at].match(/^[^\S\n]*/)[0]}at${" ".repeat(n)}x`);
+    return lines.join("\n");
+  };
+  for (const [extractor, name] of [
+    [jest, "jest_fail.txt"], [ava, "ava_throw_fail.txt"], [jasmine, "jasmine_fail.txt"],
+    [mocha, "mocha_fail.txt"], [mochaxunit, "mocha_xunit_fail.txt"], [bun, "bun_fail.txt"],
+    [bunRuntime, "bunrun_crash_fail.txt"], [node, "node_stack.txt"], [taptext, "mocha_tap_fail.txt"],
+  ]) linearIn(extractor, padded(name), 1001);
 });
 
 test("one long line of surefire tallies", () => {
