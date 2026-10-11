@@ -616,11 +616,19 @@ test("each replacement matches exactly what its pattern matched", () => {
  *  own time does not hide the step's. A first read of the larger input within the bound is
  *  enough; one past it is read twice more, so that a pause in the machine does not fail it. */
 function linearStep(read, grow, n) {
+  // An input's time is its fastest read. A read can take a tenth of a millisecond, and a
+  // collection of the heap landing among twenty milliseconds of them takes longer than all
+  // of them together - Node 18 pauses for ten to forty milliseconds at a time late in this
+  // file. A quadratic step is slow on every read.
   const once = (input) => {
-    let runs = 0;
+    let best = Infinity;
     const at = performance.now();
-    do { read(input); runs++; } while (performance.now() - at < FLOOR_MS);
-    return (performance.now() - at) / runs;
+    do {
+      const start = performance.now();
+      read(input);
+      best = Math.min(best, performance.now() - start);
+    } while (performance.now() - at < FLOOR_MS);
+    return best;
   };
   const small = Math.min(...Array.from({ length: 3 }, () => once(grow(n))));
   const big = grow(4 * n - 3);
@@ -721,6 +729,21 @@ test("the line of an offset, asked again of a fresh copy of the same log", () =>
   // half a second.
   assert.ok(lookups < Math.max(build, 5) * 4,
     `2,000 lookups on an equal copy took ${lookups.toFixed(0)}ms, against ${build.toFixed(1)}ms to build the cache`);
+});
+
+test("the lines of each of thousands of elements of a report written on one line", () => {
+  // Every reader of an XML report asks lineAt for the line each element starts on and the
+  // line it ends on. Where one function held lineAt twice, Node 18's compiler ran the first
+  // two newline searches of the cache's rebuild on every call, ahead of the check that the
+  // cache still held the log: each element searched the log to its second newline, and a
+  // report written on one line has none. The compiler does this to a rebuild it has seen
+  // run, so the cache is rebuilt a few hundred times first.
+  for (let k = 0; k < 500; k++) lineAt(`a\nb\n${k}`, 3);
+  const report = (n) => ({ n, text: `<testsuites>${'<testcase name="t"><failure/></testcase>'.repeat(n)}</testsuites>` });
+  linearStep(({ n, text }) => {
+    const element = (at, length) => ({ start: lineAt(text, at), end: lineAt(text, at + length - 1) + 1 });
+    for (let k = 0; k < n; k++) element(12 + 40 * k, 40);
+  }, report, 4001);
 });
 
 // ------------------------------------------------------------- runner formats
