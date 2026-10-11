@@ -1,6 +1,6 @@
 import { isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
-import { fileReference } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 // A frame is `at fn (file:line:col)`: `/^[^\S\n]+at .+\(.+:\d+:\d+\)$/m`. As `.+\(.+`, a
 // line holding many parentheses was split at each of them in turn, reading to the end of
@@ -71,7 +71,7 @@ export default {
       let end = errIdx + 1;
       for (let i = errIdx + 1; i < lines.length; i++) {
         if (ERR_RE.test(lines[i]) || OTHER_DIAGNOSTIC.test(lines[i])) break;
-        const m = lines[i].match(/^[^\S\n]+at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/);
+        const m = v8Frame(lines[i], { indented: true, unclosed: "split" });
         if (!m) {
           // A blank line is harmless formatting between an exception and its stack.
           // Arbitrary prose is a boundary: accepting three such lines let an earlier
@@ -79,7 +79,7 @@ export default {
           if (frames.length || lines[i].trim()) break;
           continue;
         }
-        frames.push({ fn: m[1] ?? "<anonymous>", file: unfile(m[2]), line: +m[3], col: +m[4] });
+        frames.push({ fn: m.fn ?? "<anonymous>", file: unfile(m.file), line: m.line, col: m.col });
         end = i + 1;
       }
       const user = frames.filter((f) => !isNoise(f.file));
