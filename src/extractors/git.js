@@ -7,6 +7,7 @@
 // coming back as a labelled guess pointing at the wrong line, or as nothing at all.
 
 import { alsoFrom, withSource } from "../ownership.js";
+import { append } from "../util.js";
 
 const CONFLICT = /^CONFLICT \(([^)]+)\): (?:Merge conflict in|.*? in) (.+)$/;
 const REJECTED = /^[^\S\n]*!\s+\[([^\]]+)\][^\S\n]+(\S+)[^\S\n]+->[^\S\n]+(\S+)(?:[^\S\n]+\((.+)\))?$/;
@@ -116,7 +117,7 @@ export default {
       if (d && GIT_ISH.test(d[2]) && !(rejected && RESTATES.test(d[2]))) bare.push(withSource({ title: d[1], label: d[1], severity: "error", message: d[2] }, i, i + 1));
     }
 
-    if (!failures.length) failures.push(...bare);
+    if (!failures.length) append(failures, bare);
     if (!failures.length) return null;
     // A summary that just repeats the only failure's message says it twice. Count the
     // conflicted files, which is the one case where a tally adds something.

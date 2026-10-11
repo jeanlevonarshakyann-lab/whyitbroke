@@ -1,4 +1,4 @@
-import { colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, tailFirst, xmlAttributes } from "../util.js";
+import { append, colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, tailFirst, xmlAttributes } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // shellcheck writes two formats a CI job is likely to produce, and neither was read.
 // Its default is a block per location:
@@ -124,7 +124,7 @@ export default {
       const c = file && lines[i].match(CARET);
       if (c) found.push(withSource({ file, line, col: c[1].length + 1, code: c[2], severity: c[3], message: c[4], stmt }, header, i + 1));
     }
-    found.push(...machine(s, true));
+    append(found, machine(s, true));
     if (!found.length) return null;
     // A log can hold both formats - two shellcheck runs, or one job rendering twice - and
     // the same finding then arrives once per format. They are not two problems. The code

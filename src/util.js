@@ -135,6 +135,15 @@ export function stripCiPrefix(text) {
 // than the repeat.
 const MIN_RUN = 3;
 
+/** Push each of `items` onto `target`, and return `target`. `target.push(...items)` hands
+ *  every item to push as an argument of its own, and past about 125,000 of them V8 throws
+ *  instead: a reader that throws is skipped, so 150,000 failing Go tests came back as two
+ *  lines of generic output. */
+export function append(target, items) {
+  for (const item of items) target.push(item);
+  return target;
+}
+
 /** Collapse runs of identical lines in a message into one line and a count. */
 export function collapseRepeats(message) {
   if (typeof message !== "string" || !message.includes("\n")) return message;
@@ -146,7 +155,7 @@ export function collapseRepeats(message) {
     const run = j - i;
     out.push(run >= MIN_RUN && lines[i].trim() ? `${lines[i]} (x${run})` : lines[i]);
     if (run >= MIN_RUN && lines[i].trim()) i = j;
-    else { out.push(...lines.slice(i + 1, j)); i = j; }
+    else { append(out, lines.slice(i + 1, j)); i = j; }
   }
   return out.join("\n");
 }

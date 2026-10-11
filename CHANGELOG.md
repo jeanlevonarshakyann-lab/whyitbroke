@@ -62,6 +62,16 @@
   Go panics, Less, PHP, mypy, .NET, cargo, CMake, Ruby and Minitest lines, and Perl's
   warning phrases each read the rest of a long line again from every place their pattern
   could stop. Each reader is held, on random lines, to the pattern it replaces.
+- A report holding more than about 125,000 of anything is no longer lost. Ten places
+  handed every item of a list to one call, each as an argument of its own, and past about
+  125,000 arguments V8 throws. A reader that throws is skipped: 150,000 failing Go tests
+  came back as "2 errors (no parser for this tool — best guess)", a pip build whose
+  subprocess printed that many lines and git lost theirs the same way, and so did
+  ESLint's and ShellCheck's JSON and .NET beside a TRX document once `--max-bytes` let a
+  report that large in. Where nothing catches the throw, whyitbroke itself stopped with a
+  stack trace and exit code 1: on a message holding that many blank lines in a row, on a
+  GitHub summary of that many failures, and on a run's output past the capture limit
+  holding that many diagnostic lines. Each now adds items one at a time.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring
