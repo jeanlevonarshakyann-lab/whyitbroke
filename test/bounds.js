@@ -143,6 +143,25 @@ test("thousands of rust panics", () => {
   linear(repeat(panic), 801);
 });
 
+test("thousands of Test::More failures, as prove -v and plain TAP print them", () => {
+  // Each result asked the whole list of Test::More's diagnostics which of them lay in its
+  // block, and a bare result asked it again which had its name. `prove -v` prints all the
+  // diagnostics first and the results after them; plain TAP puts each under its result.
+  const diagnostic = (k) => [`#   Failed test 'invoice total ${k}'`, "#   at shop.t line 5.", `#          got: '${k}'`, `#     expected: '${k + 1}'`];
+  const numbers = (n) => Array.from({ length: n }, (_, k) => k + 1);
+  const prove = (n) => [
+    ...numbers(n).flatMap((k) => ["", ...diagnostic(k)]), `# Looks like you failed ${n} tests of ${n}.`,
+    "shop.t .. ", `1..${n}`, ...numbers(n).map((k) => `not ok ${k} - invoice total ${k}`),
+    `Dubious, test returned 254 (wstat 65024, 0xfe00)`, `Failed ${n}/${n} subtests `,
+  ].join("\n");
+  const plain = (n) => [
+    `1..${n}`, ...numbers(n).flatMap((k) => [`not ok ${k} - invoice total ${k}`, ...diagnostic(k)]),
+    `# Looks like you failed ${n} tests of ${n}.`,
+  ].join("\n");
+  linear(prove, 3001);
+  linear(plain, 3001);
+});
+
 test("numbers that each claim the rest of the log", () => {
   // swiftc's parseable output puts a byte count above each record, and every such count
   // was decoded and parsed to see whether a record was there.
