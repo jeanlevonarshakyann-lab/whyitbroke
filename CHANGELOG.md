@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+- A runner's prefix in front of a line-start location comes off again. Since paths may
+  hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
+  `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file
+  name, and the strip that removed it was refused as data. An inferred prefix of five or
+  more words, like Task's `[api backend integration test shard] `, is now tried whole, and
+  a strip that only lets the fallback guess no longer wins over one a real parser reads.
 - A second reliability audit fixed shared boundaries rather than papering over individual
   captures: scoped pnpm wrappers are removed atomically; XML comments and CDATA cannot
   impersonate markup; Ruff JSON Lines, SARIF artifact indices, TRX quoting and Node TAP
   quoting accept their valid alternate forms; retry attempts cannot borrow later stack
   frames; and XML literal masking is linear on malformed input.
+- Every reader of V8 stack frames - Node, Jest, AVA, Jasmine, Mocha's spec, JSON and xUnit
+  reporters, bun's test and runtime output, and bare TAP - now shares one frame reader
+  that reads the location from the end of the line in a single pass. A malformed frame
+  line padded with a few thousand spaces no longer takes seconds to minutes to refuse. A
+  frame inside eval'd code points at the call to eval, a method name holding ` (` is no
+  longer read as part of the path, and Mocha's TAP keeps frames whose paths hold spaces
+  or brackets.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring
