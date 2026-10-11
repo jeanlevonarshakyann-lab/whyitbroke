@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
+  and the search for a literal prefix, split and filtered the whole log to keep its first
+  two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB
+  that had no wrapper at all. It now reads up to its two hundredth line, and the check for
+  mixed task labels walks the lines without splitting the log.
 - A log read again no longer costs a full comparison per finding. The cache of where a
   log's lines start was checked by comparing strings, which compares their content, and a
   fresh copy of the same log matched without replacing the cached one - so every later

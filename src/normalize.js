@@ -62,7 +62,21 @@ const taskWrapperLabel = (text) => {
 // timestamp, and seven test failures went with them.
 const NATIVE_PREFIX = /^(?:\{".*|\[ERROR\][^\S\n]+|npm (?:error|ERR!)[^\S\n]?)$/;
 
-const sample = (text) => text.split("\n").filter((l) => l.trim()).slice(0, SAMPLE_LINES);
+/** The first SAMPLE_LINES lines of `text` that hold more than whitespace, read only as far
+ *  as the last of them. Every shape below and the literal search ask for these, and each
+ *  used to split and filter the whole log to keep its first two hundred lines: a 10MB log
+ *  with no wrapper on it took a quarter of a second to be found to have none. */
+function sample(text) {
+  const lines = [];
+  for (let at = 0; at <= text.length && lines.length < SAMPLE_LINES;) {
+    let end = text.indexOf("\n", at);
+    if (end === -1) end = text.length;
+    const line = text.slice(at, end);
+    if (line.trim()) lines.push(line);
+    at = end + 1;
+  }
+  return lines;
+}
 
 /** The longest literal string that begins at least UNIFORM of the sampled lines.
  *
@@ -198,7 +212,11 @@ function mixedTaskPrefixes(text) {
   // contains hundreds of lint lines before the next package starts, and the point of
   // this candidate is precisely to notice that later package. Stop as soon as two
   // distinct labels prove the stream is heterogeneous.
-  for (const line of text.split("\n")) {
+  for (let at = 0; at <= text.length;) {
+    let end = text.indexOf("\n", at);
+    if (end === -1) end = text.length;
+    const line = text.slice(at, end);
+    at = end + 1;
     const match = line.match(TASK_PREFIX);
     if (!match) continue;
     matches++;
