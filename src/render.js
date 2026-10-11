@@ -143,6 +143,8 @@ const underneath = (text, col, start) => {
 const SITES_SHOWN = 3;   // how many extra sites to name before "+ N more"
 
 export function render(result, { max = 5, cwd = true, source = true, cluster = true, since = null, secondary = false } = {}) {
+  // Asked once per unit shown; a list of thousands of new causes asked again each time.
+  const fresh = new Set(since?.fresh ?? []);
   const out = [];
   const fails = result.failures;
   let lastSnip = null;   // don't reprint the same source region twice in a row
@@ -238,7 +240,7 @@ export function render(result, { max = 5, cwd = true, source = true, cluster = t
     const more = unit.reported
       ? `  ${C.yellow}${family ? `(${unit.size} cases)` : `(+${kin.length} more site${kin.length > 1 ? "s" : ""})`}${C.reset}`
       : "";
-    const isNew = since?.compared && since.fresh.includes(trackedCauseId(f, result.tool))
+    const isNew = since?.compared && fresh.has(trackedCauseId(f, result.tool))
       ? `  ${C.bold}${C.yellow}new${C.reset}` : "";
     if (loc || title) out.push(`  ${loc}${title}${more}${isNew}`);
 

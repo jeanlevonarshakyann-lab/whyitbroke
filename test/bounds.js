@@ -17,6 +17,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
+import { createCapture } from "../src/capture.js";
+import { trackedCauseId } from "../src/history.js";
+import { render } from "../src/render.js";
 import { unixLine } from "../src/extractors/stylelint.js";
 import { issueLine } from "../src/extractors/golangci.js";
 import { gccLine } from "../src/extractors/shellcheck.js";
@@ -357,6 +360,101 @@ test("each replacement matches exactly what its pattern matched", () => {
     () => pick(["  ", " ", "\n ", "\r "]) + "at " + pick(["f ", "(", "a (b) ", ""]) + pick(["(", "(("]) + pick(["x.js", "", ":1"]) + ":" + pick(["1", "x"]) + ":" + pick(["2", ""]) + ")" + pick(["", "\n", "\u2028", " "]));
   agrees("surefire tally", testing(/Time elapsed:.*<<<[^\S\n]+(?:FAILURE|ERROR)!/), testing(FAILED_TALLY),
     () => pick(["", "Tests run: 1, ", "x"]) + "Time elapsed:" + pick([" 0.01 s ", "", "\u2028", "\n"]) + pick(["<<<", "<<", ""]) + gap() + pick(["FAILURE!", "ERROR!", "FAIL"]) + pick(["", " -- in T"]));
+});
+
+// ------------------------------------------------------ what every log goes through
+// After its parsers, every log is de-duplicated, compared tool against tool and printed,
+// and before them a capture keeps its head and its tail. Those steps see every failure of
+// every tool in the log at once, so a monorepo's log is their largest input.
+
+/** `linear`, for a step every log goes through: `read(grow(4n))` costs about four times
+ *  `read(grow(n))`. Only the readers a log names are asked, as in a real run, so that their
+ *  own time does not hide the step's. A first read of the larger input within the bound is
+ *  enough; one past it is read twice more, so that a pause in the machine does not fail it. */
+function linearStep(read, grow, n) {
+  const once = (input) => {
+    let runs = 0;
+    const at = performance.now();
+    do { read(input); runs++; } while (performance.now() - at < FLOOR_MS);
+    return (performance.now() - at) / runs;
+  };
+  const small = Math.min(...Array.from({ length: 3 }, () => once(grow(n))));
+  const big = grow(4 * n - 3);
+  let large = once(big);
+  if (large >= small * 8) large = Math.min(large, once(big), once(big));
+  assert.ok(large < small * 8,
+    `${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
+}
+
+test("one diagnosis quoting a different source line each time", () => {
+  // A reading was asked about every earlier reading of the same diagnosis, to keep apart
+  // two that quote different lines. Two thousand cargo runs of one E0308 took six seconds.
+  const runs = (n) => Array.from({ length: n }, (_, k) => [
+    "error[E0308]: mismatched types", " --> src/main.rs:2:22", "  |",
+    `2 |     let total: i32 = "value number ${k}";`,
+    "  |                ---   ^^^^^^^^^^^^^^^^ expected `i32`, found `&str`",
+    "  |                |", "  |                expected due to this", "",
+    "For more information about this error, try `rustc --explain E0308`.",
+    "error: could not compile `shop` (bin \"shop\") due to 1 previous error", "",
+  ].join("\n")).join("\n");
+  linearStep(analyse, runs, 501);
+});
+
+test("two tools reporting thousands of different things on one line", () => {
+  // Each second tool's finding was compared with every finding the first tool made on
+  // its line, outside the budget every other comparison of two tools' text keeps to.
+  const log = (n) => [
+    "", "/home/dev/app/src/cart.ts",
+    ...Array.from({ length: n }, (_, k) => `  1:${k + 1}  error  Unexpected thing ${k}  rule-${k}`),
+    "", `\u2716 ${n} problems (${n} errors, 0 warnings)`, "",
+    ...Array.from({ length: n }, (_, k) => `src/cart.ts(1,${k + 1}): error TS2322: Type 'string' is not assignable to type 'number' number ${k}.`),
+  ].join("\n");
+  linearStep(analyse, log, 1201);
+});
+
+test("a tool's located findings beside thousands of another's unlocated ones", () => {
+  // A finding that names no file is dropped as an echo when another tool's message holds
+  // it, and each one searched every located finding in the log, outside the budget too.
+  const log = (n) => [
+    "TAP version 13", "not ok 1 - adds", "  ---", "  location: '/home/dev/app/test/t.test.js:1:3'",
+    "  error: 'Expected 1 to equal 2'", "  ...", "1..1", "# fail 1",
+    ...Array.from({ length: n }, (_, k) => `src/mod${k}.py:${k + 1}:1: F401 'pkg${k}.util' imported but unused`),
+    ...Array.from({ length: n }, (_, k) => `python3: No module named pkg${k}`),
+  ].join("\n");
+  linearStep(analyse, log, 3001);
+});
+
+test("a capture whose tail is thousands of short diagnostic lines", () => {
+  // Keeping a diagnostic line from the middle of a log leaves less room for its tail,
+  // which can let another line into the middle. Each line let in filtered every saved
+  // line again and summed the middle again.
+  const filler = (bytes) => {
+    const line = "info: compiling module of the build graph\n";
+    return line.repeat(Math.ceil(bytes / line.length)).slice(0, bytes - 1) + "\n";
+  };
+  const capture = (maxBytes) => {
+    const head = Math.floor(maxBytes * 0.25);
+    const c = createCapture(maxBytes);
+    c.push(Buffer.from(filler(head)));
+    c.push(Buffer.from(filler(64 * 1024)));
+    c.push(Buffer.from("FAIL\n".repeat(Math.ceil((maxBytes - head + 5) / 5))));
+    return c.finish();
+  };
+  linearStep(capture, (n) => n, 262145);
+});
+
+test("thousands of failures, every one of them new since the last run", () => {
+  // Each failure printed was looked up in the list of new causes, one entry at a time.
+  const report = (n) => {
+    const result = analyse([
+      "", "/home/dev/app/src/cart.ts",
+      ...Array.from({ length: n }, (_, k) => `  ${k + 1}:3  error  Unexpected thing ${k}  rule-${k}`),
+      "", `\u2716 ${n} problems (${n} errors, 0 warnings)`, "",
+    ].join("\n"), { cluster: false });
+    const fresh = result.failures.map((f) => trackedCauseId(f, result.tool));
+    return { result, since: { compared: true, reason: null, fresh, gone: 0 } };
+  };
+  linearStep(({ result, since }) => render(result, { max: Infinity, cluster: false, since }), report, 2001);
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);

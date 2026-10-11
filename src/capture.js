@@ -318,23 +318,32 @@ export function createCapture(maxBytes) {
       // need. Candidates already present in the retained tail cost nothing. Moving the
       // tail start can expose another saved line, so find the small monotonic fixed point.
       const ordered = diagnostics.sort((a, b) => a.start - b.start);
-      let middle = ordered.filter((record) =>
-        record.start >= keptHead.length
-        && record.start + record.buf.length <= totalBytes - tailBuf.length);
+      // A saved record is a whole line, saved once, so in order of where they start the
+      // records are in order of where they end too, and those between the head and a tail
+      // start are one run of them. The run only grows: more middle leaves less for the
+      // tail, which moves its start later and lets more middle in. So one walk along the
+      // run finds the fixed point - filtering every record again on each pass, and summing
+      // the middle again, was quadratic in a log of dense short diagnostic lines.
+      let from = 0;
+      while (from < ordered.length && ordered[from].start < keptHead.length) from++;
+      let to = from, middleBytes = 0;
+      const admit = (limit) => {
+        while (to < ordered.length && ordered[to].start + ordered[to].buf.length <= limit) middleBytes += ordered[to++].buf.length;
+      };
+      admit(totalBytes - tailBuf.length);
       let keptTail = Buffer.alloc(0);
       let tailStart = totalBytes;
-      for (let pass = 0; pass <= ordered.length; pass++) {
-        const middleBytes = middle.reduce((sum, record) => sum + record.buf.length, 0);
+      for (;;) {
         const tailBudget = Math.max(1, maxBytes - keptHead.length - middleBytes);
         const tailOffset = Math.max(0, tailBuf.length - tailBudget);
         const rawTail = tailBuf.subarray(tailOffset);
         keptTail = trimStartToLine(rawTail);
         tailStart = totalBytes - tailBuf.length + tailOffset + (rawTail.length - keptTail.length);
-        const next = ordered.filter((record) =>
-          record.start >= keptHead.length && record.start + record.buf.length <= tailStart);
-        if (next.length === middle.length) break;
-        middle = next;
+        const before = to;
+        admit(tailStart);
+        if (to === before) break;
       }
+      const middle = ordered.slice(from, to);
 
       let headSpan = keptHead;
       let middleSpans = middle;
