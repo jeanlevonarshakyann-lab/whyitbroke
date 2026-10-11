@@ -15,7 +15,30 @@
 import gotest, { goPackage } from "./gotest.js";
 import { throughOrigin } from "../ownership.js";
 
-const EVENT = /^[^\S\n]*\{.*"Action"[^\S\n]*:.*\}[^\S\n]*$/;
+const SPACE = /[^\S\n]/, TERMINATOR = /[\n\r\u2028\u2029]/;
+
+/** Whether `line` is shaped like one event - an object with an "Action" key - as the pattern
+ *  /^[^\S\n]*\{.*"Action"[^\S\n]*:.*\}[^\S\n]*$/ says it is. Its two wildcards made a line
+ *  holding many `"Action":` and no closing brace look for that brace at the end again from
+ *  every one of them; the brace can only be in one place, so it is looked at first. */
+export function isEvent(line) {
+  let a = 0;
+  while (a < line.length && SPACE.test(line[a])) a++;
+  if (line[a] !== "{") return false;
+  let b = line.length - 1;
+  while (b > a && SPACE.test(line[b])) b--;
+  if (b <= a || line[b] !== "}") return false;
+  // `.` takes no line terminator, but the space before the colon may hold one.
+  let first = -1, last = -1;
+  for (let k = a + 1; k < b; k++) if (TERMINATOR.test(line[k])) { if (first === -1) first = k; last = k; }
+  for (let i = line.indexOf('"Action"', a + 1); i !== -1 && i < b; i = line.indexOf('"Action"', i + 1)) {
+    if (first !== -1 && first < i) break;
+    let j = i + 8;
+    while (j < b && SPACE.test(line[j])) j++;
+    if (j < b && line[j] === ":" && last < j) return true;
+  }
+  return false;
+}
 
 /** The verbose log a test2json stream was made from, and the line of the stream each of
  *  its lines came from - or null if this is not one. */
@@ -26,7 +49,7 @@ function rebuild(s) {
   // once all of them have run - so the rebuilt log alone cannot tell two packages apart.
   const owner = [];
   const out = s.split("\n").map((line, i) => {
-    if (!EVENT.test(line)) return line;
+    if (!isEvent(line)) return line;
     let e;
     try { e = JSON.parse(line); } catch { return line; }
     if (typeof e?.Action !== "string") return line;

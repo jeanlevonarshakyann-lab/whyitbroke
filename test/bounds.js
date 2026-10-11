@@ -25,7 +25,7 @@ import bundler from "../src/extractors/rubygems.js";
 import pytest from "../src/extractors/pytest.js";
 import swift from "../src/extractors/swift.js";
 import markdownlint from "../src/extractors/markdownlint.js";
-import gotest from "../src/extractors/gotest.js";
+import gotest, { PANIC_LINE, panicMessage } from "../src/extractors/gotest.js";
 import rspec from "../src/extractors/rspec.js";
 import ruff from "../src/extractors/ruff.js";
 import vitest from "../src/extractors/vitest.js";
@@ -50,6 +50,17 @@ import junitjvm from "../src/extractors/junitjvm.js";
 import deno from "../src/extractors/deno.js";
 import shellcheck from "../src/extractors/shellcheck.js";
 import { xmlAttributes, xmlText } from "../src/util.js";
+import gojson, { isEvent } from "../src/extractors/gojson.js";
+import jvm, { gradleTestLine } from "../src/extractors/jvm.js";
+import less, { headLine as lessHead } from "../src/extractors/less.js";
+import php, { fatalLine, parseLine, uncaughtLine } from "../src/extractors/php.js";
+import dotnettest, { atLine } from "../src/extractors/dotnettest.js";
+import cargo, { panicLine } from "../src/extractors/cargo.js";
+import ruby, { frameLine } from "../src/extractors/ruby.js";
+import minitest from "../src/extractors/minitest.js";
+import cmake, { headLine as cmakeHead } from "../src/extractors/cmake.js";
+import mypy, { diagnosticLine } from "../src/extractors/mypy.js";
+import perl, { bracketed } from "../src/extractors/perl.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -126,11 +137,20 @@ const repeat = (line) => (n) => Array(n).fill(line).join("\n");
  *  in the machine during a read of a few milliseconds does not fail it. */
 function linearIn(extractor, grow, n) {
   const read = (text) => { if (extractor.detect(text)) extractor.extract(text); };
+  // A log's time is its fastest read. One parser's read can take a tenth of a millisecond,
+  // and a collection of the heap landing among twenty milliseconds of them takes longer
+  // than all of them together - Node 18 pauses for ten to forty milliseconds at a time late
+  // in this file - so their average read a log four times as long as eight times as slow.
+  // A quadratic reader is slow on every read.
   const once = (text) => {
-    let runs = 0;
+    let best = Infinity;
     const at = performance.now();
-    do { read(text); runs++; } while (performance.now() - at < FLOOR_MS);
-    return (performance.now() - at) / runs;
+    do {
+      const start = performance.now();
+      read(text);
+      best = Math.min(best, performance.now() - start);
+    } while (performance.now() - at < FLOOR_MS);
+    return best;
   };
   const small = Math.min(...Array.from({ length: 5 }, () => once(grow(n))));
   const big = grow(4 * n - 3);
@@ -417,6 +437,79 @@ test("one long line of surefire tallies", () => {
   linear(oneLine("[INFO] Tests run: 45, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.015 s -- in org.json.junit.JSONParserConfigurationTest"), 401);
 });
 
+// ------------------------------------------------------- lines that nearly match
+// A pattern with a lazy part before a part held to the end of the line tries that end
+// from every place the lazy part could stop, and a line built of many such places and no
+// such end was read again from each. Each of these is matched in one pass now, and held
+// to its pattern below.
+
+const capture = (name) => readFileSync(join(here, "fixtures", name), "utf8");
+// A hostile line put where a real frame stands in a real capture.
+const besides = (name, isFrame, line) => {
+  const lines = capture(name).split("\n");
+  lines.splice(lines.findIndex(isFrame) + 1, 0, line);
+  return lines.join("\n");
+};
+
+test("a go test -json line of many \"Action\" keys and no closing brace", () => {
+  linearIn(gojson, (n) => ['{"Action":"run","Package":"p","Test":"TestA"}', "{" + '"Action": 1, '.repeat(n)].join("\n"), 1001);
+});
+
+test("Less and PHP headers of many ` in ` and no line number", () => {
+  linearIn(less, (n) => "ParseError: " + "x in y on line ".repeat(n) + "z", 1001);
+  linearIn(php, (n) => [
+    "Fatal error: " + "x in y on line ".repeat(n) + "z", "Fatal error: Uncaught E: " + "m in f:1 ".repeat(n) + "x",
+    "Parse error: " + "x in y on line ".repeat(n) + "z",
+  ].join("\n"), 1001);
+});
+
+test("a .NET frame of many ` in ` and no line number", () => {
+  linearIn(dotnettest, (n) => besides("dotnettest_fail.txt", (l) => /^\s+at .+ in .+:\d+$/.test(l), "    at f" + " in g:1x".repeat(n)), 1001);
+});
+
+test("Ruby lines of many `:1:in '` and no closing quote", () => {
+  linearIn(ruby, (n) => "a:1:in `x' ".repeat(n) + "(RuntimeError)", 1001);
+  linearIn(ruby, (n) => ["app.rb:3:in `run': boom (RuntimeError)", "   from " + "a:1:in 'b".repeat(n)].join("\n"), 1001);
+  linearIn(minitest, (n) => besides("minitest_fail.txt", (l) => /:in [`']/.test(l), "    " + "a:1:in 'b".repeat(n)), 1001);
+});
+
+test("a mypy error of many ` [` and no closing bracket", () => {
+  linearIn(mypy, (n) => ["a.py:1: error: " + "m [".repeat(n), "Found 1 error in 1 file (checked 1 source file)"].join("\n"), 1001);
+});
+
+test("a cargo panic line of many threads and no location", () => {
+  linearIn(cargo, (n) => ["error[E0308]: mismatched types", " --> src/main.rs:2:22", "thread 'A' panicked at a:1:1x".repeat(n)].join("\n"), 1001);
+});
+
+test("a CMake heading of many `:1 (` and no closing bracket", () => {
+  linearIn(cmake, (n) => "CMake Error at " + "f:1 (".repeat(n), 1001);
+});
+
+test("a Perl diagnostic repeating the start of a warning it never finishes", () => {
+  linearIn(perl, (n) => 'Argument "x" '.repeat(n) + "at a.pl line 1.", 2001);
+});
+
+test("a Go panic line of many ` [recovered` and no closing bracket", () => {
+  // The message was tried against the ` [recovered ...]` ending after each of its
+  // characters, and each try read on to the end of the line for the `]` - in deciding the
+  // log was Go's, in a panic outside any test, and in one inside a test's output. Read once,
+  // the line takes a twentieth of a millisecond, too little to time on its own, so each log
+  // also holds two thousand lines of ordinary output.
+  const output = Array.from({ length: 2000 }, (_, k) => `  building step ${k}`);
+  linearIn(gotest, (n) => [...output, "panic: boom" + " [recovered".repeat(n), "", "goroutine 1 [running]:", "main.main()", "\t/src/main.go:9 +0x1d", "exit status 2"].join("\n"), 1001);
+  linearIn(gotest, (n) => [
+    "=== RUN   TestA", ...output, "panic: boom" + " [recovered".repeat(n), "", "goroutine 7 [running]:", "example.com/p.TestA(0xc0000a)",
+    "\t/src/p/a_test.go:9 +0x1d", "--- FAIL: TestA (0.00s)", "FAIL\texample.com/p\t0.004s", "FAIL",
+  ].join("\n"), 1001);
+});
+
+test("a passing Gradle test whose name holds many ` > `", () => {
+  // The pattern repeated a group whose lazy name could take the next ` > ` in, and tried
+  // every way of dividing the name between them: each two more doubled the time and then
+  // some. Twenty-one of them took a sixth of a second, and a few more took minutes.
+  linearIn(jvm, (n) => ["> Task :test FAILED", "com.Foo" + " > a".repeat(n) + " PASSED", "", "2 tests completed, 1 failed"].join("\n"), 6);
+});
+
 // Each replacement answers exactly what its pattern answered - every group, on lines built
 // to nearly match and on lines of loose pieces, including the line terminators `.` refuses
 // to cross.
@@ -467,6 +560,42 @@ test("each replacement matches exactly what its pattern matched", () => {
     () => pick(["", "Tests run: 1, ", "x"]) + "Time elapsed:" + pick([" 0.01 s ", "", "\u2028", "\n"]) + pick(["<<<", "<<", ""]) + gap() + pick(["FAILURE!", "ERROR!", "FAIL"]) + pick(["", " -- in T"]));
   // Every attribute of a tag, as the pattern xmlAttributes used to read them.
   const attributes = (read) => (tag) => { const found = Object.entries(read(tag)); return found.length ? found : null; };
+  // ...and the readers that replaced the patterns of lines that nearly match.
+  const test = (pattern) => (text) => (pattern.test(text) ? [text] : null);
+  const yes = (read) => (text) => (read(text) ? [text] : null);
+  agrees("go test -json event", test(/^[^\S\n]*\{.*"Action"[^\S\n]*:.*\}[^\S\n]*$/), yes(isEvent),
+    () => gap() + pick(["{", "x{"]) + pick(['"Action"', '"Action" :', ' "Test":"T", "Action":"run"', "x"]) + pick([":", ""]) + pick(['"run"', "1", "}", ""]) + pick(["}", ""]) + gap());
+  agrees("gradle test", matching(/^([A-Za-z_$][\w.$]*(?:[^\S\n]+>[^\S\n]+.+?)+)[^\S\n]+FAILED[^\S\n]*$/), gradleTestLine,
+    () => pick(["com.Foo", "a.b$c", "1x"]) + gap() + pick([">", ">>", "x"]) + gap() + pick(["a", "b c", "test()", ">", ""]) + pick(["", gap() + ">" + gap() + pick(["x", "x > y", " "])]) + gap() + pick(["FAILED", "PASSED", "FAILEDX"]) + gap());
+  agrees("less", matching(/^(\w*(?:Error|Exception)):[^\S\n]*(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)(?:,[^\S\n]+column[^\S\n]+(\d+))?:?[^\S\n]*$/), lessHead,
+    () => pick(["NameError", "Error", "Errorx"]) + ":" + gap() + pick(["x", "a b", "in", ""]) + gap() + pick(["in", "in in", "within"]) + gap() + pick(["/a.less", "in"]) + gap() + "on line" + gap() + pick(["1", "x"]) + pick(["", ", column 3"]) + pick(["", ":"]) + gap());
+  agrees("php fatal", matching(/^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+(?!Uncaught[^\S\n])(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/), fatalLine,
+    () => pick(["", "PHP "]) + "Fatal error:" + gap() + pick(["", "Uncaught "]) + pick(["x", "a b", ""]) + gap() + pick(["in", "in in"]) + gap() + pick(["/a.php", "a b.php"]) + gap() + "on line" + gap() + pick(["1", "x"]));
+  agrees("php parse", matching(/^(?:PHP[^\S\n]+)?Parse error:[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/), parseLine,
+    () => pick(["", "PHP "]) + "Parse error:" + gap() + pick(["x", "a b", ""]) + gap() + pick(["in", "in in"]) + gap() + pick(["/a.php", "a b.php"]) + gap() + "on line" + gap() + pick(["1", "x"]));
+  agrees("php uncaught", matching(/^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+Uncaught[^\S\n]+([\w\\]+):[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?):(\d+)$/), uncaughtLine,
+    () => pick(["", "PHP "]) + "Fatal error:" + gap() + "Uncaught" + gap() + pick(["Exception", "App\\Err"]) + ":" + gap() + pick(["x", "a b", "in"]) + gap() + pick(["in", "in in"]) + gap() + pick(["/a.php", "x:1"]) + ":" + pick(["1", "x"]));
+  agrees("dotnet frame", matching(/^[^\S\n]*at[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?):(?:line[^\S\n]+)?(\d+)[^\S\n]*$/), atLine,
+    () => gap() + "at" + gap() + pick(["Ns.C.M()", "M(a, b)", "in"]) + gap() + pick(["in", "in in"]) + gap() + pick(["/a.cs", "C:\\a b.cs"]) + ":" + pick(["line 3", "12", "x"]) + gap());
+  agrees("cargo panic", matching(/^[^\S\n]*thread '(.+?)'(?: \(\d+\))? panicked at (.+?):(\d+):(\d+):$/), panicLine,
+    () => gap() + "thread '" + pick(["main", "a'b", ""]) + "'" + pick(["", " (12)"]) + pick([" panicked at ", "panicked at "]) + pick(["src/main.rs", "x:1:2"]) + ":" + pick(["3", "x"]) + ":" + pick(["4", "5"]) + pick([":", ""]));
+  agrees("ruby frame", matching(/^[^\S\n]+from[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/), (l) => frameLine(l, "from"),
+    () => pick([" ", "  ", ""]) + "from" + gap() + pick(["app.rb", "a b.rb", "", " "]) + ":" + pick(["3", "x"]) + ":in " + pick(["`", "'"]) + pick(["run", "a'b", ""]) + pick(["'", ""]));
+  agrees("minitest frame", matching(/^[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/), (l) => frameLine(l, ""),
+    () => pick([" ", "  ", ""]) + pick(["app.rb", "a b.rb", "", " "]) + ":" + pick(["3", "x"]) + ":in " + pick(["`", "'"]) + pick(["run", "a'b", ""]) + pick(["'", ""]));
+  agrees("cmake heading", matching(/^CMake (Error|Warning|Deprecation Warning)(?:[^\S\n]+at[^\S\n]+(.+?):(\d+)(?:[^\S\n]+\(([^)]+)\))?)?:[^\S\n]*$/), cmakeHead,
+    () => "CMake " + pick(["Error", "Warning", "Deprecation Warning"]) + pick(["", gap() + "at" + gap() + pick(["CMakeLists.txt", "a b", ":1", ""]) + ":" + pick(["1", "x"]) + pick(["", gap() + "(" + pick(["add_x", "a(b", ""]) + ")"])]) + pick([":", ""]) + gap());
+  agrees("mypy", matching(/^(.+?):(\d+)(?::(\d+))?:[^\S\n]+(error|warning|note):[^\S\n]+(.+?)(?:[^\S\n]+\[([^\]]+)\])?$/), diagnosticLine,
+    () => pick(["a.py", "x:1"]) + ":" + pick(["1", "12"]) + pick(["", ":3"]) + ":" + gap() + pick(["error", "note", "x"]) + ":" + gap() + pick(["Name x", "a [b", "[c]", "", " "]) + pick(["", gap() + "[" + pick(["name-defined", "a [b", ""]) + "]"]) + gap());
+  agrees("perl argument", test(/\bArgument ".*" isn't numeric\b/), yes((l) => bracketed(l, 'Argument "', "\" isn't numeric", 0)),
+    () => pick(["", "x", "_"]) + pick(['Argument "', "Argument"]) + pick(["x", "", '"']) + pick(["\" isn't numeric", " isn't numeric"]) + pick(["", "x", " at a.pl line 1."]));
+  agrees("perl useless", test(/\bUseless use of .+ in void context\b/), yes((l) => bracketed(l, "Useless use of ", " in void context", 1)),
+    () => pick(["", "x"]) + "Useless use of " + pick(["x", "", "a b"]) + pick([" in void context", " in void"]) + pick(["", "s", " at a.pl line 1."]));
+  agrees("go panic", matching(/^panic: (.+?)(?:\s\[recovered.*\])?$/), (l) => { const message = panicMessage(l); return message === null ? null : [l, message]; },
+    () => "panic:" + pick([" ", "  ", ""]) + pick(["boom", "", "a b", "[recovered]"]) +
+      pick(["", gap() + "[recovered" + pick(["", "x", gap(), " x" + gap()]) + pick(["]", "]]", ""])]) + pick(["", "", gap()]));
+  agrees("go panic, anywhere in a log", test(/^panic: (.+?)(?:[^\S\n]\[recovered.*\])?$/m), test(PANIC_LINE),
+    () => pick(["", "x\n", "x\r", "x" + gap()]) + pick(["panic: ", "panic:", "xpanic: "]) + pick(["", "a", "[recovered]"]) + gap() + pick(["", "\ny"]));
   agrees("xml attributes", attributes((tag) => {
     const found = {};
     for (const match of tag.matchAll(/([\w:.-]+)=(?:"([^"]*)"|'([^']*)')/g)) found[match[1]] = xmlText(match[2] ?? match[3]);

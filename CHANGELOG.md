@@ -40,6 +40,12 @@
   comment and tried an attribute name from each character of a long run: one malformed
   Checkstyle tag of 80,000 characters took half a minute. A testcase cut off before its
   closing tag no longer takes the next test's failure in deno's and node's JUnit reports.
+- A line that nearly matches a reader's pattern is read once. A passing Gradle test whose
+  name held many ` > ` - a parameter like `a > b` is enough - took time that more than
+  doubled with every two more: 120 characters took five seconds. `go test -json` events,
+  Go panics, Less, PHP, mypy, .NET, cargo, CMake, Ruby and Minitest lines, and Perl's
+  warning phrases each read the rest of a long line again from every place their pattern
+  could stop. Each reader is held, on random lines, to the pattern it replaces.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring

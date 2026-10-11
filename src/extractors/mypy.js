@@ -1,7 +1,51 @@
-import { counted, jsonDocuments, jsonDocumentsAt } from "../util.js";
+import { counted, jsonDocuments, jsonDocumentsAt, terminatorFree } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 const MAX_NOTES = 2;
-const DIAGNOSTIC_RE = /^(.+?):(\d+)(?::(\d+))?:[^\S\n]+(error|warning|note):[^\S\n]+(.+?)(?:[^\S\n]+\[([^\]]+)\])?$/;
+const SPACE = /[^\S\n]/;
+
+/** The match `line` gives the diagnostic pattern
+ *    /^(.+?):(\d+)(?::(\d+))?:[^\S\n]+(error|warning|note):[^\S\n]+(.+?)(?:[^\S\n]+\[([^\]]+)\])?$/
+ *  read in one pass. The pattern tried the optional `[code]` at every character of the
+ *  message, each time reading on to look for its closing bracket: a message of many ` [`
+ *  and no `]` was read again from each. A `[code]` can only start after the last `]`
+ *  before the one that ends the line, so where it can start is found once, and the message
+ *  of each head runs to the first of those places after it, or to the end. */
+export function diagnosticLine(line) {
+  const n = line.length;
+  const clear = terminatorFree(line);
+  const opens = [];
+  if (line[n - 1] === "]") {
+    for (let q = line.lastIndexOf("]", n - 2) + 1; q <= n - 3; q++) if (line[q] === "[" && SPACE.test(line[q - 1] ?? "")) opens.push(q);
+  }
+  let next = 0;
+  const runStart = (q) => { let s = q; while (s > 0 && SPACE.test(line[s - 1])) s--; return s; };
+  const head = /:(\d+)(?::(\d+))?:[^\S\n]+(error|warning|note):/y;
+  for (let p = line.indexOf(":", 1); p !== -1; p = line.indexOf(":", p + 1)) {
+    if (!clear(0, p)) break;
+    head.lastIndex = p;
+    const m = head.exec(line);
+    if (!m) continue;
+    const after = head.lastIndex;
+    let start = after;
+    while (start < n && SPACE.test(line[start])) start++;
+    if (start === after) continue;
+    const found = (from, to, code) => Object.assign([line, line.slice(0, p), m[1], m[2], m[3], line.slice(from, to), code], { index: 0, input: line, groups: undefined });
+    // The message from the end of the whitespace, to the first `[code]` after it or the end.
+    while (next < opens.length && opens[next] < start + 2) next++;
+    if (next < opens.length) {
+      const q = opens[next], end = Math.max(runStart(q), start + 1);
+      if (clear(start, end)) return found(start, end, line.slice(q + 1, n - 1));
+    } else if (start < n && clear(start, n)) return found(start, n, undefined);
+    // Or the whitespace given back: one character of it as the message, before the end of
+    // the line or before a `[code]` right after the whitespace.
+    if (start === n) {
+      if (start - 1 > after && clear(start - 1, n)) return found(start - 1, n, undefined);
+    } else if (opens.includes(start)) {
+      for (let s = start - 2; s > after; s--) if (clear(s, s + 1)) return found(s, s + 1, line.slice(start + 1, n - 1));
+    }
+  }
+  return null;
+}
 // mypy only ever reports Python source. "file:line: error: message" is not its shape
 // alone - javac writes it, and swiftc writes "<unknown>:0: error: ..." when the driver
 // has no source to point at, which a mypy run pasted above it claimed as a fourth type
@@ -42,7 +86,7 @@ export default {
     const failures = [];
     let warnings = 0;
     for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(DIAGNOSTIC_RE);
+      const match = diagnosticLine(lines[i]);
       if (!match || match[4] === "note" || !PYTHON_SRC.test(match[1])) continue;
       if (match[4] === "warning") { warnings++; continue; }
       // A note at the SAME file and line continues this error - for a call-overload
@@ -50,7 +94,7 @@ export default {
       // Notes elsewhere are separate remarks and stay out.
       const notes = [];
       for (let j = i + 1; j < lines.length && notes.length < MAX_NOTES; j++) {
-        const n = lines[j].match(DIAGNOSTIC_RE);
+        const n = diagnosticLine(lines[j]);
         if (!n || n[4] !== "note" || n[1] !== match[1] || n[2] !== match[2]) break;
         notes.push(n[5]);
       }

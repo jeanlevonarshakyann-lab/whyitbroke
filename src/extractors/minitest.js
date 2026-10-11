@@ -18,6 +18,7 @@
 // the test raised, and says where only in its backtrace, innermost frame first - which
 // may be a helper in lib/ rather than the test.
 import { isNoise } from "../util.js";
+import { frameLine } from "./ruby.js";
 import { withSource } from "../ownership.js";
 
 const BLOCK_RE = /^[^\S\n]*\d+\) (Failure|Error):[^\S\n]*$/;
@@ -25,7 +26,7 @@ const BLOCK_RE = /^[^\S\n]*\d+\) (Failure|Error):[^\S\n]*$/;
 const FAILURE_RE = /^(\S.*?#\S.*?) \[([^\[\]\n]+?):(\d+)\]:[^\S\n]*$/;
 const ERROR_RE = /^(\S.*?#\S.*?):[^\S\n]*$/;
 // Ruby 3.4 quotes the method as 'Class#name' where earlier rubies wrote `name'.
-const FRAME_RE = /^[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/;
+// /^[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/ - see frameLine.
 const TALLY_RE = /^\d+ runs, \d+ assertions, \d+ failures, \d+ errors, \d+ skips$/m;
 
 export default {
@@ -84,7 +85,7 @@ export default {
       const frames = [];
       const said = [];
       for (const line of body) {
-        const frame = line.match(FRAME_RE);
+        const frame = frameLine(line, "");
         if (frame) frames.push({ file: frame[1], line: +frame[2], fn: frame[3] });
         else if (!frames.length) said.push(line);
       }

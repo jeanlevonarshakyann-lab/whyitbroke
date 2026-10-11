@@ -1,4 +1,4 @@
-import { isNoise, tailFirst } from "../util.js";
+import { headThenTail, isNoise, tailFirst } from "../util.js";
 import { withSource } from "../ownership.js";
 
 // An uncaught Ruby exception names where it was raised, the method it was raised in, the
@@ -17,21 +17,59 @@ import { withSource } from "../ownership.js";
 // too: each `':` after its first character, in turn.
 export const raiseLine = (line) => tailFirst(line, {
   tail: /\(([A-Z][\w:]*(?:Error|Exception|Interrupt|Signal|Timeout))\)$/, spaceBefore: 1, emptyMessage: true,
-  heads: function* (l, c, clear) {
+  heads: function* (l, c, clear, from) {
     const place = /:(\d+):in [`']/y;
+    // Every `':` before the tail that can end a head, found once. Each opener looked for the
+    // next one to the end of the line, and a line of openers with no closer was read again
+    // from each of them.
+    const closers = [];
+    for (let k = l.indexOf("':", Math.max(0, from - 2)); k !== -1 && k < c; k = l.indexOf("':", k + 1)) closers.push(k);
+    let next = 0;
     for (let p = l.indexOf(":", 1); p !== -1 && p < c; p = l.indexOf(":", p + 1)) {
       if (!clear(0, p)) continue;
       place.lastIndex = p;
       const m = place.exec(l);
       if (!m) continue;
       const method = place.lastIndex;
-      for (let k = l.indexOf("':", method + 1); k !== -1 && k < c && clear(method, k); k = l.indexOf("':", k + 1)) {
-        yield { end: k + 2, groups: [l.slice(0, p), m[1], l.slice(method, k)] };
+      while (next < closers.length && closers[next] <= method) next++;
+      for (let i = next; i < closers.length && clear(method, closers[i]); i++) {
+        yield { end: closers[i] + 2, groups: [l.slice(0, p), m[1], l.slice(method, closers[i])] };
       }
     }
   },
 });
-const FRAME_RE = /^[^\S\n]+from[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/;
+// `^[^\S\n]+from[^\S\n]+(.+?):(\d+):in [`'](.+?)'$`, matched as the pattern matches it: the file from
+// where the space before it ends - or, that space given back, from its last character -
+// to each `:N:in '` in turn, and the method to the quote that ends the line. The pattern
+// tried the rest of a long line again from every one of those.
+export function frameLine(line, lead) {
+  return headThenTail(line, {
+    tail: /'$/, emptyMessage: false,
+    heads: function* (l, c, clear) {
+      const space = (at) => { while (at < c && /[^\S\n]/.test(l[at])) at++; return at; };
+      const indent = space(0);
+      if (indent === 0) return;
+      let f = indent;
+      if (lead) {
+        if (!l.startsWith(lead, f)) return;
+        f = space(indent + lead.length);
+        if (f === indent + lead.length) return;
+      }
+      const place = /:(\d+):in [`']/y;
+      for (let p = l.indexOf(":", f + 1); p !== -1 && p < c; p = l.indexOf(":", p + 1)) {
+        if (!clear(f, p)) break;
+        place.lastIndex = p;
+        const m = place.exec(l);
+        if (m) yield { end: place.lastIndex, groups: [l.slice(f, p), m[1]] };
+      }
+      if (f - (lead ? indent + lead.length : 0) >= 2 && clear(f - 1, f)) {
+        place.lastIndex = f;
+        const m = place.exec(l);
+        if (m) yield { end: place.lastIndex, groups: [l.slice(f - 1, f), m[1]] };
+      }
+    },
+  });
+}
 // A file that will not parse never runs, so there is no exception and no unwind - just
 // the line and what the parser expected.
 const SYNTAX_RE = /^(.+?):(\d+):[^\S\n]+(syntax error,?[^\S\n]*.*)$/;
@@ -60,7 +98,7 @@ export default {
       if (raise) {
         const frames = [];
         for (let j = i + 1; j < lines.length; j++) {
-          const f = lines[j].match(FRAME_RE);
+          const f = frameLine(lines[j], "from");
           if (!f) break;
           frames.push({ file: f[1], line: +f[2], fn: f[3] });
         }

@@ -312,21 +312,37 @@ const INLINE_SPACE = /[^\S\n]/;
  *  tail: the part held to the end, from its first character (not the whitespace before
  *        it), ending in `$`. Its groups come last in the match.
  *  spaceBefore: the whitespace the pattern needs between message and tail: 0, 1 or 2.
+ *  adjacent: the tail follows the message directly, with no whitespace between them.
  *  emptyMessage: whether the message may be empty - `.*?` - or not - `.+?`.
- *  heads(line, tailAt, clear): where the head can end, in the order the pattern tries,
- *        as { end, groups }. `clear(i, j)` says no line terminator lies in [i, j), which
- *        is what `.` in a head needs. The separator after the head is `[^\S\n]+`. */
-export function tailFirst(line, { tail, spaceBefore, emptyMessage, heads }) {
+ *  heads(line, tailAt, clear, from): where the head can end, in the order the pattern
+ *        tries, as { end, groups }. `clear(i, j)` says no line terminator lies in [i, j),
+ *        which is what `.` in a head needs. A head ending before `from` cannot match - a
+ *        terminator lies between it and the tail - and need not be offered. The separator
+ *        after the head is `[^\S\n]+`. */
+export function tailFirst(line, { tail, spaceBefore = 0, emptyMessage, heads, adjacent = false }) {
   const t = tail.exec(line);
   if (!t) return null;
   const c = t.index;
   let w = c;
-  while (w > 0 && INLINE_SPACE.test(line[w - 1])) w--;
-  const counts = new Int32Array(line.length + 1);
-  for (let i = 0; i < line.length; i++) counts[i + 1] = counts[i] + (LINE_TERMINATOR.test(line[i]) ? 1 : 0);
-  const clear = (i, j) => counts[j] === counts[i];
+  // An adjacent tail follows the message with no whitespace between, so the message runs
+  // right up to it - `(.+?):(\d+)$` - spaces and all.
+  if (!adjacent) while (w > 0 && INLINE_SPACE.test(line[w - 1])) w--;
+  // Too little whitespace before the tail and no head can match: asking each of them was
+  // the cost of a line of thousands of heads.
+  if (c - w < spaceBefore) return null;
+  const clear = terminatorFree(line);
   const shortest = emptyMessage ? 0 : 1;
-  for (const head of heads(line, c, clear)) {
+  // The message holds no line terminator, so a head is read only from the whitespace around
+  // the last one above the tail. A line on which no message could be read otherwise had
+  // every head on it tried, and those can be one for each pair of places in the line.
+  let from = 0;
+  if (!clear(0, w)) {
+    let last = w - 1;
+    while (!LINE_TERMINATOR.test(line[last])) last--;
+    for (from = last + 1; from > 0 && INLINE_SPACE.test(line[from - 1]);) from--;
+  }
+  for (const head of heads(line, c, clear, from)) {
+    if (head.end < from) continue;
     let r = head.end;
     while (r < c && INLINE_SPACE.test(line[r])) r++;
     // The separator gives back one character at a time; the message takes the fewest.
@@ -340,6 +356,82 @@ export function tailFirst(line, { tail, spaceBefore, emptyMessage, heads }) {
     }
   }
   return null;
+}
+
+const LINE_TERMINATORS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCharCode(0x2029)];
+
+/** `clear(i, j)`: whether no line terminator lies in [i, j) of `line` - what `.` in a pattern
+ *  needs. A line rarely holds one, so where each lies is found once, by search, and every
+ *  question after that looks among those few. A count kept for each character instead was
+ *  an array four times the line's length for every line asked about, and from 32,768
+ *  characters on each was made where the heap keeps its largest objects. */
+export function terminatorFree(line) {
+  const at = [];
+  for (const terminator of LINE_TERMINATORS) {
+    for (let k = line.indexOf(terminator); k !== -1; k = line.indexOf(terminator, k + 1)) at.push(k);
+  }
+  if (at.length === 0) return () => true;
+  at.sort((a, b) => a - b);
+  return (i, j) => {
+    if (j < i) [i, j] = [j, i];
+    // the first terminator at or after i, and whether it is past the range
+    let lo = 0, hi = at.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (at[mid] < i) lo = mid + 1; else hi = mid; }
+    return lo === at.length || at[lo] >= j;
+  };
+}
+
+/** The match `line` gives a pattern of the shape `head(.+?)tail$` with nothing between
+ *  head, message and tail, as `line.match(pattern)` gives it. The tail can be in one place,
+ *  so each head leaves one message, and the first head in the pattern's order whose
+ *  message holds no line terminator is the match.
+ *  heads(line, tailAt, clear): as for tailFirst, where the head can end. */
+export function headThenTail(line, { tail, emptyMessage, heads }) {
+  const t = tail.exec(line);
+  if (!t) return null;
+  const c = t.index;
+  const clear = terminatorFree(line);
+  const shortest = emptyMessage ? 0 : 1;
+  for (const head of heads(line, c, clear)) {
+    if (c - head.end < shortest || !clear(head.end, c)) continue;
+    const match = [line, ...head.groups, line.slice(head.end, c), ...t.slice(1)];
+    match.index = 0;
+    match.input = line;
+    return match;
+  }
+  return null;
+}
+
+/** Where `[^\S\n]{min,}(.+?)[^\S\n]+in` can end in `line` when it starts at `at`, in the order
+ *  the pattern tries, as { end, message }. The pattern gives the whitespace back to the
+ *  message one character at a time from its end, and for each start the message takes the
+ *  fewest characters it can: up to an `in` right after the whitespace, then up to each
+ *  ` in` after it in turn. Whether a head matches depends only on where it ends, so each
+ *  end is offered once, the first time the pattern reaches it. `ok(start)` is any
+ *  condition the pattern puts on where the message starts. For a head of a tailFirst
+ *  pattern. */
+export function* lazyIn(line, at, min, limit, clear, from = 0, ok = () => true) {
+  let a = at;
+  while (a < limit && INLINE_SPACE.test(line[a])) a++;
+  if (a - at < min) return;
+  let soon = !(line.startsWith("in", a) && a + 2 <= limit), later = false;
+  for (let start = a; start >= at + min && !(soon && later); start--) {
+    if (!ok(start)) continue;
+    // An `in` right after the whitespace, reached with a message of one character.
+    if (!soon && start <= a - 2 && clear(start, start + 1)) {
+      soon = true;
+      yield { end: a + 2, message: line[start] };
+    }
+    if (later) continue;
+    later = true;
+    for (let r = line.indexOf("in", Math.max(a + 2, from - 2)); r !== -1 && r + 2 <= limit; r = line.indexOf("in", r + 1)) {
+      if (!INLINE_SPACE.test(line[r - 1])) continue;
+      let me = r - 1;
+      while (me > a + 1 && INLINE_SPACE.test(line[me - 1])) me--;
+      if (!clear(start, me)) break;
+      yield { end: r + 2, message: line.slice(start, me) };
+    }
+  }
 }
 
 /** The places `line` has `place` (a sticky pattern starting at a `:`) after a head of at
