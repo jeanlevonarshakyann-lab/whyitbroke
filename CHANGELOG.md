@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A log read again no longer costs a full comparison per finding. The cache of where a
+  log's lines start was checked by comparing strings, which compares their content, and a
+  fresh copy of the same log matched without replacing the cached one - so every later
+  lookup compared the whole log again. A one-line JSON report from mypy, mocha or
+  markdownlint read in quadratic time; the eslint, vitest and dotnet test readers share
+  the same lookup.
 - A runner's prefix in front of a line-start location comes off again. Since paths may
   hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
   `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file

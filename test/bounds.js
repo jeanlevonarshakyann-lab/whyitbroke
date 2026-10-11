@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
+import { lineAt } from "../src/util.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
 import { unixLine } from "../src/extractors/stylelint.js";
@@ -557,6 +558,28 @@ test("thousands of failures, every one of them new since the last run", () => {
     return { result, since: { compared: true, reason: null, fresh, gone: 0 } };
   };
   linearStep(({ result, since }) => render(result, { max: Infinity, cluster: false, since }), report, 2001);
+});
+
+test("the line of an offset, asked again of a fresh copy of the same log", () => {
+  // lineAt caches where a log's lines start, and checked the cache by comparing strings,
+  // which compares their content. A fresh string with the same text matched without
+  // replacing the cached one, so each later lookup compared the whole log again. Every
+  // first read rebuilds the cache and is fast, which is why a scaling test that keeps
+  // its fastest run never saw it; the next read of an equal log was quadratic.
+  const copy = () => ["{", "x".repeat(8_000_000), "}"].join("");
+  const first = copy();
+  let at = performance.now();
+  lineAt(first, 5);
+  const build = performance.now() - at;
+  const again = copy();
+  at = performance.now();
+  for (let k = 0; k < 2000; k++) lineAt(again, k);
+  const lookups = performance.now() - at;
+  // Building the cache takes well under a millisecond, so the bound has a floor: twenty
+  // milliseconds is far above any noise in the fixed lookups and far below the bug's
+  // half a second.
+  assert.ok(lookups < Math.max(build, 5) * 4,
+    `2,000 lookups on an equal copy took ${lookups.toFixed(0)}ms, against ${build.toFixed(1)}ms to build the cache`);
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
