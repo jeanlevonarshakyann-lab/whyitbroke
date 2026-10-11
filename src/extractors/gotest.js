@@ -117,6 +117,20 @@ function packaged(failures, lines, packageOf) {
 function details(block, at) {
   let file, line;
   const msg = [], used = [];
+  // The first goroutine frame that is not runtime/testing at or after each line, found in
+  // one pass on the first panic. Each panic line looked for it to the end of the test's
+  // output, and a test can print `panic:` lines of its own by the thousand.
+  let frames = null;
+  const frameFrom = (j) => {
+    if (!frames) {
+      frames = new Array(block.length + 1).fill(null);
+      for (let k = block.length - 1; k >= 0; k--) {
+        const fm = block[k].match(/^\t(.+?):(\d+)(?:\s|$)/);
+        frames[k] = fm && !STDLIB.test(fm[1]) ? { file: fm[1], line: +fm[2], k } : frames[k + 1];
+      }
+    }
+    return frames[j];
+  };
   for (let j = 0; j < block.length; j++) {
     const lm = block[j].match(LOC_RE);
     if (lm) { file ??= lm[1]; line ??= +lm[2]; if (lm[3]) msg.push(lm[3]); used.push(at[j]); continue; }
@@ -124,11 +138,8 @@ function details(block, at) {
     if (pm) {
       msg.push(`panic: ${pm[1]}`);
       used.push(at[j]);
-      // first goroutine frame that is not runtime/testing
-      for (let k = j + 1; k < block.length; k++) {
-        const fm = block[k].match(/^\t(.+?):(\d+)(?:\s|$)/);
-        if (fm && !STDLIB.test(fm[1])) { file = fm[1]; line = +fm[2]; used.push(at[k]); break; }
-      }
+      const frame = frameFrom(j + 1);
+      if (frame) { file = frame.file; line = frame.line; used.push(at[frame.k]); }
     }
   }
   return { file, line, msg, used };

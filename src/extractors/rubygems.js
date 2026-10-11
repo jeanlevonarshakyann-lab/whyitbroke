@@ -41,6 +41,21 @@ export default {
   extract(s) {
     const lines = s.split("\n");
     const failures = [];
+    // The first "Because" and the first "version solving has failed." at or after each
+    // line, found in one pass on the first conflict. Each conflict searched the whole log
+    // from its top for both.
+    let because = null, failed = null;
+    const nextAfter = (i) => {
+      if (!because) {
+        because = new Array(lines.length + 1).fill(-1);
+        failed = new Array(lines.length + 1).fill(-1);
+        for (let k = lines.length - 1; k >= 0; k--) {
+          because[k] = /^Because\b/.test(lines[k]) ? k : because[k + 1];
+          failed[k] = SOLVING_FAILED.test(lines[k]) ? k : failed[k + 1];
+        }
+      }
+      return [because[i + 1], failed[i + 1]];
+    };
 
     for (let i = 0; i < lines.length; i++) {
       const missing = lines[i].match(MISSING);
@@ -66,8 +81,7 @@ export default {
         // The explanation runs from the first "Because" to "version solving has failed."
         // Bounded both ways: if the closing line is not there, nothing is read, because
         // an unbounded read of prose is how a parser swallows the rest of a CI log.
-        const from = lines.findIndex((l, j) => j > i && /^Because\b/.test(l));
-        const to = lines.findIndex((l, j) => j > i && SOLVING_FAILED.test(l));
+        const [from, to] = nextAfter(i);
         if (from < 0 || to < from) continue;
         failures.push(withSource({
           title: "version conflict", label: "version conflict", severity: "error",

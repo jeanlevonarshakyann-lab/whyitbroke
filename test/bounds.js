@@ -20,6 +20,16 @@ import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
+import bundler from "../src/extractors/rubygems.js";
+import pytest from "../src/extractors/pytest.js";
+import swift from "../src/extractors/swift.js";
+import markdownlint from "../src/extractors/markdownlint.js";
+import gotest from "../src/extractors/gotest.js";
+import rspec from "../src/extractors/rspec.js";
+import ruff from "../src/extractors/ruff.js";
+import vitest from "../src/extractors/vitest.js";
+import docker from "../src/extractors/docker.js";
+import phpunit from "../src/extractors/phpunit.js";
 import { unixLine } from "../src/extractors/stylelint.js";
 import { issueLine } from "../src/extractors/golangci.js";
 import { gccLine } from "../src/extractors/shellcheck.js";
@@ -110,7 +120,9 @@ function nearOrdinary(text) {
 const repeat = (line) => (n) => Array(n).fill(line).join("\n");
 
 /** `linear`, for one parser asked about the log on its own. A parser whose cost is the
- *  whole question needs no other parser's time in the comparison. */
+ *  whole question needs no other parser's time in the comparison. A first read of the
+ *  larger log within the bound is enough; one past it is read twice more, so that a pause
+ *  in the machine during a read of a few milliseconds does not fail it. */
 function linearIn(extractor, grow, n) {
   const read = (text) => { if (extractor.detect(text)) extractor.extract(text); };
   const once = (text) => {
@@ -122,7 +134,7 @@ function linearIn(extractor, grow, n) {
   const small = Math.min(...Array.from({ length: 5 }, () => once(grow(n))));
   const big = grow(4 * n - 3);
   let large = once(big);
-  if (large < small * 8) large = Math.min(large, once(big), once(big));
+  if (large >= small * 8) large = Math.min(large, once(big), once(big));
   assert.ok(large < small * 8,
     `${extractor.name}: ${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
 }
@@ -557,6 +569,104 @@ test("thousands of failures, every one of them new since the last run", () => {
     return { result, since: { compared: true, reason: null, fresh, gone: 0 } };
   };
   linearStep(({ result, since }) => render(result, { max: Infinity, cluster: false, since }), report, 2001);
+});
+
+// ------------------------------------------------------------- runner formats
+// A reader that goes back to the top of the log for each block it finds, or reads on past
+// where the next block starts, reads the log again for every block - and a monorepo's run
+// prints thousands of blocks.
+
+test("thousands of bundler conflicts", () => {
+  // Each conflict looked for its explanation from the top of the log.
+  const unexplained = (n) => ["Resolving dependencies...", ...Array(n).fill("Could not find compatible versions")].join("\n");
+  const explained = (n) => Array.from({ length: n }, (_, k) => [
+    "Could not find compatible versions", "", `Because gem${k} >= 1 depends on dep${k} ~> 2`,
+    `  and Gemfile depends on dep${k} = 1,`, "  version solving has failed.",
+  ].join("\n")).join("\n");
+  linearIn(bundler, unexplained, 1001);
+  linearIn(bundler, explained, 4001);
+});
+
+test("a pytest summary of thousands of failures and nothing else", () => {
+  // With --tb=no there are no tracebacks, and each summary line asked every failure read
+  // before it for its node id and then for its name.
+  const summary = (n) => [
+    "=========================== short test summary info ============================",
+    ...Array.from({ length: n }, (_, k) => `FAILED tests/test_m${k}.py::test_total_${k} - assert ${k} == ${k + 1}`),
+    `============================== ${n} failed in 1.23s ===============================`,
+  ].join("\n");
+  linearIn(pytest, summary, 2001);
+});
+
+test("swiftc's parseable output from thousands of compile jobs", () => {
+  // Each error searched every record before it for its location.
+  const records = (n) => Array.from({ length: n }, (_, k) => {
+    const body = JSON.stringify({ kind: "finished", name: "compile", pid: k + 1, output: `src/f${k}.swift:${k + 1}:3: error: cannot find 'thing${k}' in scope\n`, "exit-status": 1 });
+    return `${Buffer.byteLength(body)}\n${body}`;
+  }).join("\n");
+  linearIn(swift, records, 1001);
+});
+
+test("a markdownlint JSON report of thousands of violations", () => {
+  // Each record compared itself with every violation before it - by file first, and a
+  // monorepo's paths are long.
+  const file = `docs/${"chapter-".repeat(48)}index.md`;
+  const report = (n) => JSON.stringify(Array.from({ length: n }, (_, k) => ({ fileName: file, lineNumber: k + 1, ruleNames: ["MD013"], ruleDescription: "L" })));
+  linearIn(markdownlint, report, 4001);
+});
+
+test("a Go test that prints thousands of lines starting with panic:", () => {
+  // Each one looked for a stack frame to the end of the test's output.
+  const noisy = (n) => [
+    "=== RUN   TestNoisy", ...Array.from({ length: n }, (_, k) => `panic: not really ${k}`), "    noisy_test.go:9: it broke",
+    "--- FAIL: TestNoisy (0.00s)", "FAIL", "FAIL\texample.com/noisy\t0.004s", "FAIL",
+  ].join("\n");
+  linearIn(gotest, noisy, 1001);
+});
+
+test("rspec failing to load hundreds of spec files", () => {
+  // Each load error read on to the one footer they share, through every later one.
+  const loads = (n) => [
+    ...Array.from({ length: n }, (_, k) => [
+      "", `An error occurred while loading ./spec/f${k}_spec.rb.`, `Failure/Error: raise "spec ${k} blew up at load"`, "",
+      "RuntimeError:", `  spec ${k} blew up at load`, `# ./spec/f${k}_spec.rb:1:in \`<top (required)>'`,
+    ].join("\n")),
+    "No examples found.", "", "Finished in 0.00001 seconds (files took 0.03182 seconds to load)",
+    `0 examples, 0 failures, ${n} errors occurred outside of examples`,
+  ].join("\n");
+  linearIn(rspec, loads, 301);
+});
+
+test("thousands of unclosed arrays where ruff's JSON could be", () => {
+  // Each bracket that opened a line was scanned from to the end of the log.
+  const brackets = (n) => ['{"filename": "x.py", "code": "F401"}', ...Array(n).fill("[")].join("\n");
+  linearIn(ruff, brackets, 1001);
+});
+
+test("vitest TAP whose YAML blocks never close", () => {
+  // Each block read on to the end of the log, through every later result.
+  const tap = (n) => ["TAP version 13", `1..${n}`, ...Array.from({ length: n }, (_, k) => [
+    `not ok ${k + 1} - adds ${k}`, "  ---", `  at: "src/a.test.js:${k + 1}:3"`, `  message: "expected ${k}"`,
+  ].join("\n"))].join("\n");
+  linearIn(vitest, tap, 301);
+});
+
+test("thousands of docker build steps whose commands failed", () => {
+  // Each step asked the whole log whether it had printed anything.
+  const steps = (n) => [
+    ...Array.from({ length: n }, (_, k) => `#${k + 1} ERROR: process "/bin/sh -c step${k}" did not complete successfully: exit code: 1`),
+    ...Array.from({ length: n }, (_, k) => `#${k + 1} 0.${String(k).padStart(3, "0")} step ${k} said something`),
+  ].join("\n");
+  linearIn(docker, steps, 1001);
+});
+
+test("thousands of PHPUnit tallies above one failure", () => {
+  // Each tally read on to the end of the run, through every tally after it.
+  const tallies = (n) => [
+    "PHPUnit 11.0.0 by Sebastian Bergmann and contributors.", "", ...Array(n).fill("There was 1 failure:"), "",
+    "1) App\\CartTest::testTotal", "Failed asserting that 4 is identical to 5.", "", "/app/tests/CartTest.php:12",
+  ].join("\n");
+  linearIn(phpunit, tallies, 2001);
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);

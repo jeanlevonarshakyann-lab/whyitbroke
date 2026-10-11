@@ -67,6 +67,15 @@
   `--all --since-last` looked each failure up in the list of new ones; and a capture
   whose tail was thousands of short diagnostic lines filtered its saved lines again for
   each one it let into the middle.
+- Runner output is read in time that grows with it. Bundler's conflicts, pytest's short
+  summary, swiftc's parseable records, markdownlint's JSON, a Go test's own `panic:`
+  lines, rspec's load errors, unclosed arrays where ruff's JSON could be, vitest's TAP
+  blocks, docker's relayed steps and PHPUnit's tallies were each read again, from the top
+  of the log or on past the next block, for every block: 4,000 spec files failing to load
+  took twenty seconds. The same boundaries fix what three of them reported: each rspec
+  load error keeps its own message and frame, an unclosed vitest TAP block keeps its own
+  location, and two swiftc jobs reporting different errors at one place each point at
+  their own record.
 - Pytest keeps spaces in parameter IDs used for history, and Python tracebacks keep a
   custom exception's type when it was raised without a message.
 

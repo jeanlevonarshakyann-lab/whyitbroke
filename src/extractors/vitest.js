@@ -100,7 +100,10 @@ function vitestTap(text) {
     let file, line, col, name, message;
     const compared = {};
     let j = i + 2;
-    for (; j < lines.length && !TAP_YAML_END_RE.test(lines[j]); j++) {
+    // To the `...` that closes the block - or, where none does, to the next result: read on
+    // past it, an unclosed block took the location of every later one and read the rest
+    // of the log again from each.
+    for (; j < lines.length && !TAP_YAML_END_RE.test(lines[j]) && !TAP_RESULT_RE.test(lines[j]); j++) {
       const at = lines[j].match(TAP_AT_RE);
       if (at) { dialect = true; [, file, line, col] = at; continue; }
       const field = lines[j].match(TAP_FIELD_RE);
@@ -123,7 +126,7 @@ function vitestTap(text) {
       message: ([name, message].filter(Boolean).join(": ") || title) +
         (compared.expected !== undefined && compared.actual !== undefined
           ? `\n- ${compared.expected}\n+ ${compared.actual}` : ""),
-    }, i, Math.min(j, lines.length - 1) + 1));
+    }, i, j < lines.length && !TAP_YAML_END_RE.test(lines[j]) ? j : Math.min(j, lines.length - 1) + 1));
   }
   return dialect && failures.length ? { failures, passed } : null;
 }

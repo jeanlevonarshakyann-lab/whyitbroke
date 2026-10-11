@@ -1,4 +1,4 @@
-import { elements, jsonDocumentsAt, jsonPlaces, lineAt, sarifArtifactUri, xmlAttributes } from "../util.js";
+import { elements, jsonDocumentsAt, lineAt, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
 const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
@@ -212,41 +212,14 @@ function oneLinePerFinding(lines) {
  *  Every array that opens a line is a candidate, and the first one whose records carry
  *  ruff's fields wins. Starting from the first `[` in the log was the obvious way and a
  *  wrong one: in a log holding another tool's JSON as well, the scan opened on somebody
- *  else's bracket and swallowed the rest - 148 ordered pairs lost failures that way. */
+ *  else's bracket and swallowed the rest - 148 ordered pairs lost failures that way.
+ *  The candidates are the ones every reader of JSON shares, found in one pass - see
+ *  documentSpans in util.js. Scanning on from each bracket on its own read the rest of a
+ *  log of unclosed ones again from every one of them. */
 function jsonFindings(text) {
   if (!text.includes('"filename"') || !text.includes('"code"')) return [];
-  for (const open of text.matchAll(/^[^\S\n]*\[/gm)) {
-    const found = arrayAt(text, open.index + open[0].length - 1);
-    if (found.length) return found;
-  }
-  return [];
-}
-
-/** Whitespace outside the strings is rewritten to a plain space on the way past: JSON
- *  admits only space, tab, CR and LF between tokens, and a runner that re-indents what
- *  it relays - pnpm uses U+2009 THIN SPACE - otherwise leaves a report that will not
- *  parse at all. Inside a string the same character is data and is kept. */
-function arrayAt(text, start) {
-  let depth = 0, inString = false, escaped = false;
-  const out = [];
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (inString) {
-      out.push(c);
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
-      continue;
-    }
-    out.push(/\s/.test(c) && !"\t\n\r ".includes(c) ? " " : c);
-    if (c === '"') { inString = true; continue; }
-    if (c === "[") depth++;
-    else if (c === "]" && --depth === 0) {
-      const source = out.join("");
-      try { if (!Array.isArray(JSON.parse(source))) return []; } catch { return []; }
-      const { value, where } = jsonPlaces(text, start, source);
-      return value.filter(isRecord).map((r) => placed(fromRecord(r), where(r)));
-    }
+  for (const { value, where } of jsonDocumentsAt(text, (v) => Array.isArray(v) && v.some(isRecord))) {
+    return value.filter(isRecord).map((r) => placed(fromRecord(r), where(r)));
   }
   return [];
 }

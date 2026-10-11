@@ -6,7 +6,7 @@
 //    9 |
 //   10 | let x: Int = "hello"
 //      |              `- error: cannot convert value of type 'String' to specified type 'Int'
-import { joinSources, withSource } from "../ownership.js";
+import { joinSources, sourceRange, withSource } from "../ownership.js";
 
 const DIAGNOSTIC_RE = /^(.+?):(\d+):(\d+):[^\S\n]+(error|warning|note):[^\S\n]+(.+)$/;
 // Newer swiftc tags a diagnostic with the group it belongs to, which is what you would
@@ -191,12 +191,27 @@ export default {
     // The output field is the exact human diagnostic swiftc would otherwise print.
     // Reusing that parser keeps source gutters, warning policy, codes and de-duplication
     // identical across the two modes.
-    const result = swiftText.extract(records.map(({ value }) => value.output).join("\n"));
+    const outputs = records.map(({ value }) => (value.output == null ? "" : String(value.output)));
+    const result = swiftText.extract(outputs.join("\n"));
     if (!result?.failures?.length) return null;
+    // The line of the joined text each record's output starts on. A failure is read from
+    // the record its own lines are in - searching every record for its location was
+    // quadratic in a build of many records, and gave a second diagnostic at the same place
+    // the first one's record.
+    const starts = [];
+    let next = 0;
+    for (const output of outputs) { starts.push(next); next += output.split("\n").length; }
+    const recordAt = (at) => {
+      let lo = 0, hi = starts.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= at) lo = mid; else hi = mid - 1; }
+      return records[lo];
+    };
     const failures = result.failures.map((failure) => {
+      const at = sourceRange(failure)?.start;
       const location = failure.file && failure.line && failure.col
         ? `${failure.file}:${failure.line}:${failure.col}:` : null;
-      const owner = records.find(({ value }) => !location || value.output.includes(location));
+      const owner = at !== undefined ? recordAt(at)
+        : records.find(({ value }) => !location || String(value.output ?? "").includes(location));
       // Read from the record whose output holds it, not from the joined text.
       const copy = { ...failure };
       return owner ? withSource(copy, owner.start, owner.end) : copy;

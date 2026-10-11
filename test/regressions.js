@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
 import { nodeFrame } from "../src/location.js";
+import { sourceRange } from "../src/ownership.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const fx = (name) => readFileSync(join(fixtures, name), "utf8");
@@ -396,6 +397,44 @@ test("One Go run printed two ways is read once", () => {
     assert.equal(result.summary, summary, name);
     assert.equal(result.failures.length, 4, name);
   }
+});
+
+test("Each block of a runner's output is read up to where the next one starts", () => {
+  // rspec reports every spec file that failed to load before one shared footer, and the
+  // first was read on through the others: their prose joined its message, and the last
+  // file's frame replaced its own.
+  const loads = analyse([
+    "", "An error occurred while loading ./spec/a_spec.rb.", 'Failure/Error: raise "a blew up"', "",
+    "RuntimeError:", "  a blew up", "# ./spec/a_spec.rb:1:in `<top (required)>'",
+    "", "An error occurred while loading ./spec/b_spec.rb.", "Failure/Error: Foo.bar", "",
+    "NameError:", "  uninitialized constant Foo", "# ./spec/b_spec.rb:3:in `<top (required)>'",
+    "No examples found.", "", "Finished in 0.00001 seconds (files took 0.03182 seconds to load)",
+    "0 examples, 0 failures, 2 errors occurred outside of examples",
+  ].join("\n"), { cluster: false });
+  assert.deepEqual(loads.failures.map((f) => [f.file, f.line, f.message]), [
+    ["./spec/a_spec.rb", 1, 'raise "a blew up"\nRuntimeError:\na blew up'],
+    ["./spec/b_spec.rb", 3, "Foo.bar\nNameError:\nuninitialized constant Foo"],
+  ]);
+  // A vitest TAP block that never closes is not the next result's: it took that one's
+  // location.
+  const tap = analyse([
+    "TAP version 13", "1..2", "not ok 1 - adds", "  ---", '  at: "src/a.test.js:4:3"', '  message: "expected 1"',
+    "not ok 2 - subtracts", "  ---", '  at: "src/b.test.js:9:5"', '  message: "expected 2"', "  ...",
+  ].join("\n"), { cluster: false });
+  assert.deepEqual(tap.failures.map((f) => [f.title, f.file, f.line]), [["adds", "src/a.test.js", 4], ["subtracts", "src/b.test.js", 9]]);
+  // Two swiftc compile jobs reporting different errors at one place: each error was read
+  // from its own job's record, not both from the first.
+  const record = (pid, output) => {
+    const body = JSON.stringify({ kind: "finished", name: "compile", pid, output, "exit-status": 1 });
+    return `${Buffer.byteLength(body)}\n${body}`;
+  };
+  const swift = analyse([
+    record(1, "bad.swift:2:5: error: cannot find 'a' in scope\n"),
+    record(2, "bad.swift:2:5: error: missing return in global function\n"),
+  ].join("\n"), { cluster: false });
+  assert.deepEqual(swift.failures.map((f) => [f.message, sourceRange(f)?.start]), [
+    ["cannot find 'a' in scope", 0], ["missing return in global function", 2],
+  ]);
 });
 
 test("Oxlint agent and unix paths accept spaces", () => {
