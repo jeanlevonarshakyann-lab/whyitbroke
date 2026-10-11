@@ -13,6 +13,11 @@
   lookup compared the whole log again. A one-line JSON report from mypy, mocha or
   markdownlint read in quadratic time; the eslint, vitest and dotnet test readers share
   the same lookup.
+- A log that names Terraform's `format_version` is no longer read line by line into arrays
+  as long as it. Terraform's reader counted the braces of every line of such a log into
+  three arrays of sixteen bytes a line - 160MiB for a 10MiB log of empty lines - and now
+  finds its reports with the scan every JSON reader shares. Its `plan -json` events are
+  looked for only in a log that names Terraform's UI module.
 - A JSON report printed on one line is read in linear time on Node 18 as well. Its
   readers asked for two lines per record, and Node 18 moved the first two newline searches
   of the line cache's rebuild ahead of the check that the cache still held the report -
