@@ -572,6 +572,12 @@ export function lineAt(text, offset) {
     for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
     lineStartsOf = { text, starts };
   }
+  // `!==` compares strings by content. A caller holding a new string with the same text -
+  // the same log read again, or rebuilt the same way - matched the cache, which kept the
+  // old string, so every later lookup walked the whole log to compare it again: one full
+  // comparison per lookup, a quadratic read of a one-line JSON report. Holding the
+  // caller's own string makes every lookup after the first a comparison of one pointer.
+  lineStartsOf.text = text;
   const { starts } = lineStartsOf;
   let lo = 0, hi = starts.length - 1;
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= offset) lo = mid; else hi = mid - 1; }
