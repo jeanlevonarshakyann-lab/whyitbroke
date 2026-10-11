@@ -1,15 +1,34 @@
 import { withSource } from "../ownership.js";
+import { headThenTail } from "../util.js";
 
 const ERR_RE = /^error(?:\[(E\d+)\])?: (.+)$/;
 const ARROW_RE = /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
 const DIFF_CONTEXT_RE = /^[^\S\n]*\d+[^\S\n]+\d+[^\S\n]*\|/;
 // cargo indents a build script's captured stderr under "--- stderr", so the panic that
 // actually failed the build arrives two spaces in and the anchored pattern missed it.
-const PANIC_RE = /^[^\S\n]*thread '(.+?)'(?: \(\d+\))? panicked at (.+?):(\d+):(\d+):$/;
-// PANIC_RE is matched line by line, so it carries no `m` flag - which meant using it in
-// detect only ever tested the FIRST line of the log. A panic anywhere else went unseen,
-// and detection survived on the other alternatives beside it.
-const PANIC_ANYWHERE = new RegExp(PANIC_RE.source, "m");
+// The line is matched as the pattern
+//   /^[^\S\n]*thread '(.+?)'(?: \(\d+\))? panicked at (.+?):(\d+):(\d+):$/
+// matches it, without trying the rest of a long line again from every `'` in it.
+export const panicLine = (line) => headThenTail(line, {
+  tail: /:(\d+):(\d+):$/, emptyMessage: false,
+  heads: function* (l, c, clear) {
+    let at = 0;
+    while (at < c && /[^\S\n]/.test(l[at])) at++;
+    if (!l.startsWith("thread '", at)) return;
+    const name = at + 8, withId = / \(\d+\) panicked at /y, without = / panicked at /y;
+    for (let q = l.indexOf("'", name + 1); q !== -1 && q < c; q = l.indexOf("'", q + 1)) {
+      if (!clear(name, q)) return;
+      for (const next of [withId, without]) {
+        next.lastIndex = q + 1;
+        if (next.test(l)) yield { end: next.lastIndex, groups: [l.slice(name, q)] };
+      }
+    }
+  },
+});
+// Matched line by line - and a log's lines, for a pattern with the `m` flag, are also
+// split at every other line terminator. Testing only the first line missed every panic
+// below it, and detection survived on the other alternatives beside it.
+const panicAnywhere = (s) => s.split(/[\n\r\u2028\u2029]/).some((l) => panicLine(l));
 // cargo reports a build-script failure as "failed to run custom build command", which
 // is the mechanism; the panic underneath it is the cause, and it is not a test failure.
 const BUILD_SCRIPT = /^error: failed to run custom build command/m;
@@ -86,7 +105,7 @@ export default {
     /^test result: /m.test(s) ||
     RESOLVE_RE.test(s) ||
     s.split("\n").some((l) => SHORT_RE.test(l)) ||
-    PANIC_ANYWHERE.test(s),
+    panicAnywhere(s),
 
   extract(s) {
     const lines = s.split("\n");
@@ -98,7 +117,7 @@ export default {
 
     // --- test panics: "---- tests::x stdout ----" then "thread '...' panicked at file:l:c:" ---
     for (let i = 0; i < lines.length; i++) {
-      const pm = lines[i].match(PANIC_RE);
+      const pm = panicLine(lines[i]);
       if (!pm) continue;
       const msg = [];
       // The panic line and the message under it.

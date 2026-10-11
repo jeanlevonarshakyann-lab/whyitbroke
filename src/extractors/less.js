@@ -6,8 +6,19 @@
 //
 // Self-bounding: there is nothing to scan for, because the whole diagnostic is one line.
 import { withSource } from "../ownership.js";
+import { lazyIn, tailFirst } from "../util.js";
 
-const HEAD_RE = /^(\w*(?:Error|Exception)):[^\S\n]*(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)(?:,[^\S\n]+column[^\S\n]+(\d+))?:?[^\S\n]*$/;
+// The header, as the pattern
+//   /^(\w*(?:Error|Exception)):[^\S\n]*(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)(?:,[^\S\n]+column[^\S\n]+(\d+))?:?[^\S\n]*$/
+// matches it, without trying the rest of a long line again from every ` in ` in it.
+export const headLine = (line) => tailFirst(line, {
+  tail: /on line[^\S\n]+(\d+)(?:,[^\S\n]+column[^\S\n]+(\d+))?:?[^\S\n]*$/, spaceBefore: 1, emptyMessage: false,
+  heads: function* (l, c, clear, from) {
+    const word = /^\w*/.exec(l)[0];
+    if (l[word.length] !== ":" || !/(?:Error|Exception)$/.test(word)) return;
+    for (const { end, message } of lazyIn(l, word.length + 1, 0, c, clear, from)) yield { end, groups: [word, message] };
+  },
+});
 // "1 .a { color: @undefined-var; }" - the number, a space, the source.
 const SOURCE_RE = /^[^\S\n]*(\d+)[^\S\n](.*)$/;
 
@@ -18,13 +29,13 @@ export default {
   category: "compile",
   commands: ["lessc", "less"],
 
-  detect: (s) => s.split("\n").some((l) => HEAD_RE.test(l)),
+  detect: (s) => s.split("\n").some((l) => headLine(l)),
 
   extract(s) {
     const lines = s.split("\n");
     const failures = [];
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(HEAD_RE);
+      const m = headLine(lines[i]);
       if (!m) continue;
       let stmt, end = i + 1;
       for (let j = i + 1; j < lines.length && j <= i + 3; j++) {

@@ -34,7 +34,62 @@ const javacSeverity = (word) => new RegExp(`^(?:${JAVAC_WARNING})$`).test(word) 
 //
 // A nested class is written `Outer > Inner > method() FAILED`. The class comes first and
 // starts like a Java name, which `> Task :test FAILED` does not.
-const GRADLE_TEST_RE = /^([A-Za-z_$][\w.$]*(?:[^\S\n]+>[^\S\n]+.+?)+)[^\S\n]+FAILED[^\S\n]*$/;
+const SPACE = /[^\S\n]/, TERMINATOR = /[\n\r\u2028\u2029]/;
+
+/** The match `line` gives /^([A-Za-z_$][\w.$]*(?:[^\S\n]+>[^\S\n]+.+?)+)[^\S\n]+FAILED[^\S\n]*$/,
+ *  read in one pass. The pattern repeats a group whose lazy name can take the next ` > `
+ *  in, so a passing test whose name held many of them - a parameter like `a > b` is
+ *  enough - was tried every way those groups could divide it: each two more doubled the
+ *  time and then some, and a line of 120 characters took five seconds. Each place is
+ *  asked, from the right, whether a match can still be finished from it - by another
+ *  ` > ` group or by the tail - and the match is then walked in the order the pattern
+ *  tries: the space after each `>` as long as it can be, the name as short as it can. */
+export function gradleTestLine(line) {
+  let z = line.length;
+  while (z > 0 && SPACE.test(line[z - 1])) z--;
+  const fs = z - 6;
+  if (fs < 1 || line.slice(fs, z) !== "FAILED" || !SPACE.test(line[fs - 1])) return null;
+  let tws = fs;
+  while (tws > 0 && SPACE.test(line[tws - 1])) tws--;
+  const ident = /^[A-Za-z_$][\w.$]*/.exec(line);
+  if (!ident) return null;
+  const i0 = ident[0].length, n = fs, NONE = n + 1;
+  const nonSpace = new Int32Array(n + 2), term = new Int32Array(n + 2);
+  nonSpace[n] = n; nonSpace[n + 1] = n + 1; term[n] = n; term[n + 1] = n + 1;
+  for (let q = n - 1; q >= 0; q--) {
+    nonSpace[q] = SPACE.test(line[q]) ? nonSpace[q + 1] : q;
+    term[q] = TERMINATOR.test(line[q]) ? q : term[q + 1];
+  }
+  // group[q]: a ` > name` group can start at q and the match be finished after it.
+  // name[q]: a name can start at q and the match be finished after it.
+  const group = new Uint8Array(n + 2), name = new Uint8Array(n + 2);
+  const nextEnd = new Int32Array(n + 3).fill(NONE), nextName = new Int32Array(n + 3).fill(NONE);
+  for (let q = n; q >= i0; q--) {
+    if (SPACE.test(line[q] ?? "")) {
+      const r = nonSpace[q];
+      if (r < n && line[r] === ">") {
+        const r2 = nonSpace[r + 1];
+        if (r2 > r + 1 && nextName[r + 2] <= r2) group[q] = 1;
+      }
+    }
+    // Where a name can end: before another group, or in the space before FAILED.
+    nextEnd[q] = group[q] || (q >= tws && q < fs) ? q : nextEnd[q + 1];
+    if (q < n && nextEnd[q + 1] <= Math.min(term[q], fs - 1)) name[q] = 1;
+    nextName[q] = name[q] ? q : nextName[q + 1];
+  }
+  if (!group[i0]) return null;
+  for (let at = i0; ;) {
+    const r2 = nonSpace[nonSpace[at] + 1];
+    let start = r2;
+    while (!name[start]) start--;
+    const end = nextEnd[start + 1];
+    if (group[end]) { at = end; continue; }
+    const match = [line, line.slice(0, end)];
+    match.index = 0;
+    match.input = line;
+    return match;
+  }
+}
 const GRADLE_SHORT_RE = /^[^\S\n]+([\w.$]+)[^\S\n]+at[^\S\n]+([^\s:]+\.(?:java|kt|groovy|scala)):(\d+)[^\S\n]*$/;
 const GRADLE_FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\s]+\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
 
@@ -45,7 +100,7 @@ function gradleTests(s) {
   // Gradle's own tally, which says a test run happened at all.
   const tallied = /^[^\S\n]*\d+ tests? completed, \d+ failed/m.test(s);
   for (let i = 0; i < lines.length; i++) {
-    const head = lines[i].match(GRADLE_TEST_RE);
+    const head = gradleTestLine(lines[i]);
     if (!head) continue;
     const parts = head[1].split(/[^\S\n]+>[^\S\n]+/);
     const cls = parts[0];

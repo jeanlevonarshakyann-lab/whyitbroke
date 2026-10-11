@@ -41,16 +41,40 @@ const RESTATES = [
 // anywhere in a perl diagnostic means it is that warning.
 const WARNINGS = [
   /\bUse of uninitialized value\b/,
-  /\bArgument ".*" isn't numeric\b/,
+  { test: (message) => bracketed(message, 'Argument "', "\" isn't numeric", 0) },
   /\bOdd number of elements in (?:hash|anonymous hash)\b/,
   /\bDeep recursion on (?:subroutine|anonymous subroutine)\b/,
   /\bSubroutine \S+ redefined\b/,
   /\bName "\S+" used only once\b/,
   /\bWide character in \b/,
-  /\bUseless use of .+ in void context\b/,
+  { test: (message) => bracketed(message, "Useless use of ", " in void context", 1) },
   /\bPossible precedence (?:issue|problem)\b/,
   /\bScalar value @\S+ better written as\b/,
 ];
+
+const word = (text, at) => at >= 0 && at < text.length && /\w/.test(text[at]);
+
+/** Whether `text` holds `open` as the start of a word and then, on the same line, at least
+ *  `gap` characters and `close` as the end of one - what /\bArgument ".*" isn't numeric\b/
+ *  and /\bUseless use of .+ in void context\b/ find. Those patterns looked for the closing
+ *  words from every opening, to the end of the line each time, so a message repeating
+ *  the opening words was read again from each; the first opening and the last closing
+ *  answer the same question in one pass. */
+export function bracketed(text, open, close, gap) {
+  for (const line of String(text).split(/[\n\r\u2028\u2029]/)) {
+    let first = -1;
+    for (let at = line.indexOf(open); at !== -1; at = line.indexOf(open, at + 1)) {
+      if (!word(line, at - 1)) { first = at; break; }
+    }
+    if (first === -1) continue;
+    let last = -1;
+    for (let at = line.lastIndexOf(close); at !== -1; at = at > 0 ? line.lastIndexOf(close, at - 1) : -1) {
+      if (!word(line, at + close.length)) { last = at; break; }
+    }
+    if (last !== -1 && last >= first + open.length + gap) return true;
+  }
+  return false;
+}
 
 // The module search path is longer than the diagnosis and never varies.
 const INC_LIST = /[^\S\n]*\(@INC (?:contains|entries checked):[^)]*\)/;

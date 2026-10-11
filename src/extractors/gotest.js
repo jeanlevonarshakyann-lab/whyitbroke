@@ -2,7 +2,35 @@ import { uniqueFailures } from "../util.js";
 import { alsoFrom, sourceRange, withScope, withSource } from "../ownership.js";
 
 const FAIL_RE = /^[^\S\n]*--- (FAIL|SKIP): (\S+)/;
-const PANIC_RE = /^panic: (.+?)(?:[^\S\n]\[recovered.*\])?$/m;
+// A panic line: `panic: ` with anything after it, which is all detect asks of a log.
+export const PANIC_LINE = /^panic: ./m;
+const SPACE = /\s/;
+// What `.` will not take.
+const TERMINATORS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCharCode(0x2029)];
+
+/** The message `line.match(/^panic: (.+?)(?:\s\[recovered.*\])?$/)` captures, read in one
+ *  pass. The pattern tried its ` [recovered ...]` ending after every character of the
+ *  message, and each try read on to the end of the line for the closing `]`: a line of
+ *  many ` [recovered` and no `]` was read again from each. The ending runs to the end of
+ *  the line, so it can begin only past the last character `.` will not take, the message
+ *  can run only to the first, and the message ends at the first ` [recovered` between the
+ *  two - or with the line. */
+export function panicMessage(line) {
+  if (!line.startsWith("panic: ")) return null;
+  const n = line.length;
+  let first = n, last = -1;
+  for (const terminator of TERMINATORS) {
+    const at = line.indexOf(terminator, 7);
+    if (at !== -1 && at < first) first = at;
+    last = Math.max(last, line.lastIndexOf(terminator));
+  }
+  if (line[n - 1] === "]") {
+    for (let r = line.indexOf("[recovered", 9); r !== -1 && r - 1 <= first; r = line.indexOf("[recovered", r + 1)) {
+      if (SPACE.test(line[r - 1]) && r + 10 <= n - 1 && last < r + 10) return line.slice(7, r - 1);
+    }
+  }
+  return n > 7 && first === n ? line.slice(7) : null;
+}
 const LOC_RE = /^[^\S\n]+([\w./\\-]+\.go):(\d+):[^\S\n]*(.*)$/;
 // `go vet` prefixes the line when the package will not compile at all - "vet: ./main.go:
 // 6:17: cannot use ..." - and that prefix defeated the anchor, so a vet run that hit a
@@ -134,9 +162,9 @@ function details(block, at) {
   for (let j = 0; j < block.length; j++) {
     const lm = block[j].match(LOC_RE);
     if (lm) { file ??= lm[1]; line ??= +lm[2]; if (lm[3]) msg.push(lm[3]); used.push(at[j]); continue; }
-    const pm = block[j].match(/^panic: (.+?)(?:\s\[recovered.*\])?$/);
-    if (pm) {
-      msg.push(`panic: ${pm[1]}`);
+    const panic = panicMessage(block[j]);
+    if (panic !== null) {
+      msg.push(`panic: ${panic}`);
       used.push(at[j]);
       const frame = frameFrom(j + 1);
       if (frame) { file = frame.file; line = frame.line; used.push(at[frame.k]); }
@@ -189,8 +217,8 @@ const STDLIB = /\/(libexec\/)?src\/(runtime|testing|internal)\//;
  *  first frame that is not the runtime is the one in your code. */
 function standalonePanic(lines) {
   for (let i = 0; i < lines.length; i++) {
-    const pm = lines[i].match(/^panic: (.+?)(?:[^\S\n]\[recovered.*\])?$/);
-    if (!pm) continue;
+    const message = panicMessage(lines[i]);
+    if (message === null) continue;
     let file, line, frame = -1;
     for (let k = i + 1; k < lines.length; k++) {
       const fm = lines[k].match(/^\t(.+?):(\d+)(?:[^\S\n]|$)/);
@@ -198,7 +226,7 @@ function standalonePanic(lines) {
     }
     // The panic, and the frame in your code that the dump names.
     const panic = withSource({ file, line, title: "panic", label: "panic", category: "runtime",
-      severity: "error", message: pm[1] }, i, i + 1);
+      severity: "error", message }, i, i + 1);
     return frame >= 0 ? alsoFrom(panic, frame, frame + 1) : panic;
   }
   return null;
@@ -219,7 +247,7 @@ export default {
     // A binary that panics outside a test run has none of the above: no test tally, no
     // --- FAIL line, nothing but the panic and its goroutine dump. `go run` produces
     // exactly that, and it is the commonest way a Go program fails.
-    (PANIC_RE.test(s) && /^goroutine \d+ \[/m.test(s)) ||
+    (PANIC_LINE.test(s) && /^goroutine \d+ \[/m.test(s)) ||
     refusal(s.split("\n")) !== null,
 
   /** `packageOf(k)`, where given, is the package line k of `s` came from. */

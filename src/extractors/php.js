@@ -12,12 +12,41 @@
 // The two copies produce identical failures, so the pipeline's own de-duplication
 // collapses them - which is why nothing here counts blocks.
 import { withSource } from "../ownership.js";
+import { lazyIn, tailFirst } from "../util.js";
 
-const UNCAUGHT_RE = /^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+Uncaught[^\S\n]+([\w\\]+):[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?):(\d+)$/;
+// Each header is matched as its pattern matches it, without trying the rest of a long line
+// again from every ` in ` in it. "PHP " may come first, and then `word`: where it ends, or -1.
+const after = (line, word) => {
+  const at = /^(?:PHP[^\S\n]+)?/.exec(line)[0].length;
+  return line.startsWith(word, at) ? at + word.length : -1;
+};
+//   /^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+Uncaught[^\S\n]+([\w\\]+):[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?):(\d+)$/
+export const uncaughtLine = (line) => tailFirst(line, {
+  tail: /:(\d+)$/, adjacent: true, emptyMessage: false,
+  heads: function* (l, c, clear, from) {
+    const at = after(l, "Fatal error:");
+    if (at < 0) return;
+    const head = /[^\S\n]+Uncaught[^\S\n]+([\w\\]+):/y;
+    head.lastIndex = at;
+    const m = head.exec(l);
+    if (!m) return;
+    for (const { end, message } of lazyIn(l, head.lastIndex, 1, c, clear, from)) yield { end, groups: [m[1], message] };
+  },
+});
 // Not every fatal is a thrown exception: a call to an undefined function, an abstract
 // class instantiated. Those name the file the long way round.
-const FATAL_RE = /^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+(?!Uncaught[^\S\n])(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/;
-const PARSE_RE = /^(?:PHP[^\S\n]+)?Parse error:[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/;
+//   /^(?:PHP[^\S\n]+)?Fatal error:[^\S\n]+(?!Uncaught[^\S\n])(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/
+//   /^(?:PHP[^\S\n]+)?Parse error:[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)$/
+const onLine = (word, ok) => (line) => tailFirst(line, {
+  tail: /on line[^\S\n]+(\d+)$/, spaceBefore: 1, emptyMessage: false,
+  heads: function* (l, c, clear, from) {
+    const at = after(l, word);
+    if (at < 0) return;
+    for (const { end, message } of lazyIn(l, at, 1, c, clear, from, ok && ((start) => ok(l, start)))) yield { end, groups: [message] };
+  },
+});
+export const fatalLine = onLine("Fatal error:", (l, start) => !/^Uncaught[^\S\n]/.test(l.slice(start, start + 9)));
+export const parseLine = onLine("Parse error:");
 // The include path is longer than the diagnosis and never varies, while the file it
 // could not find is the answer. Same shape of noise as perl's @INC list.
 const INCLUDE_PATH = /[^\S\n]*\(include_path='[^']*'\)/;
@@ -35,7 +64,7 @@ export default {
 
   detect: (s) => {
     const lines = s.split("\n");
-    return lines.some((l) => UNCAUGHT_RE.test(l) || FATAL_RE.test(l) || PARSE_RE.test(l));
+    return lines.some((l) => uncaughtLine(l) || fatalLine(l) || parseLine(l));
   },
 
   extract(s) {
@@ -52,9 +81,9 @@ export default {
       // with one, so the runs have to be flattened before the two copies compare equal.
       if (WARNING_RE.test(line)) { warned.add(line.replace(/^PHP[^\S\n]+/, "").replace(/\s+/g, " ").trim()); continue; }
 
-      const uncaught = line.match(UNCAUGHT_RE);
-      const fatal = !uncaught && line.match(FATAL_RE);
-      const parse = !uncaught && !fatal && line.match(PARSE_RE);
+      const uncaught = uncaughtLine(line);
+      const fatal = !uncaught && fatalLine(line);
+      const parse = !uncaught && !fatal && parseLine(line);
       if (!uncaught && !fatal && !parse) continue;
 
       let trace, end = i + 1;
@@ -66,7 +95,7 @@ export default {
           // The block ends at the `thrown in` line that repeats the location.
           if (THROWN_RE.test(lines[j])) { end = j + 1; break; }
           if ((!lines[j].trim() && j > i + 1) ||
-              (j > i + 1 && (UNCAUGHT_RE.test(lines[j]) || FATAL_RE.test(lines[j]) || PARSE_RE.test(lines[j])))) break;
+              (j > i + 1 && (uncaughtLine(lines[j]) || fatalLine(lines[j]) || parseLine(lines[j])))) break;
           if (/^Stack trace:$/.test(lines[j])) { end = j + 1; continue; }
           const f = lines[j].match(FRAME_RE);
           if (!f) { if (frames.length) break; else continue; }
