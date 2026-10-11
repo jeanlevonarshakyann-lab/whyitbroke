@@ -8,6 +8,12 @@
   lookup compared the whole log again. A one-line JSON report from mypy, mocha or
   markdownlint read in quadratic time; the eslint, vitest and dotnet test readers share
   the same lookup.
+- A JSON report printed on one line is read in linear time on Node 18 as well. Its
+  readers asked for two lines per record, and Node 18 moved the first two newline searches
+  of the line cache's rebuild ahead of the check that the cache still held the report -
+  so every record searched the report to its second newline, all of it twice when it has
+  none. 16,001 markdownlint records took eight seconds; 4,001 took 300ms. Each document
+  now asks the cache once and looks up its records' lines in what it gave.
 - A runner's prefix in front of a line-start location comes off again. Since paths may
   hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
   `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file
