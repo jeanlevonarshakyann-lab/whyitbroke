@@ -81,6 +81,7 @@ import { clusterFailures } from "./cluster.js";
 import { readers } from "./router.js";
 import { stripRedrawnCiPrefix, wrapperCandidates } from "./normalize.js";
 import { joinSources, preserveSourceRange, rangesOverlap, setLines, setParser, sourceRange } from "./ownership.js";
+import { portablePath } from "./location.js";
 
 // order matters: most specific first, generic last
 export const EXTRACTORS = [pytest, nodetest, bun, bunRuntime, deno, denoRuntime, denoLint, denoFmt, playwright, jestjson, jest, mochajson, mochaxunit, mocha, ava, jasmine, rubocop, tap, taptext, vitest, unittest, traceback, eslintjson, eslint, ruff, pylint, flake8, golangci, markdownlint, stylelint, shellcheck, yamllint, biome, oxlint, black, prettier, sass, less, webpack, babel, swc, pyright, mypy, cmake, terraformfmt, terraform, swifttest, swift, clang, minitest, ruby, perl, php, rspec, junitjvm, jvm, dotnettest, dotnet, phpunit, cargojson, rustfmt, cargo, gofmt, gomod, govetjson, gojson, gotest, esbuild, vite, node, tsc, git, kubectl, docker, make, npm, pnpm, yarn, pip, rubygems, composer, uv, poetry, generic];/** Whether two readings each quote the offending source line, and quote different ones.
@@ -504,6 +505,9 @@ function better(candidate, cand, current) {
   // no location at all. mypy's repeated source directory, by contrast, leaves the count
   // exactly where it was - which is what says it was data rather than a wrapper.
   if (cand.result.failures.length > current.result.failures.length) return true;
+  // ...unless the count stayed where it was because the parser read the prefix as the start
+  // of every path. See absorbedIntoFiles.
+  if (absorbedIntoFiles(candidate.wrapper, current.result.failures, cand.result.failures)) return true;
   // The mirror of that, and the reason it is not enough on its own: a parser can also
   // match through a wrapper and report MORE than it should, because the prefix defeats
   // the de-duplication that would have joined two lines into one diagnosis. Perl's
@@ -534,6 +538,40 @@ function better(candidate, cand, current) {
   return swallowed && cand.result.failures.length < current.result.failures.length;
 }
 
+/** Whether a parser read a wrapper as the start of its paths.
+ *
+ *  A path may hold a space, so flake8's `12:34:56 lint_me.py:1:1: F401 ...` reads as the
+ *  file `12:34:56 lint_me.py`. Taking the stamp off then leaves the same tool reporting the
+ *  same failures with other paths - exactly how mypy's repeated source directory looks,
+ *  which is data. The prefix itself tells the two apart. A directory is a path, while a
+ *  stamp, a `web-1  | ` relay or a `ci> ` prompt holds what no portable path does and ends
+ *  at a space. Where it is the start of every file read with it on and every file read
+ *  without it is a path, it was never part of them.
+ *
+ *  What the paths become is not compared. With the stamp gone a parser may also take off
+ *  the tool's own indentation, decode a `file://` URL it no longer has text in front of,
+ *  choose another frame of a stack, or find there was no file at all - pyright, deno lint,
+ *  Ruby and `dotnet` each did one of these. */
+function absorbedIntoFiles(wrapper, before, after) {
+  // A label a runner closes in brackets is no directory either: Task writes
+  // `[api backend integration test shard] `, and only a path that opened with a bracketed
+  // name and a space could look the same.
+  const label = /^\[[^\]\n]*\][^\S\n]+$/.test(wrapper);
+  if (!/[^\S\n]$/.test(wrapper) || (portablePath(wrapper) && !label) || before.length !== after.length) return false;
+  let absorbed = false;
+  for (let i = 0; i < before.length; i++) {
+    const was = before[i].file, is = after[i].file;
+    if (is !== undefined && !portablePath(is)) return false;
+    if (was === undefined) {
+      if (is === undefined) continue;
+      return false;
+    }
+    if (!was.startsWith(wrapper)) return false;
+    absorbed = true;
+  }
+  return absorbed;
+}
+
 const MAX_WRAPPER_LAYERS = 3;   // CI stamps a monorepo runner that stamps a container
 
 /** Lines of a text taken from a text taken from a log, as lines of the log. `outer` says
@@ -555,10 +593,18 @@ function unwrap(s, command, extractors) {
   let literalsTaken = 0;
   for (let layer = 0; layer < MAX_WRAPPER_LAYERS; layer++) {
     let found = null;
+    // A strip that lets nothing but the fallback read the log is kept only if no other
+    // candidate lets a real parser read it. Taking the first one there was took a partial
+    // strip of a five-word Task prefix, `[api backend `, whose remains the fallback could
+    // guess at - and never tried the whole prefix, under which jest read the run itself.
+    let guess = null;
     for (const c of wrapperCandidates(text)) {
       if (c.kind === "literal" && literalsTaken) continue;
       const candidate = parse(c.text, command, extractors);
-      if (better(c, candidate, hit)) { found = { ...c, hit: candidate }; break; }
+      if (better(c, candidate, hit)) {
+        if (real(candidate)) { found = { ...c, hit: candidate }; break; }
+        guess ??= { ...c, hit: candidate };
+      }
       // Wrappers stack: a monorepo runner relaying a container relaying a test run.
       // Peeling only the outer one is often no improvement by itself, and a strictly
       // greedy search rejects it there and never reaches the layer that pays off. Look
@@ -568,12 +614,14 @@ function unwrap(s, command, extractors) {
         if (inner.kind === "literal" && (literalsTaken || c.kind === "literal")) continue;
         const deeper = parse(inner.text, command, extractors);
         if (better(inner, deeper, hit)) {
-          found = { ...c, text: inner.text, wrapper: c.wrapper, hit: deeper, then: inner.wrapper, origin: through(c.origin, inner.origin) };
-          break;
+          const both = { ...c, text: inner.text, wrapper: c.wrapper, hit: deeper, then: inner.wrapper, origin: through(c.origin, inner.origin) };
+          if (real(deeper)) { found = both; break; }
+          guess ??= both;
         }
       }
       if (found) break;
     }
+    found ??= guess;
     if (!found) break;
     if (found.kind === "literal") literalsTaken++;
     text = found.text;

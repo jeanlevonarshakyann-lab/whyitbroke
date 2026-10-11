@@ -312,8 +312,28 @@ function literalCandidates(prefix) {
   if (!prefix) return [];
   const stops = [];
   for (const m of prefix.matchAll(/\S[^\S\n]+/g)) {
+    // A wrapper ends at one separator, and what follows it can be the tool's indentation:
+    // a stamped Ruby backtrace shares `12:34:56 \tfrom ` on every frame, and the line above
+    // the frames - the one with the error - has no tab to share. So the separator alone is
+    // a stop of its own, ahead of the whole run.
+    if (m[0].length > 2) {
+      const first = m.index + 2;
+      if (first > MIN_PREFIX && first < prefix.length) stops.push(prefix.slice(0, first));
+    }
     const end = m.index + m[0].length;
     if (end > MIN_PREFIX && end < prefix.length) stops.push(prefix.slice(0, end));
   }
-  return [...stops, prefix].slice(0, MAX_LITERAL_CANDIDATES);
+  // Shortest first, the least destructive strip ahead of the rest - except that a label a
+  // runner opens the line with and closes in brackets goes second wherever it ends. Task
+  // lets each task name the prefix it writes, `[api backend integration test shard] `, and
+  // five words put four stops in front of it; in a short log the shared prefix runs on into
+  // the tool's own text, and only the stop after the bracket is the wrapper. And the whole
+  // prefix is always among them: capping the list after the stops left out the one strip
+  // that works whenever the wrapper was all of it.
+  const close = prefix.startsWith("[") ? prefix.indexOf("]") : -1;
+  const label = (stop) => close > 0 && /^\][^\S\n]+$/.test(stop.slice(close));
+  const [shortest, ...rest] = stops;
+  const ordered = shortest === undefined ? [] :
+    [shortest, ...rest.filter(label), ...rest.filter((stop) => !label(stop))];
+  return [...ordered.slice(0, MAX_LITERAL_CANDIDATES - 1), prefix];
 }

@@ -123,7 +123,12 @@ its location as prose at the end of the message rather than as an anchor at the 
 it keeps parsing straight through a wrapper, and the wrapper then splits one diagnosis in
 two. npm's `npm error ` and mypy's repeated source directory, which look exactly like
 wrappers, are left alone: mypy's ends up in the `file` of its failures, which is a parser
-reading a path correctly, and a swallowed wrapper leads the message instead. The
+reading a path correctly, and a swallowed wrapper leads the message instead. A path can
+hold a space, though, so a wrapper can end up in `file` too: flake8's
+`12:34:56 lint_me.py:1:1: F401 ...` reads as the file `12:34:56 lint_me.py`. There the
+prefix itself tells the two apart. A stamp, a `web-1  | ` relay or a `ci> ` prompt holds a
+character no portable path does, and a runner's `[label] ` is closed in brackets; when
+every file starts with one and every file left behind is a path, it was a wrapper. The
 invariant is not "strip prefixes", it is "never come out worse than going in", and it is
 tested by wrapping every captured fixture in every runner's prefix and requiring the same
 tool and the same failures out the other side.
