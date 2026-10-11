@@ -200,6 +200,33 @@ test("a clipped structured record cannot invent a diagnosis", () => {
   }
 });
 
+test("output that is not UTF-8 stays within the cap", () => {
+  // A byte that is not UTF-8 reads as U+FFFD, three bytes of text. Output under the cap
+  // came back whole, so 1024 such bytes handed back 3072 under a cap of 1024.
+  const lines = Buffer.from("ordinary compiler output\n".repeat(32));
+  for (const bytes of [Buffer.alloc(1024, 0xff), Buffer.concat([lines, Buffer.alloc(1024 - lines.length, 0xfe)])]) {
+    const c = createCapture(1024);
+    c.push(bytes);
+    const r = c.finish();
+    assert.ok(Buffer.byteLength(r.text) <= 1024, `${Buffer.byteLength(r.text)} bytes of text under a cap of 1024`);
+    assert.equal(r.truncated, true, "and it says it was cut");
+  }
+});
+
+test("the least recent windows in the middle are shed first", () => {
+  // Fifty failures, each kept with the lines around it, whose markers leave no room for
+  // the tail and then some: what has to go comes from the oldest. The newest were shed
+  // first, against what the capture says it does.
+  let text = "ordinary compiler output\n".repeat(90) + "x\n".repeat(17);
+  for (let k = 0; k < 50; k++) text += `FAIL ${String(k).padStart(2, "0")}\n` + "x\n".repeat(17);
+  text += "cleanup completed\n".repeat(600);
+  const r = capture(text, 8192);
+  const kept = [...r.text.matchAll(/^FAIL (\d+)$/gm)].map((m) => +m[1]);
+  assert.ok(Buffer.byteLength(r.text) <= 8192);
+  assert.ok(kept.length > 0 && kept.length < 50, `${kept.length} of 50 kept`);
+  assert.deepEqual(kept, Array.from({ length: kept.length }, (_, k) => 50 - kept.length + k), "the newest are the ones kept");
+});
+
 // ------------------------------------------------------------ the marker
 
 test("the marker declares how much went missing", () => {
