@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- jest's config complaints stay out of the failures however they are spaced. The check
+  that tells a "● Validation Warning:" or "● Console" block from a failed test was made
+  after the whitespace following the bullet, and with two spaces or more the pattern began
+  the name on the last of them, past the check: the warning came back as a failed test
+  named " Validation Warning:".
 - `--max-bytes` counts the log's own bytes. The lines marking where output was left out
   were paid for from the same budget, so a capture kept less of the log than its limit, and
   the markers could add up: a 1.7MB log with a failure every eighteen lines kept 954KB of

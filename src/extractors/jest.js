@@ -4,14 +4,15 @@ import { nodeFrame } from "../location.js";
 // With multiple jest projects the display name comes first: "FAIL jsdom src/a.js".
 // Take the last token, which is always the path.
 const FILE_RE = /^[^\S\n]*(?:FAIL|PASS)[^\S\n]+(?:\S+[^\S\n]+)*?(\S+)[^\S\n]*$/;
-// jest uses the same bullet for config complaints as for failed tests
+// jest uses the same bullet for config complaints as for failed tests. The check reads past all of
+// the whitespace after the bullet: made after it, with two spaces or more the pattern started the
+// name on the last of them, and "●  Validation Warning:" came back as a failed test.
 // The name ends where the trailing whitespace starts, and the whitespace in front of it is taken
 // whole - see pinnedMessage in util.js. A name starts inside that whitespace only where it always
-// did: on the last of it when the line is nothing but whitespace, and on the last of two or more
-// spaces when what follows them is one of the complaints, which the check never stopped there.
+// did: on the last of it when the line is nothing but whitespace.
 const NOT_A_TEST = "Console|Validation Warning|Deprecation Warning|Invalid testPattern";
-export const TEST_RE = new RegExp(String.raw`^[^\S\n]*●(?:[^\S\n]+(?![^\S\n])(?!${NOT_A_TEST})|` +
-  String.raw`[^\S\n]+(?=[^\S\n\r\u2028\u2029](?:[\r\u2028\u2029]*$|${NOT_A_TEST})))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$)|.+?(?<![^\S\n]))[^\S\n]*$`);
+export const TEST_RE = new RegExp(String.raw`^[^\S\n]*●(?![^\S\n]*(?:${NOT_A_TEST}))(?:[^\S\n]+(?![^\S\n])|` +
+  String.raw`[^\S\n]+(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*$))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$)|.+?(?<![^\S\n]))[^\S\n]*$`);
 // jest's tallies, "Tests:       1 failed, 1 total", read the same way.
 export const TESTS_TALLY = pinnedMessage("^Tests:", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags: "m" });
 export const SUITES_TALLY = pinnedMessage("^Test Suites:", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags: "m" });
