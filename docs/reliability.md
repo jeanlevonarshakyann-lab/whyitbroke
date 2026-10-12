@@ -167,7 +167,10 @@ What is dropped is stated, never silently stitched:
 ```
 
 Cuts land on line boundaries, so a parser is never handed half a line, and multi-byte
-characters are never split.
+characters are never split. A bare carriage return - how a progress bar redraws itself -
+ends a line there as it does for every parser, so an error printed after a redraw is found
+and kept like any other line, and output made of nothing but redraws keeps its head and
+its tail.
 
 Reading a log takes time in proportion to its length rather than its square, whatever it
 holds. A log is untrusted input, and a line of one kind repeated thousands of times — a
