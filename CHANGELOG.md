@@ -62,6 +62,15 @@
   Go panics, Less, PHP, mypy, .NET, cargo, CMake, Ruby and Minitest lines, and Perl's
   warning phrases each read the rest of a long line again from every place their pattern
   could stop. Each reader is held, on random lines, to the pattern it replaces.
+- A capture past `--max-bytes` is cut to the cap in time that grows with it, and holds
+  the cap whatever the output. Each window kept from the middle of a log brings a marker
+  its budget did not count, and when thousands of short windows made the markers outgrow
+  the tail, the middle was shed one line at a time, composing the whole text again after
+  each - newest first, where the capture said oldest. 6,800 of them in a 1.4MB log took
+  nearly five minutes to fit into a cap of 1MiB; it takes a third of a second now that
+  the middle sheds the windows it must in one step, oldest first. Output under the cap
+  came back whole even where it was not UTF-8, and each such byte reads as three: 1024 of
+  them came back as 3072 under a cap of 1024.
 - Output past `--max-bytes` keeps what is printed after a progress bar. The capture ended
   lines only at a newline, where every parser also breaks one at a bare carriage return:
   an error printed after a redraw was part of the bar's line, and in the middle of a

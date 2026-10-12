@@ -718,6 +718,23 @@ test("a capture whose tail is thousands of short diagnostic lines", () => {
   linearStep(capture, (n) => n, 262145);
 });
 
+test("a capture of thousands of separate diagnostic windows", () => {
+  // Each window kept from the middle brings a marker the budget did not count, and when
+  // the markers outgrew the tail the middle was shed one line at a time, composing the
+  // whole text again after each line: seventy thousand windows took hours.
+  const filler = (bytes) => "info: compiling module of the build graph\n".repeat(Math.ceil(bytes / 42));
+  const capture = (maxBytes) => {
+    const c = createCapture(maxBytes);
+    c.push(Buffer.from(filler(maxBytes / 4)));
+    let windows = "";
+    for (let k = 0; k < maxBytes / 4 / 37; k++) windows += "FAIL\n" + "x\n".repeat(17);
+    c.push(Buffer.from(windows));
+    c.push(Buffer.from(filler(maxBytes)));
+    return c.finish();
+  };
+  linearStep(capture, (n) => n, 65537);
+});
+
 test("a capture of output that arrives a line at a time", () => {
   // The tail sheds its oldest chunks as new ones arrive, and shifting each one off the
   // front of an array moved every chunk the tail held: twelve megabytes written a line at

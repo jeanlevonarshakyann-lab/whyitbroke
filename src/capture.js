@@ -371,8 +371,12 @@ export function createCapture(maxBytes) {
       const headBuf = Buffer.concat(head);
       const tailBuf = Buffer.concat(tail.slice(tailFrom));
       if (totalBytes <= maxBytes) {
-        // Everything fit. Hand back exactly what arrived.
-        return { text: Buffer.concat([headBuf, tailBuf]).toString("utf8"), truncated: false, elided: 0 };
+        // Everything fit. Hand back exactly what arrived - unless some of it was not UTF-8:
+        // each such byte reads as U+FFFD, three bytes of text, so 1024 of them came back as
+        // 3072 under a cap of 1024. Text that grew past the cap is cut like any output that
+        // arrived past it.
+        const text = Buffer.concat([headBuf, tailBuf]).toString("utf8");
+        if (!text.includes("\uFFFD") || Buffer.byteLength(text) <= maxBytes) return { text, truncated: false, elided: 0 };
       }
       const keptHead = trimEndToLine(headBuf);
       // Middle diagnostics borrow only the part of the old tail allocation that they
@@ -458,27 +462,63 @@ export function createCapture(maxBytes) {
         return { text, kept, segments };
       };
 
+      // The size in bytes of what compose() hands back with the middle from `first` on:
+      // each part as text - larger than its bytes where they are not UTF-8 - and a marker
+      // for each gap.
+      const decoded = new Map();
+      const textBytes = (buf) => {
+        let bytes = decoded.get(buf);
+        if (bytes === undefined) decoded.set(buf, (bytes = Buffer.byteLength(buf.toString("utf8"))));
+        return bytes;
+      };
+      const composedBytes = (first) => {
+        let bytes = 0, cursor = 0;
+        const add = (start, buf) => {
+          if (start > cursor) bytes += elision(start - cursor).length;
+          const overlap = Math.max(0, cursor - start);
+          if (overlap < buf.length) {
+            bytes += overlap ? Buffer.byteLength(buf.subarray(overlap).toString("utf8")) : textBytes(buf);
+            cursor = start + buf.length;
+          }
+        };
+        if (headSpan.length) add(0, headSpan);
+        for (let i = first; i < middleSpans.length; i++) add(middleSpans[i].start, middleSpans[i].buf);
+        if (tailSpan.length) add(tailAt, tailSpan);
+        if (cursor < totalBytes) bytes += elision(totalBytes - cursor).length;
+        return bytes;
+      };
+
       // The cap applies to the captured text a caller receives, including the markers
       // generated here. Usually reclaiming one line from the tail pays for them. A log
       // with hundreds of isolated diagnostic windows can need more: shed tail, then the
-      // least recent middle windows, and only then the head. Every iteration removes
-      // retained bytes or a whole span, so this is bounded by the number of spans.
+      // least recent middle windows, and only then the head. The middle sheds at once
+      // as many of its windows as the cap needs, oldest first: it shed the newest, one
+      // line at a time, composing the whole text again after each - and seventy thousand
+      // short windows, whose markers outgrew the tail, took hours to cut.
       let captured = compose();
-      while (Buffer.byteLength(captured.text) > maxBytes) {
-        const overflow = Buffer.byteLength(captured.text) - maxBytes;
+      let size = Buffer.byteLength(captured.text);
+      while (size > maxBytes) {
+        const overflow = size - maxBytes;
         if (tailSpan.length) {
           const before = tailSpan.length;
           const cut = Math.min(overflow, tailSpan.length);
           tailSpan = trimStartToLine(tailSpan.subarray(cut), tailSpan[cut - 1]);
           tailAt += before - tailSpan.length;
         } else if (middleSpans.length) {
-          middleSpans = middleSpans.slice(0, -1);
+          let low = 1, high = middleSpans.length;
+          while (low < high) {
+            const mid = (low + high) >> 1;
+            if (composedBytes(mid) <= maxBytes) high = mid;
+            else low = mid + 1;
+          }
+          middleSpans = middleSpans.slice(low);
         } else if (headSpan.length) {
           headSpan = trimEndToLine(headSpan.subarray(0, Math.max(0, headSpan.length - overflow)));
         } else {
           break;
         }
         captured = compose();
+        size = Buffer.byteLength(captured.text);
       }
       return {
         text: captured.text,
