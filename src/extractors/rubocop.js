@@ -1,4 +1,4 @@
-import { githubAnnotations, jsonDocumentsAt, xmlAttributes, xmlText } from "../util.js";
+import { githubAnnotations, jsonDocumentsAt, pinnedMessage, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
 // RuboCop is what a Ruby CI job usually fails on, and its output had no parser: the
 // fallback scraped the lines but dropped the column, the cop name and the severity, and
@@ -17,7 +17,9 @@ import { withSource } from "../ownership.js";
 // "app/cart.rb" with nothing in them.
 const COP = String.raw`[A-Z]\w*\/[A-Z]\w*`;
 const COP_SAID = new RegExp(`${COP}:`);
-const OFFENSE = new RegExp(String.raw`^(#[^\S\n])?(.+?):(\d+):(\d+):[^\S\n]+([CWEFRI]):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?(${COP}):[^\S\n]+(.+?)[^\S\n]*$`);
+// Each message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const OFFENSE = pinnedMessage(String.raw`^(#[^\S\n])?(.+?):(\d+):(\d+):[^\S\n]+([CWEFRI]):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?(${COP}):`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // The carets rubocop draws under the offending span. They are what says the line above
 // them is the source and not more prose - the syntax-error case puts a note about the
 // parser version there instead, and quoting that as the offending line would be wrong.
@@ -29,7 +31,8 @@ const TALLY = /^\d+ files? inspected, (\d+) offenses? detected/m;
 //   == app/cart.rb ==
 //   C:  3: 11: [Correctable] Layout/SpaceInsideParens: Space inside parentheses detected.
 const SIMPLE_FILE = /^== (.+) ==[^\S\n]*$/;
-const SIMPLE_ROW = new RegExp(String.raw`^([CWEFRI]):[^\S\n]*(\d+):[^\S\n]*(\d+):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?(${COP}):[^\S\n]+(.+?)[^\S\n]*$`);
+export const SIMPLE_ROW = pinnedMessage(String.raw`^([CWEFRI]):[^\S\n]*(\d+):[^\S\n]*(\d+):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?(${COP}):`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 
 // --format markdown, which prints no column:
 //
@@ -37,7 +40,8 @@ const SIMPLE_ROW = new RegExp(String.raw`^([CWEFRI]):[^\S\n]*(\d+):[^\S\n]*(\d+)
 //     * **Line # 3 - convention:** Layout/SpaceInsideParens: Space inside parentheses detected.
 const MARKDOWN_DOC = /^# RuboCop Inspection Report[^\S\n]*$/m;
 const MARKDOWN_FILE = /^### (.+?) - \(\d+ offenses?\)[^\S\n]*$/;
-const MARKDOWN_ROW = new RegExp(String.raw`^[^\S\n]*\*[^\S\n]+\*\*Line # (\d+) - (\w+):\*\*[^\S\n]+(${COP}):[^\S\n]+(.+?)[^\S\n]*$`);
+export const MARKDOWN_ROW = pinnedMessage(String.raw`^[^\S\n]*\*[^\S\n]+\*\*Line # (\d+) - (\w+):\*\*[^\S\n]+(${COP}):`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 
 // --format json names rubocop in its metadata.
 const JSON_MARK = (v) => !!v && typeof v === "object" && typeof v.metadata?.rubocop_version === "string" &&
@@ -57,7 +61,9 @@ const JSON_MARK = (v) => !!v && typeof v === "object" && typeof v.metadata?.rubo
 const JUNIT_SUITE_LINE = /<testsuite\b[^>]*\bname=(['"])rubocop\1/;
 const JUNIT_END_LINE = /<\/testsuites>|<testsuite\b/;
 const JUNIT_FAILURE_LINE = /<failure\b([^>]*)>[^\S\n]*$/;
-const WHERE = /^[^\S\n]*(.+):(\d+):(\d+)[^\S\n]*$/;
+// The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
+// matches only when it begins with what follows it, and that one match is kept.
+export const WHERE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]:\d+:\d+[^\S\n]*$))(.+):(\d+):(\d+)[^\S\n]*$/;
 
 // Every machine format starts the message with the cop's name, which the text forms
 // print in its own place.

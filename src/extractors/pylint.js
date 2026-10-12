@@ -1,4 +1,4 @@
-import { findJsonDocument, jsonDocumentsAt } from "../util.js";
+import { findJsonDocument, jsonDocumentsAt, pinnedMessage } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // pylint heads each module it checked and then lists its findings, with the symbolic
 // name of the check in parentheses at the end:
@@ -17,7 +17,10 @@ import { joinSources, withSource } from "../ownership.js";
 // and a pattern written (\S+?) matched none of it, so the whole run came back silent.
 // What bounds the name is not its own shape but the message code that follows it - a
 // letter and four digits is not something a path runs into by accident.
-const FINDING_RE = /^(.+?):(\d+):(\d+):[^\S\n]+([CRWEF]\d{4}):[^\S\n]+(.+?)(?:[^\S\n]+\(([\w-]+)\))?[^\S\n]*$/;
+// Each message ends where the whitespace before what follows it starts - see pinnedMessage in
+// util.js. The symbol in brackets is optional, so what follows is it or nothing, in that order.
+export const FINDING_RE = pinnedMessage(String.raw`^(.+?):(\d+):(\d+):[^\S\n]+([CRWEF]\d{4}):`,
+  { separator: "", least: 0, tail: String.raw`(?:[^\S\n]+\(([\w-]+)\)[^\S\n]*|[^\S\n]*)$`, corner: String.raw`[\r\u2028\u2029]*$` });
 // -f parseable and -f msvs print the same findings with the code and the symbolic name
 // moved into a bracket, and no column at all. The bracket also carries the enclosing
 // class or function, and the two formats attach it differently: parseable writes
@@ -28,8 +31,8 @@ const FINDING_RE = /^(.+?):(\d+):(\d+):[^\S\n]+([CRWEF]\d{4}):[^\S\n]+(.+?)(?:[^
 // The two otherwise differ only in how the line is attached: `mod.py:1:` against
 // `mod.py(1):`.
 const BRACKET = "\\[([CRWEF]\\d{4})\\(([\\w-]+)\\)[^\\]]*\\]";
-const PARSEABLE_RE = new RegExp(`^(.+?):(\\d+):[^\\S\\n]+${BRACKET}[^\\S\\n]+(.+?)[^\\S\\n]*$`);
-const MSVS_RE = new RegExp(`^(.+?)\\((\\d+)\\):[^\\S\\n]+${BRACKET}[^\\S\\n]+(.+?)[^\\S\\n]*$`);
+export const PARSEABLE_RE = pinnedMessage(`^(.+?):(\\d+):[^\\S\\n]+${BRACKET}`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
+export const MSVS_RE = pinnedMessage(`^(.+?)\\((\\d+)\\):[^\\S\\n]+${BRACKET}`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const MODULE_RE = /^\*{3,}[^\S\n]+Module[^\S\n]+\S+/m;
 const RATING_RE = /^Your code has been rated at/m;
 // C and R are convention and refactor suggestions; W is a warning. E and F stop the run.

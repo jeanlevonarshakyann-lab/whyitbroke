@@ -21,7 +21,9 @@ const ERR_RE = /^error: (?:Uncaught(?: \(in promise\))? )?(?:([\w$]*(?:Error|Exc
 const CHECK_RE = /^(TS\d+) \[ERROR\]: (.+)$/;
 const FRAME_RE = /^[^\S\n]+at (?:(.+?) \()?(file:\/\/\S+?|\/\S+?):(\d+):(\d+)\)?[^\S\n]*$/;
 // deno draws the offending source under a syntax error, gutter-first.
-const GUTTER_RE = /^[^\S\n]*\d*[^\S\n]*\|/;
+// The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
+// line of spaces every way before refusing it.
+export const GUTTER_RE = /^[^\S\n]*(?:\d+[^\S\n]*)?\|/;
 const CARET_RE = /^[^\S\n]*\^+[^\S\n]*$/;
 // "Type checking failed." is the tally, not the diagnosis - the TS lines above it are.
 const TALLY_RE = /^error: (?:Type checking failed\.|Build failed\.)$/;

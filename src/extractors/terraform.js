@@ -17,7 +17,10 @@ import { jsonDocumentsAt } from "../util.js";
 
 const BAR = /^[^\S\n]*[│|][^\S\n]?/;
 const HEAD_RE = /^[^\S\n]*[│|][^\S\n]*(Error|Warning):[^\S\n]*(.*)$/;
-const AT_RE = /^[^\S\n]*on[^\S\n]+(\S+)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in[^\S\n]+(.+?))?:[^\S\n]*$/;
+// The whitespace in front of the block's name is taken whole; the name starts inside it only on the
+// last of it, right before the colon, as it did. From each place in a long stretch the pattern read
+// the rest of the line again.
+export const AT_RE = /^[^\S\n]*on[^\S\n]+(\S+)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:[^\S\n]*$))(.+?))?:[^\S\n]*$/;
 const SRC_RE = /^[^\S\n]*\d+:[^\S\n]?(.*)$/;
 const CLOSE_RE = /^[^\S\n]*[╵╷][^\S\n]*$/;
 const MAX_MESSAGE = 4;

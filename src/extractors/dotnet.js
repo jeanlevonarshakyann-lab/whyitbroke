@@ -5,7 +5,11 @@
 // filename that genuinely contains spaces still keeps them.
 import { joinSources, withSource } from "../ownership.js";
 
-const DIAGNOSTIC_RE = /^[^\S\n]*(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m;
+// The leading run of spaces is taken whole: a file starting inside it was tried from every
+// place in it, and the rest of the line read again from each - a line of 32,000 spaces took
+// a second to refuse. A file can start one space early only when it is nothing but its
+// extension, and that one match is kept.
+export const DIAGNOSTIC_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]\.(?:cs|fs|vb)\())(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m;
 // Not every .NET failure comes from the compiler. A missing project file and a package
 // that will not restore are both reported by MSBuild or NuGet with a code but no
 // position - "app.csproj : error NU1101: ..." , "MSBUILD : error MSB1003: ..." - and
@@ -16,7 +20,12 @@ const DIAGNOSTIC_RE = /^[^\S\n]*(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(erro
 // `dotnet restore` came back silent about an NU1101 it had just printed. The leading
 // run of spaces is skipped rather than captured, so the path still starts at a
 // non-space and a filename that genuinely contains spaces is untouched.
-const PROJECT_RE = /^[^\S\n]*(\S.*?)[^\S\n]+:[^\S\n]+(error|warning)[^\S\n]+((?:MSB|NU|NETSDK)\d+):[^\S\n]+(.+)$/;
+// The project ends where the whitespace before the colon starts. Ending anywhere inside it,
+// the pattern read the rest of it again from each place: the same second for that line.
+export const PROJECT_RE = /^[^\S\n]*(\S.*?)(?<![^\S\n])[^\S\n]+:[^\S\n]+(error|warning)[^\S\n]+((?:MSB|NU|NETSDK)\d+):[^\S\n]+(.+)$/;
+
+// The project MSBuild names after a diagnostic, from where the whitespace in front of it starts.
+export const PROJECT_SUFFIX = /(?<![^\S\n])[^\S\n]+\[[^\]]+\.csproj\][^\S\n]*$/;
 
 export default {
   name: "dotnet",
@@ -61,7 +70,7 @@ export default {
       }
       const match = line.match(DIAGNOSTIC_RE);
       if (!match) continue;
-      const message = match[6].replace(/[^\S\n]+\[[^\]]+\.csproj\][^\S\n]*$/, "");
+      const message = match[6].replace(PROJECT_SUFFIX, "");
       const failure = {
         file: match[1], line: +match[2], col: +match[3],
         title: match[5], code: match[5], severity: "error", message,

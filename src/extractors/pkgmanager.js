@@ -13,8 +13,11 @@
 // 56 of them across the fixture corpus. pnpm's codes are ERR_PNPM_* or a node-style
 // E-code: ELIFECYCLE, ENOENT, EACCES.
 import { joinSources, withSource } from "../ownership.js";
+import { pinnedMessage } from "../util.js";
 
-const PNPM_LINE = /^[^\S\n]+(ERR_PNPM_[A-Z0-9_]+|E[A-Z]{3,})[^\S\n]{2,}(.+?)[^\S\n]*$/;
+// Its message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const PNPM_LINE = pinnedMessage(String.raw`^[^\S\n]+(ERR_PNPM_[A-Z0-9_]+|E[A-Z]{3,})`,
+  { before: 2, separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const PNPM_WARN = /^(?:WARN|WARNING|INFO|DEBUG|NOTICE)$/;
 
 // Newer pnpm draws the same failure as a box instead of a column, and nothing read it -
@@ -123,7 +126,8 @@ export const pnpm = {
 //    error Command failed with exit code 3.
 //    warning package.json: No license field
 //    info Visit https://yarnpkg.com/en/docs/cli/run for documentation
-const YARN_LINE = /^(error|warning|info)[^\S\n]+(.+?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const YARN_LINE = pinnedMessage("^(error|warning|info)", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // Everything from here down is documentation, not diagnosis.
 const YARN_ADVICE = /^info Visit https:\/\/yarnpkg\.com/;
 

@@ -1,8 +1,16 @@
 import { lineAt } from "../util.js";
 import { alsoFrom, joinSources, withSource } from "../ownership.js";
+// ` > ` between a test's class and its name, from where the whitespace in front of it starts: from
+// each place inside a long stretch the pattern read the rest of it again.
+export const CHEVRON = /(?<![^\S\n])[^\S\n]+>[^\S\n]+/;
 
 const SUREFIRE_RE = /^\[ERROR\]\s{2,}([A-Z]\w*)\.(\w+):(\d+)[^\S\n]+(.+)$/;
-const MAVEN_RE = /^\[ERROR\][^\S\n]+(.+?):\[(\d+),(\d+)\][^\S\n]+(.+)$/;
+// The whitespace in front of the file, and in front of the message, is taken whole; either starts
+// inside it only on the last of it, where nothing else matched, as it did. Divided every way, a long
+// stretch was read again from each place in it.
+const MESSAGE_AT = String.raw`(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]$))`;
+export const MAVEN_RE = new RegExp(String.raw`^\[ERROR\](?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:\[\d+,\d+\]${MESSAGE_AT}.+$))` +
+  String.raw`(.+?):\[(\d+),(\d+)\]${MESSAGE_AT}(.+)$`);
 // "file:line:col: message" is the universal compiler diagnostic shape - Go, clang,
 // gcc and rustc all print it - so matching it bare made this parser claim their
 // output whenever a log held more than one tool. What makes such a line Gradle's is
@@ -102,7 +110,7 @@ function gradleTests(s) {
   for (let i = 0; i < lines.length; i++) {
     const head = gradleTestLine(lines[i]);
     if (!head) continue;
-    const parts = head[1].split(/[^\S\n]+>[^\S\n]+/);
+    const parts = head[1].split(CHEVRON);
     const cls = parts[0];
     const method = parts.at(-1).replace(/\(.*\)$/, "");
     // The block is everything indented under the header, and ends at the first line

@@ -8,10 +8,14 @@
 // files rather than nothing at all. The last [warn] is the advice, not a file.
 import { withSource } from "../ownership.js";
 
-const FILE_RE = /^\[warn\][^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const FILE_RE = /^\[warn\][^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const ADVICE_RE = /^\[warn\][^\S\n]+Code style issues found/;
 const CHECKING_RE = /^Checking formatting\.\.\./m;
-const ERROR_RE = /^\[error\][^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const ERROR_RE = /^\[error\][^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 // A file prettier cannot parse is followed by its code frame, and prettier prefixes
 // every line of the frame with the same [error] tag as the diagnosis:
 //
@@ -24,7 +28,9 @@ const ERROR_RE = /^\[error\][^\S\n]+(\S.*?)[^\S\n]*$/;
 // parse was reported as four, and the run as "5 files failed the format check" for two.
 // The frame is the gutter and the caret under the marked line; the marked line is the
 // source prettier is pointing at, and the position in the message is where.
-const FRAME_RE = /^\[error\][^\S\n]+(?:>[^\S\n]*)?\d*[^\S\n]*\|/;
+// The whitespace either side of a missing line number is one stretch: two side by side divided a
+// long one every way.
+export const FRAME_RE = /^\[error\][^\S\n]+(?:>[^\S\n]*)?(?:\d+[^\S\n]*)?\|/;
 const MARKED_RE = /^\[error\][^\S\n]+>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 const AT_RE = /\((\d+):(\d+)\)[^\S\n]*$/;
 

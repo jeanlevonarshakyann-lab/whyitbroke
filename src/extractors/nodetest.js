@@ -13,20 +13,30 @@
 //
 // Everything worth showing is in there; the trick is that `error: |-` is a YAML
 // block scalar, so its content is the following lines indented one level deeper.
-import { isNoise, xmlText, xmlAttributes } from "../util.js";
+import { isNoise, pinnedMessage, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
 
-const NOT_OK_RE = /^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const NOT_OK_RE = pinnedMessage(String.raw`^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const SUBTEST_RE = /^([^\S\n]*)# Subtest:\s/;
 const FAILURE_TYPE_RE = /^[^\S\n]*failureType:[^\S\n]*'(.+?)'[^\S\n]*$/;
 const QUOTED_LOCATION_RE = /^[^\S\n]*location:[^\S\n]*(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')[^\S\n]*$/;
 const NAME_RE = /^[^\S\n]*name:[^\S\n]*'(.+?)'[^\S\n]*$/;
 const ERROR_RE = /^([^\S\n]*)error:[^\S\n]*\|-?[^\S\n]*$/;
-const ERROR_INLINE_RE = /^[^\S\n]*error:[^\S\n]*'?(.+?)'?[^\S\n]*$/;
+// "error: 'expected 1 to equal 2'". The message ends where the whitespace after it starts, or right
+// before a closing quote; the whitespace before it is taken whole. A message that is nothing but
+// whitespace is the last of it that is not a line separator, or the one space after an opening
+// quote, as it was. Read lazily, it stopped at each space of a long stretch and read the rest of
+// the stretch again from there.
+export const ERROR_INLINE_RE = /^[^\S\n]*error:(?:[^\S\n]*(?![^\S\n])|[^\S\n]*(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*$))'?([^\S\n\r\u2028\u2029](?=[^\S\n]*$)|.+?(?:(?<![^\S\n])|(?=')))'?[^\S\n]*$/;
 const KEY_RE = /^[^\S\n]*[a-zA-Z_]+:\s/;
 const MAX_MESSAGE_LINES = 4;
-const ALT_FAILURE_RE = /^✖[^\S\n]+(.+?)(?:[^\S\n]+\([\d.]+ms\))?[^\S\n]*$/;
-const ALT_LOCATION_RE = /^(?:test|suite)[^\S\n]+at[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// Its name ends where the whitespace before its timing, or the trailing whitespace, starts - see
+// pinnedMessage in util.js.
+export const ALT_FAILURE_RE = pinnedMessage("^✖", { separator: "", least: 0,
+  tail: String.raw`(?:[^\S\n]+\([\d.]+ms\)[^\S\n]*|[^\S\n]*)$`, corner: String.raw`[\r\u2028\u2029]*$` });
+// Where it starts is held - see pinnedStart in util.js.
+export const ALT_LOCATION_RE = pinnedStart(String.raw`^(?:test|suite)[^\S\n]+at`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 
 const unfile = (path) => path?.startsWith("file://")
   ? decodeURIComponent(path.slice(7))

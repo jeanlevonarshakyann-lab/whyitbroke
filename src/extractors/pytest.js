@@ -1,4 +1,4 @@
-import { isNoise } from "../util.js";
+import { isNoise, pinnedMessage } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
 
 // pytest's traceback style is a flag, and CI configs set it constantly. Only the default
@@ -19,13 +19,36 @@ import { alsoFrom, withSource } from "../ownership.js";
 // in whichever style - is only asked where.
 // A parameter id is arbitrary display text, and may contain spaces. The spaced dash is
 // pytest's separator between the complete node id and its one-line explanation.
-const SUMMARY_ENTRY_RE = /^(?:FAILED|ERROR)[^\S\n]+((?:.+?::.+?)|(?:.+?\.[A-Za-z0-9]+))(?:[^\S\n]+-[^\S\n]+(.*))?[^\S\n]*$/;
+//
+// The node id's last part ends where the whitespace after it starts, the whitespace before the id
+// and before the explanation is taken whole, and the explanation runs to the end of the line. A part
+// starting with a space is that one space, as it was, and the id starts inside the whitespace in
+// front of it only where nothing else matched. Read lazily, each part stopped at each space of a
+// long stretch and read the rest of the line again from there.
+const BREAKS = String.raw`\r\u2028\u2029`;
+const ENTRY_END = String.raw`(?:[^\S\n]+-[^\S\n]+(?![^\S\n])(.*)(?:[${BREAKS}][^\S\n]*)?|[^\S\n]*)$`;
+const ENTRY_END_SEEN = ENTRY_END.replace("(.*)", ".*");
+const LAST_PART = String.raw`(?:[^\S\n${BREAKS}](?=${ENTRY_END_SEEN})|.+?(?<![^\S\n]))`;
+export const SUMMARY_ENTRY_RE = new RegExp(String.raw`^(?:FAILED|ERROR)(?:[^\S\n]+(?![^\S\n])|` +
+  String.raw`[^\S\n]+(?=[^\S\n${BREAKS}](?:::${LAST_PART}|\.[A-Za-z0-9]+)${ENTRY_END_SEEN}))` +
+  String.raw`((?:.+?::${LAST_PART})|(?:.+?\.[A-Za-z0-9]+))${ENTRY_END}`);
 const SUMMARY_HEAD_RE = /^=+[^\S\n]+short test summary info[^\S\n]+=+$/;
+// "____ test_invoice_total ____" over a failure's traceback. Its name ends where the whitespace before
+// the closing rule starts - see pinnedMessage in util.js. The whitespace on both sides of a name
+// could be divided every way: a long stretch in one banner was read again from every place.
+export const BANNER_RE = pinnedMessage("^_{3,}", { separator: String.raw`[^\S\n]+`, least: 1, tail: "_{3,}$" });
+// "==== 3 failed, 2 passed in 0.01s ====". The whitespace in front of the tally is taken whole, and
+// the tally ends where the whitespace before the closing rule starts.
+export const TALLY_RE = /^=+[^\S\n]+(?![^\S\n])(.*?(?:failed|passed|error).*?)(?<![^\S\n])[^\S\n]+=+$/i;
 // --tb=line writes one line per failure: "path:11: KeyError: 'taxrate'".
-const ONE_LINE_RE = /^(.+?):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const ONE_LINE_RE = /^(.+?):(\d+):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 // "path:line:" followed by the exception, by nothing, or - in --tb=short - by
 // "in <function>", which names the frame rather than what was raised.
-const TRAILING_RE = /^(.+?):(\d+):[^\S\n]*(?:in[^\S\n]+\S+|(\w[\w.]*))?[^\S\n]*$/;
+// The whitespace either side of a missing exception is one stretch: two side by side divided a long
+// one every way.
+export const TRAILING_RE = /^(.+?):(\d+):[^\S\n]*(?:(?:in[^\S\n]+\S+|(\w[\w.]*))[^\S\n]*)?$/;
 // One path is another when the two name the same file at different depths: the summary
 // writes it relative to the root, a traceback sometimes absolutely.
 const sameFile = (a, b) => {
@@ -60,7 +83,7 @@ export default {
     const blocks = [];
     let cur = null;
     lines.forEach((l, i) => {
-      const b = l.match(/^_{3,}[^\S\n]+(.+?)[^\S\n]+_{3,}$/);
+      const b = l.match(BANNER_RE);
       // A block is its banner down to the last line under it that is not blank.
       if (b) { cur = { title: b[1], body: [], at: i, end: i + 1 }; blocks.push(cur); return; }
       if (/^=+ .* =+$/.test(l)) { cur = null; return; }
@@ -139,7 +162,7 @@ export default {
     // with no decoration at all: "85 failed, 1973 passed, 25 skipped in 3.58s"
     let summary;
     for (let i = lines.length - 1; i >= 0; i--) {
-      const m = lines[i].match(/^=+[^\S\n]+(.*?(?:failed|passed|error).*?)[^\S\n]+=+$/i)
+      const m = lines[i].match(TALLY_RE)
              || lines[i].match(/^((?:\d+ (?:failed|passed|skipped|deselected|xfailed|xpassed|error|errors|warning|warnings)(?:, )?)+ in [\d.]+s.*)$/i);
       if (m) { summary = m[1]; break; }
     }

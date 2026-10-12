@@ -1,4 +1,4 @@
-import { elements, jsonDocumentsAt, lineAt, sarifArtifactUri, xmlAttributes } from "../util.js";
+import { elements, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
 const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
@@ -8,7 +8,8 @@ const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
 // running ruff over a file with a typo in it.
 // Bare error:/help: also precede arrows in other tools; they are not Ruff rules.
 const BARE_HEAD_RE = /^(invalid-syntax):[^\S\n]+(.+)$/;
-const ARROW_RE = /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// Where it starts is held - see pinnedStart in util.js.
+export const ARROW_RE = pinnedStart(String.raw`^[^\S\n]*-->`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 
 // --output-format is a flag, and only the default was read. The rest either said nothing
 // at all or - worse - were claimed by flake8, whose `file:line:col: CODE message` is

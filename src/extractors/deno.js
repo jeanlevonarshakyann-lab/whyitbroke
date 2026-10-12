@@ -21,7 +21,10 @@ import { xmlText, xmlAttributes } from "../util.js";
 // the location we need - the stack frames below it are inside the assert library.
 import { withSource } from "../ownership.js";
 
-const HEADER_RE = /^(\S.*?)[^\S\n]+=>[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// The test's name ends where the whitespace before `=>` starts, and the leading whitespace of the
+// place is taken whole, so a long stretch of spaces is read once. The one match that left - a place
+// starting one space early, when there is nothing but spaces before its `:line:col` - is kept.
+export const HEADER_RE = /^(\S.*?)(?<![^\S\n])[^\S\n]+=>(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:\d+:\d+[^\S\n]*$))(.+?):(\d+):(\d+)[^\S\n]*$/;
 const SUMMARY_RE = /^(?:FAILED|ok)[^\S\n]*\|[^\S\n]*(\d+)[^\S\n]+passed[^\S\n]*\|[^\S\n]*(\d+)[^\S\n]+failed/m;
 const ERROR_RE = /^error:[^\S\n]*(.+)$/;
 const DIFF_LABEL_RE = /^\[Diff\]/;
@@ -87,7 +90,10 @@ const denoPretty = {
 };
 
 const TAP_VERSION_RE = /^TAP version \d+[^\S\n]*$/m;
-const TAP_NOT_OK_RE = /^[^\S\n]*not ok[^\S\n]+\d+[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/;
+// The whitespace either side of a missing dash is one stretch, and the name is read to its last
+// character that is not a space at once: two stretches side by side divided a long one every way,
+// and a lazy name read the rest of it again from each place inside it.
+export const TAP_NOT_OK_RE = /^[^\S\n]*not ok[^\S\n]+\d+[^\S\n]*(?:-[^\S\n]*)?(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
 const TAP_END_RE = /^[^\S\n]*\.\.\.[^\S\n]*$/;
 
 /** The message deno's own reporter would show for this block.

@@ -75,7 +75,9 @@ export function headLine(line) {
 // banner's own line and there is no location, because nothing has been read yet - so the
 // pattern above, which ends at the colon, matches none of it and the whole log, which is
 // usually that one line, went unread.
-const FLAT_RE = /^CMake (Error|Warning):[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const FLAT_RE = /^CMake (Error|Warning):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 // Everything from here down is the run reporting that it gave up.
 const TAIL_RE = /^(?:--[^\S\n]|CMake Generate step failed|Configuring incomplete)/;
 const MAX_MESSAGE = 4;

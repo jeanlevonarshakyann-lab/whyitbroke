@@ -77,7 +77,9 @@ export function bracketed(text, open, close, gap) {
 }
 
 // The module search path is longer than the diagnosis and never varies.
-const INC_LIST = /[^\S\n]*\(@INC (?:contains|entries checked):[^)]*\)/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const INC_LIST = /(?<![^\S\n])[^\S\n]*\(@INC (?:contains|entries checked):[^)]*\)/;
 
 /** A match whose message is only a hash is Test::More reporting, not Perl dying. */
 function tapComment(m) {

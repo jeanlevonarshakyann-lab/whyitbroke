@@ -11,12 +11,16 @@ import { joinSources, sourceRange, withSource } from "../ownership.js";
 const DIAGNOSTIC_RE = /^(.+?):(\d+):(\d+):[^\S\n]+(error|warning|note):[^\S\n]+(.+)$/;
 // Newer swiftc tags a diagnostic with the group it belongs to, which is what you would
 // silence or search for: "... was never used ... [#no-usage]".
-const GROUP_RE = /[^\S\n]+\[#([\w-]+)\]$/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const GROUP_RE = /(?<![^\S\n])[^\S\n]+\[#([\w-]+)\]$/;
 // The compiler speaks for itself when there is no source to point at - a missing input,
 // a bad flag - and writes a placeholder location rather than none at all.
 const DRIVER_RE = /^<unknown>:0:[^\S\n]+(error|fatal error):[^\S\n]+(.+)$/;
 // The echoed source, and the annotation drawn under it. Both start with the gutter.
-const GUTTER_RE = /^[^\S\n]*\d*[^\S\n]*\|/;
+// The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
+// line of spaces every way before refusing it.
+export const GUTTER_RE = /^[^\S\n]*(?:\d+[^\S\n]*)?\|/;
 const SOURCE_RE = /^[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 
 const swiftText = {

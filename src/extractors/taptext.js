@@ -19,16 +19,22 @@ import { alsoFrom, withSource } from "../ownership.js";
 import { v8Frame } from "../location.js";
 
 const PLAN_RE = /^[^\S\n]*1\.\.(\d+)[^\S\n]*$/m;
-const NOT_OK_RE = /^[^\S\n]*not ok(?:[^\S\n]+(\d+))?[^\S\n]*(?:-[^\S\n]*)?(.*?)[^\S\n]*$/;
+// The whitespace either side of a missing dash is one stretch, and the name is read to its last
+// character that is not a space at once: two stretches side by side divided a long one every way,
+// and a lazy name read the rest of it again from each place inside it.
+export const NOT_OK_RE = /^[^\S\n]*not ok(?:[^\S\n]+(\d+))?[^\S\n]*(?:-[^\S\n]*)?(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
 const OK_RE = /^[^\S\n]*ok[^\S\n]+\d+\b/;
 const PLAN_LINE_RE = /^[^\S\n]*1\.\.\d+[^\S\n]*$/;
 // A YAML block belongs to a structured dialect - node-tap, `node --test`, Deno - and
 // each of those has a parser that reads it properly. Leave those blocks alone.
 const YAML_OPEN_RE = /^[^\S\n]*---[^\S\n]*$/;
 // Test::More says where it failed in a comment, and the file has no extension to key on.
-const AT_RE = /^[^\S\n]*#[^\S\n]*at[^\S\n]+(\S.*?)[^\S\n]+line[^\S\n]+(\d+)\.?[^\S\n]*$/;
-const GOT_RE = /^[^\S\n]*#[^\S\n]*got:[^\S\n]*(.*?)[^\S\n]*$/;
-const WANTED_RE = /^[^\S\n]*#[^\S\n]*expected:[^\S\n]*(.*?)[^\S\n]*$/;
+// The file ends where the whitespace before "line" starts, and each value is read to its last
+// character that is not a space at once: read lazily, each stopped at each space of a long stretch
+// and read the rest of the stretch again from there.
+export const AT_RE = /^[^\S\n]*#[^\S\n]*at[^\S\n]+(\S.*?)(?<![^\S\n])[^\S\n]+line[^\S\n]+(\d+)\.?[^\S\n]*$/;
+export const GOT_RE = /^[^\S\n]*#[^\S\n]*got:[^\S\n]*(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
+export const WANTED_RE = /^[^\S\n]*#[^\S\n]*expected:[^\S\n]*(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
 // "# Looks like you failed 2 tests of 3." and mocha's "# tests 2" are the epilogue.
 const EPILOGUE_RE = /^[^\S\n]*#[^\S\n]*(?:Looks like|tests?[^\S\n]+\d|pass[^\S\n]+\d|fail[^\S\n]+\d|skip)/i;
 // Without a plan there is no count TAP guarantees - but Test::More prints its own on the
@@ -55,7 +61,9 @@ const INTERNAL_RE = /^node:|[\\/]node_modules[\\/]|^(?:internal|timers)[\\/]/;
 // by another name; counting it turns a file with one failing test into two failures.
 const GROUP_RE = /\{[^\S\n]*$/;
 // TAP directives and timings hang off the name: `not ok 1 - adds # time=10.42ms`.
-const DIRECTIVE_RE = /[^\S\n]*#[^\S\n]*(?:time=|SKIP\b|TODO\b).*$/i;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const DIRECTIVE_RE = /(?<![^\S\n])[^\S\n]*#[^\S\n]*(?:time=|SKIP\b|TODO\b).*$/i;
 const MAX_MESSAGE_LINES = 2;
 
 export default {

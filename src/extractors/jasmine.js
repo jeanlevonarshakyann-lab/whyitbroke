@@ -19,7 +19,9 @@ import { nodeFrame } from "../location.js";
 // so the tally is what identifies the tool. jasmine's own frames read "<Jasmine>" and
 // carry no file at all, which is convenient: they cannot be mistaken for yours.
 const TALLY_RE = /^[^\S\n]*(\d+) specs?, (\d+) failures?(?:, (\d+) pending)?/m;
-const HEAD_RE = /^[^\S\n]*(\d+)\)[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const HEAD_RE = /^[^\S\n]*(\d+)\)[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const MESSAGE_RE = /^[^\S\n]*Message:[^\S\n]*$/;
 const STACK_RE = /^[^\S\n]*Stack:[^\S\n]*$/;
 const MAX_MESSAGE_LINES = 4;
