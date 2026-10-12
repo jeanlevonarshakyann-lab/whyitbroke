@@ -44,6 +44,25 @@ function capture(text, maxBytes, chunk = 0) {
 
 const MARKER = /\n~~~ whyitbroke: \d+ bytes of output elided here[^\n]*~~~\n/g;
 
+/** The kept lines of a capture of `text` that do not map onto the output line they are
+ *  part of - each kept line has to be one run of one line of the output, holding it whole
+ *  or, cut at a carriage return, part of it. Marker lines map onto nothing. */
+function misplaced(text, maxBytes) {
+  const c = createCapture(maxBytes);
+  c.push(Buffer.from(text));
+  const { text: kept, lines } = c.finish();
+  const original = text.split("\n");
+  const wrong = [];
+  kept.split("\n").forEach((line, k) => {
+    const runs = lines(k, k);
+    if (!runs.length) { if (line && !/^~~~ whyitbroke: \d+ bytes of output elided here/.test(line)) wrong.push(`${k}: ${line}`); return; }
+    if (runs.length !== 1 || runs[0].start !== runs[0].end || !original[runs[0].start].includes(line)) {
+      wrong.push(`${k}: ${JSON.stringify(line.slice(0, 80))} is not in line ${JSON.stringify(runs)} of the output`);
+    }
+  });
+  return wrong.slice(0, 5);
+}
+
 // ------------------------------------------------------------- under the cap
 
 test("output that fits is returned byte for byte", () => {
@@ -175,6 +194,71 @@ test("output with no newline at all is still cut safely", () => {
   assert.match(r.text, MARKER);
 });
 
+test("output made only of redraws keeps its last lines", () => {
+  // A progress bar redraws itself with a carriage return and never ends a line. Cut on
+  // newlines alone, a log of nothing else kept only the marker, and the error printed
+  // after the last redraw was cut with everything before it.
+  const text = "downloading layer 3/7 [=====>     ] 45%\r".repeat(20000) +
+    "error: failed to fetch layer: connection reset by peer\r";
+  const whole = capture(text, 8192);
+  for (const chunk of [1, 7, 4096]) assert.deepEqual(capture(text, 8192, chunk), whole, `chunked by ${chunk}`);
+  assert.equal(whole.truncated, true);
+  assert.match(whole.text, /^downloading layer 3\/7/, "the head is kept");
+  assert.match(whole.text, /error: failed to fetch layer: connection reset by peer\r$/, "and so is the tail");
+  assert.match(analyse(whole.text)?.failures[0]?.message ?? "", /connection reset by peer/);
+  assert.deepEqual(misplaced(text, 8192), []);
+});
+
+test("a failure printed after a redraw survives in the middle", () => {
+  // The redraws and the error after them were one line until a newline ended it, and a
+  // line longer than the scan was skipped whole: buried in the middle of a large log,
+  // the error was never kept.
+  const text = "build started\n" + "ordinary compiler output\n".repeat(5000) +
+    "compiling crates [=====>     ] 45%\r".repeat(4000) + "error: linking with `cc` failed: exit status: 1\n" +
+    "cleanup completed\n".repeat(10000);
+  const whole = capture(text, 32768);
+  for (const chunk of [7, 4096]) assert.deepEqual(capture(text, 32768, chunk), whole, `chunked by ${chunk}`);
+  assert.equal(whole.truncated, true);
+  assert.ok(whole.text.includes("\rerror: linking with `cc` failed: exit status: 1\n"), "the error is kept");
+  assert.match(analyse(whole.text)?.failures.map((f) => f.message).join("\n") ?? "", /linking with `cc` failed/);
+  assert.deepEqual(misplaced(text, 32768), []);
+});
+
+test("a carriage return and newline split between chunks end one line", () => {
+  // Windows output ends its lines with both. Split across two chunks they are still one
+  // line end, so the capture is what it is when they arrive together.
+  const text = "build started\r\n" + "ordinary compiler output\r\n".repeat(5000) + fx("pytest_fail.txt").replace(/\n/g, "\r\n") +
+    "cleanup completed\r\n".repeat(10000);
+  const whole = capture(text, 32768);
+  for (const chunk of [1, 2, 3, 7, 4096]) assert.deepEqual(capture(text, 32768, chunk), whole, `chunked by ${chunk}`);
+  assert.equal(analyse(whole.text)?.failures.length, 3);
+});
+
+test("a tail that starts where a line does keeps that line", () => {
+  // Cutting the tail to a line start dropped its first line even when the tail already
+  // began on one. PHPUnit names a test when it starts and fails it by name; when the tail
+  // began at the failing test's start, its failure had nothing to belong to.
+  const flow = "flowId='1'";
+  const pass = (k) => `##teamcity[testStarted name='testPass${k}' locationHint='php_qn:///app/tests/PassTest.php::\\PassTest::testPass${k}' ${flow}]\n` +
+    `##teamcity[testFinished name='testPass${k}' duration='0' ${flow}]\n`;
+  const started = `##teamcity[testStarted name='testSnapshot' locationHint='php_qn:///app/tests/SnapTest.php::\\SnapTest::testSnapshot' ${flow}]\n`;
+  const rest = `##teamcity[testFailed name='testSnapshot' message='snapshot mismatch' details='/app/tests/SnapTest.php:12|n' duration='0' ${flow}]\n` +
+    `##teamcity[testFinished name='testSnapshot' duration='0' ${flow}]\n##teamcity[testSuiteFinished name='SnapTest' ${flow}]\n` +
+    `##teamcity[testSuiteStarted name='LaterTest' locationHint='php_qn:///app/tests/LaterTest.php::\\LaterTest' ${flow}]\n` +
+    Array.from({ length: 4 }, (_, k) => pass(`Later${k}`)).join("") + `##teamcity[testSuiteFinished name='LaterTest' ${flow}]\n`;
+  const text = `##teamcity[testCount count='2005' ${flow}]\n` +
+    `##teamcity[testSuiteStarted name='PassTest' locationHint='php_qn:///app/tests/PassTest.php::\\PassTest' ${flow}]\n` +
+    Array.from({ length: 2000 }, (_, k) => pass(k)).join("") + `##teamcity[testSuiteFinished name='PassTest' ${flow}]\n` +
+    `##teamcity[testSuiteStarted name='SnapTest' locationHint='php_qn:///app/tests/SnapTest.php::\\SnapTest' ${flow}]\n` + started + rest;
+  // The tail is the last three quarters of the cap: at this one, it starts with `started`.
+  const tail = Buffer.byteLength(started + rest);
+  const max = 1834;
+  assert.equal(max - Math.floor(max / 4), tail, "the reproduction depends on where the tail starts");
+  const r = capture(text, max);
+  assert.ok(r.text.includes(started), "the line the tail starts with is kept");
+  assert.deepEqual(analyse(r.text)?.failures.map((f) => f.title), ["SnapTest::testSnapshot"]);
+});
+
 test("a clipped structured record cannot invent a diagnosis", () => {
   // One valid one-line ESLint report, one byte over the public minimum cap. It contains
   // a warning only. If the tail starts inside its message, `error: decoy text` looks
@@ -198,6 +282,33 @@ test("a clipped structured record cannot invent a diagnosis", () => {
     assert.equal(analyse(kept.text), null,
       `a clipped warning must not become an error with ${chunk || "one"} input chunk`);
   }
+});
+
+test("output that is not UTF-8 stays within the cap", () => {
+  // A byte that is not UTF-8 reads as U+FFFD, three bytes of text. Output under the cap
+  // came back whole, so 1024 such bytes handed back 3072 under a cap of 1024.
+  const lines = Buffer.from("ordinary compiler output\n".repeat(32));
+  for (const bytes of [Buffer.alloc(1024, 0xff), Buffer.concat([lines, Buffer.alloc(1024 - lines.length, 0xfe)])]) {
+    const c = createCapture(1024);
+    c.push(bytes);
+    const r = c.finish();
+    assert.ok(Buffer.byteLength(r.text) <= 1024, `${Buffer.byteLength(r.text)} bytes of text under a cap of 1024`);
+    assert.equal(r.truncated, true, "and it says it was cut");
+  }
+});
+
+test("the least recent windows in the middle are shed first", () => {
+  // Fifty failures, each kept with the lines around it, whose markers leave no room for
+  // the tail and then some: what has to go comes from the oldest. The newest were shed
+  // first, against what the capture says it does.
+  let text = "ordinary compiler output\n".repeat(90) + "x\n".repeat(17);
+  for (let k = 0; k < 50; k++) text += `FAIL ${String(k).padStart(2, "0")}\n` + "x\n".repeat(17);
+  text += "cleanup completed\n".repeat(600);
+  const r = capture(text, 8192);
+  const kept = [...r.text.matchAll(/^FAIL (\d+)$/gm)].map((m) => +m[1]);
+  assert.ok(Buffer.byteLength(r.text) <= 8192);
+  assert.ok(kept.length > 0 && kept.length < 50, `${kept.length} of 50 kept`);
+  assert.deepEqual(kept, Array.from({ length: kept.length }, (_, k) => 50 - kept.length + k), "the newest are the ones kept");
 });
 
 // ------------------------------------------------------------ the marker

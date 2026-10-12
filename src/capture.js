@@ -151,17 +151,23 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
 ].join("|"), "im");
 
 const NL = 0x0a;
+const CR = 0x0d;
 
-/** Trim the end of `buf` back to the last newline.
+/** Trim the end of `buf` back to the last line end.
  *
  *  A newline can never appear inside a multi-byte UTF-8 sequence - every continuation
  *  byte is >= 0x80 - so cutting on one is encoding-safe for free, and it also hands a
  *  parser whole lines instead of a severed one. A fragment of one enormous line has
  *  lost its grammar: after a marker gives it a new line boundary, text inside a JSON
  *  string such as `error:` can become a diagnosis that never existed. Drop that
- *  fragment rather than asking any parser to interpret it. */
+ *  fragment rather than asking any parser to interpret it.
+ *
+ *  A carriage return ends a line as well. It is how a progress bar redraws itself, every
+ *  parser reads a bare one as a line break, and it cannot sit inside a multi-byte sequence
+ *  either. Output made of nothing but redraws holds no newline at all: cut on newlines
+ *  alone, a large log of them kept only the marker. */
 function trimEndToLine(buf) {
-  const at = buf.lastIndexOf(NL);
+  const at = Math.max(buf.lastIndexOf(NL), buf.lastIndexOf(CR));
   return at === -1 ? buf.subarray(0, 0) : buf.subarray(0, at + 1);
 }
 
@@ -172,10 +178,16 @@ function newlines(buf) {
   return n;
 }
 
-/** Drop the leading partial line, so the tail starts where a line does. */
-function trimStartToLine(buf) {
-  const at = buf.indexOf(NL);
-  return at === -1 ? buf.subarray(buf.length) : buf.subarray(at + 1);
+/** Drop the leading partial line, so the tail starts where a line does - unless it
+ *  already does: `before` is the byte in front of `buf`, and a line starts after a newline
+ *  or a bare carriage return. Dropping a whole first line lost the line a failure was read
+ *  from, such as PHPUnit's testStarted for a test whose testFailed the tail still held. */
+function trimStartToLine(buf, before) {
+  if (before === NL || (before === CR && buf[0] !== NL)) return buf;
+  const nl = buf.indexOf(NL);
+  const cr = buf.subarray(0, nl === -1 ? buf.length : nl).indexOf(CR);
+  if (cr === -1) return nl === -1 ? buf.subarray(buf.length) : buf.subarray(nl + 1);
+  return buf.subarray(buf[cr + 1] === NL ? cr + 2 : cr + 1);
 }
 
 /** The gap has to be visible. Joining two halves silently would let a parser read the
@@ -195,8 +207,12 @@ export function createCapture(maxBytes) {
   const scanLineMax = Math.max(1024, Math.min(64 * 1024, diagnosticMax));
   const head = [];
   let headBytes = 0;
+  // The tail is tail[tailFrom...]: the chunks before it have been shed.
   const tail = [];
+  let tailFrom = 0;
   let tailBytes = 0;
+  // The byte in front of the tail's first one, which says whether the tail starts a line.
+  let beforeTail = NL;
   let totalBytes = 0;
 
   // Diagnostic lines are stored with their absolute offsets. Complete lines make the
@@ -207,10 +223,17 @@ export function createCapture(maxBytes) {
   let diagnosticBytes = 0;
   let recent = [];
   let after = 0;
-  let pending = Buffer.alloc(0);
-  let pendingStart = 0;
-  let pendingWasClipped = false;
-  // How many lines have ended so far, which is the line a record starts on.
+  // The line being read, as the parts of it that have arrived, joined once it ends: a line
+  // that arrives a few bytes at a time is not copied again with each of them.
+  const parts = [];
+  let partsBytes = 0;
+  let lineStart = 0;
+  // A line that outgrows the scan is skipped to its end, and none of it is kept.
+  let skipping = false;
+  // A carriage return at the end of a chunk ends its line unless a newline comes next.
+  let endsOnCr = false;
+  // How many newlines have ended lines so far, which is the line a record starts on: a
+  // line of the output ends at a newline, and a carriage return only splits it for reading.
   let linesEnded = 0;
 
   const saveDiagnostic = (record) => {
@@ -250,26 +273,55 @@ export function createCapture(maxBytes) {
     if (recent.length > CONTEXT_LINES) recent.shift();
   };
 
-  const scanDiagnostics = (buf, start) => {
-    if (!pending.length) pendingStart = start;
-    pending = pending.length ? Buffer.concat([pending, buf]) : buf;
-    let at;
-    while ((at = pending.indexOf(NL)) !== -1) {
-      const length = at + 1;
-      if (!pendingWasClipped) considerLine(pending.subarray(0, length), pendingStart);
-      linesEnded++;
-      pending = pending.subarray(length);
-      pendingStart += length;
-      pendingWasClipped = false;
+  // The line being read ends with buf[from, end), which `start` is the offset of.
+  const endLine = (buf, from, end, start) => {
+    if (!skipping) {
+      parts.push(buf.subarray(from, end));
+      considerLine(parts.length === 1 ? parts[0] : Buffer.concat(parts, partsBytes + end - from), lineStart);
     }
-    // An unbroken progress bar or minified blob must not become an unbounded scanner
-    // buffer. Such a partial line is not useful context, so retain only enough suffix
-    // to find its eventual newline and resume on the next complete line.
-    if (pending.length > scanLineMax) {
-      const discard = pending.length - scanLineMax;
-      pending = Buffer.from(pending.subarray(discard));
-      pendingStart += discard;
-      pendingWasClipped = true;
+    if (end > from && buf[end - 1] === NL) linesEnded++;
+    parts.length = 0;
+    partsBytes = 0;
+    skipping = false;
+    lineStart = start + end;
+  };
+
+  // Lines end at a newline, at a carriage return and newline together, and at a carriage
+  // return on its own - where a progress bar redraws itself, and where every parser will
+  // break the line. A diagnostic printed after a redraw ended no line here, so in the
+  // middle of a large log it was read as part of the bar, and never kept.
+  const scanDiagnostics = (buf, start) => {
+    let from = 0;
+    if (endsOnCr) {
+      endsOnCr = false;
+      if (buf[0] === NL) { endLine(buf, 0, 1, start); from = 1; } else endLine(buf, 0, 0, start);
+    }
+    let nl = buf.indexOf(NL, from), cr = buf.indexOf(CR, from);
+    while (from < buf.length) {
+      if (nl !== -1 && nl < from) nl = buf.indexOf(NL, from);
+      if (cr !== -1 && cr < from) cr = buf.indexOf(CR, from);
+      let end;
+      if (cr !== -1 && (nl === -1 || cr < nl)) {
+        if (cr === buf.length - 1) { endsOnCr = true; break; }
+        end = buf[cr + 1] === NL ? cr + 2 : cr + 1;
+      } else if (nl !== -1) {
+        end = nl + 1;
+      } else {
+        break;
+      }
+      endLine(buf, from, end, start);
+      from = end;
+    }
+    if (from === buf.length || skipping) return;
+    parts.push(buf.subarray(from));
+    partsBytes += buf.length - from;
+    // An unbroken minified blob must not become an unbounded scanner buffer. Such a
+    // partial line is not useful context, so it is skipped to its end without holding
+    // any of it - holding its last 64KiB copied them again for every chunk that arrived.
+    if (partsBytes > scanLineMax) {
+      parts.length = 0;
+      partsBytes = 0;
+      skipping = true;
       recent = [];
       after = 0;
     }
@@ -285,33 +337,46 @@ export function createCapture(maxBytes) {
         const take = Math.min(headMax - headBytes, buf.length);
         head.push(buf.subarray(0, take));
         headBytes += take;
+        if (take) beforeTail = buf[take - 1];
         buf = buf.subarray(take);
       }
       if (!buf.length) return;
       tail.push(buf);
       tailBytes += buf.length;
       // Ring: shed whole chunks from the front, then part of one, counting every
-      // discarded byte so the marker can say how much went missing.
+      // discarded byte so the marker can say how much went missing. The front moves by
+      // index: shifting the array moved every chunk it held for each chunk that arrived,
+      // and output written a line at a time arrives as a hundred thousand of them.
       while (tailBytes > tailMax) {
         const excess = tailBytes - tailMax;
-        const first = tail[0];
+        const first = tail[tailFrom];
         if (first.length <= excess) {
-          tail.shift();
+          beforeTail = first[first.length - 1];
+          tail[tailFrom++] = null;
           tailBytes -= first.length;
         } else {
-          tail[0] = first.subarray(excess);
+          beforeTail = first[excess - 1];
+          tail[tailFrom] = first.subarray(excess);
           tailBytes -= excess;
         }
+      }
+      if (tailFrom > 1024 && tailFrom * 2 > tail.length) {
+        tail.splice(0, tailFrom);
+        tailFrom = 0;
       }
     },
 
     finish() {
-      if (pending.length && !pendingWasClipped) considerLine(pending, pendingStart);
+      if (partsBytes && !skipping) considerLine(Buffer.concat(parts, partsBytes), lineStart);
       const headBuf = Buffer.concat(head);
-      const tailBuf = Buffer.concat(tail);
+      const tailBuf = Buffer.concat(tail.slice(tailFrom));
       if (totalBytes <= maxBytes) {
-        // Everything fit. Hand back exactly what arrived.
-        return { text: Buffer.concat([headBuf, tailBuf]).toString("utf8"), truncated: false, elided: 0 };
+        // Everything fit. Hand back exactly what arrived - unless some of it was not UTF-8:
+        // each such byte reads as U+FFFD, three bytes of text, so 1024 of them came back as
+        // 3072 under a cap of 1024. Text that grew past the cap is cut like any output that
+        // arrived past it.
+        const text = Buffer.concat([headBuf, tailBuf]).toString("utf8");
+        if (!text.includes("\uFFFD") || Buffer.byteLength(text) <= maxBytes) return { text, truncated: false, elided: 0 };
       }
       const keptHead = trimEndToLine(headBuf);
       // Middle diagnostics borrow only the part of the old tail allocation that they
@@ -337,7 +402,7 @@ export function createCapture(maxBytes) {
         const tailBudget = Math.max(1, maxBytes - keptHead.length - middleBytes);
         const tailOffset = Math.max(0, tailBuf.length - tailBudget);
         const rawTail = tailBuf.subarray(tailOffset);
-        keptTail = trimStartToLine(rawTail);
+        keptTail = trimStartToLine(rawTail, tailOffset ? tailBuf[tailOffset - 1] : beforeTail);
         tailStart = totalBytes - tailBuf.length + tailOffset + (rawTail.length - keptTail.length);
         const before = to;
         admit(tailStart);
@@ -365,11 +430,14 @@ export function createCapture(maxBytes) {
         // A marker's lines are the capture's own, and in no run.
         const segments = [];
         let lineAt = 0;
+        // Whether the text so far ends inside a line: a part can end at a carriage return.
+        let open = false;
         for (const span of spans) {
           if (span.start > cursor) {
             const marker = elision(span.start - cursor);
             text += marker;
             lineAt += marker.split("\n").length - 1;
+            open = false;
           }
           const overlap = Math.max(0, cursor - span.start);
           if (overlap < span.buf.length) {
@@ -378,38 +446,79 @@ export function createCapture(maxBytes) {
             const ended = newlines(part);
             const count = ended + (part[part.length - 1] === NL ? 0 : 1);
             const last = segments.at(-1);
-            if (last && last.at + last.count === lineAt && last.line + last.count === line) last.count += count;
+            // A part that follows one ending inside a line, with nothing elided between
+            // them, goes on with that line: it is one line of the text, and of the output.
+            if (open && last.at + last.count - 1 === lineAt && last.line + last.count - 1 === line) last.count += count - 1;
+            else if (last && last.at + last.count === lineAt && last.line + last.count === line) last.count += count;
             else segments.push({ at: lineAt, line, count });
             text += part.toString("utf8");
             lineAt += ended;
             kept += part.length;
             cursor = span.start + span.buf.length;
+            open = part[part.length - 1] !== NL;
           }
         }
         if (cursor < totalBytes) text += elision(totalBytes - cursor);
         return { text, kept, segments };
       };
 
+      // The size in bytes of what compose() hands back with the middle from `first` on:
+      // each part as text - larger than its bytes where they are not UTF-8 - and a marker
+      // for each gap.
+      const decoded = new Map();
+      const textBytes = (buf) => {
+        let bytes = decoded.get(buf);
+        if (bytes === undefined) decoded.set(buf, (bytes = Buffer.byteLength(buf.toString("utf8"))));
+        return bytes;
+      };
+      const composedBytes = (first) => {
+        let bytes = 0, cursor = 0;
+        const add = (start, buf) => {
+          if (start > cursor) bytes += elision(start - cursor).length;
+          const overlap = Math.max(0, cursor - start);
+          if (overlap < buf.length) {
+            bytes += overlap ? Buffer.byteLength(buf.subarray(overlap).toString("utf8")) : textBytes(buf);
+            cursor = start + buf.length;
+          }
+        };
+        if (headSpan.length) add(0, headSpan);
+        for (let i = first; i < middleSpans.length; i++) add(middleSpans[i].start, middleSpans[i].buf);
+        if (tailSpan.length) add(tailAt, tailSpan);
+        if (cursor < totalBytes) bytes += elision(totalBytes - cursor).length;
+        return bytes;
+      };
+
       // The cap applies to the captured text a caller receives, including the markers
       // generated here. Usually reclaiming one line from the tail pays for them. A log
       // with hundreds of isolated diagnostic windows can need more: shed tail, then the
-      // least recent middle windows, and only then the head. Every iteration removes
-      // retained bytes or a whole span, so this is bounded by the number of spans.
+      // least recent middle windows, and only then the head. The middle sheds at once
+      // as many of its windows as the cap needs, oldest first: it shed the newest, one
+      // line at a time, composing the whole text again after each - and seventy thousand
+      // short windows, whose markers outgrew the tail, took hours to cut.
       let captured = compose();
-      while (Buffer.byteLength(captured.text) > maxBytes) {
-        const overflow = Buffer.byteLength(captured.text) - maxBytes;
+      let size = Buffer.byteLength(captured.text);
+      while (size > maxBytes) {
+        const overflow = size - maxBytes;
         if (tailSpan.length) {
           const before = tailSpan.length;
-          tailSpan = trimStartToLine(tailSpan.subarray(Math.min(overflow, tailSpan.length)));
+          const cut = Math.min(overflow, tailSpan.length);
+          tailSpan = trimStartToLine(tailSpan.subarray(cut), tailSpan[cut - 1]);
           tailAt += before - tailSpan.length;
         } else if (middleSpans.length) {
-          middleSpans = middleSpans.slice(0, -1);
+          let low = 1, high = middleSpans.length;
+          while (low < high) {
+            const mid = (low + high) >> 1;
+            if (composedBytes(mid) <= maxBytes) high = mid;
+            else low = mid + 1;
+          }
+          middleSpans = middleSpans.slice(low);
         } else if (headSpan.length) {
           headSpan = trimEndToLine(headSpan.subarray(0, Math.max(0, headSpan.length - overflow)));
         } else {
           break;
         }
         captured = compose();
+        size = Buffer.byteLength(captured.text);
       }
       return {
         text: captured.text,
