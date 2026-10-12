@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- jest's config complaints stay out of the failures however they are spaced. The check
+  that tells a "● Validation Warning:" or "● Console" block from a failed test was made
+  after the whitespace following the bullet, and with two spaces or more the pattern began
+  the name on the last of them, past the check: the warning came back as a failed test
+  named " Validation Warning:".
 - Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
   and the search for a literal prefix, split and filtered the whole log to keep its first
   two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB

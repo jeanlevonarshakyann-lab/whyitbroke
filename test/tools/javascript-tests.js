@@ -476,6 +476,12 @@ const CASES = [
       // jest uses the same bullet for config complaints as for failed tests
       assert.ok(!/Validation Warning|watchPlugins/.test(f.title + f.message),
         "a config warning must not be reported as a failed test");
+      // however many spaces follow the bullet: with two, the check was made from the second
+      // and the warning came back as a failed test named " Validation Warning:"
+      for (const pad of ["  ", "\t", "   \t "]) {
+        const spaced = analyse(fx("jest_snapshot_fail.txt").replace("● Validation Warning", `●${pad}Validation Warning`));
+        assert.deepEqual(spaced.failures.map((g) => g.title), [f.title], `a config warning after ${JSON.stringify(pad)} became a failed test`);
+      }
       // a snapshot diff opens with count headers and a hunk header, and restates
       // the test name; none of those are the diff
       assert.ok(!/^[-+]\s*(Snapshot|Received)\s+[-+]\s*\d+$/m.test(f.message), "count header kept");

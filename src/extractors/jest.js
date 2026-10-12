@@ -4,8 +4,10 @@ import { nodeFrame } from "../location.js";
 // With multiple jest projects the display name comes first: "FAIL jsdom src/a.js".
 // Take the last token, which is always the path.
 const FILE_RE = /^[^\S\n]*(?:FAIL|PASS)[^\S\n]+(?:\S+[^\S\n]+)*?(\S+)[^\S\n]*$/;
-// jest uses the same bullet for config complaints as for failed tests
-const TEST_RE = /^[^\S\n]*●[^\S\n]+(?!Console|Validation Warning|Deprecation Warning|Invalid testPattern)(.+?)[^\S\n]*$/;
+// jest uses the same bullet for config complaints as for failed tests. The check reads past all of
+// the whitespace after the bullet: made after it, with two spaces or more the pattern started the
+// name on the last of them, and "●  Validation Warning:" came back as a failed test.
+const TEST_RE = /^[^\S\n]*●(?![^\S\n]*(?:Console|Validation Warning|Deprecation Warning|Invalid testPattern))[^\S\n]+(.+?)[^\S\n]*$/;
 // --reporters=github-actions writes one workflow annotation per failure and then repeats
 // the whole failure inside a ::group::. Neither was read: the tally jest's own reporter
 // prints is not there, and the repeated block is indented under the group, so a run with
