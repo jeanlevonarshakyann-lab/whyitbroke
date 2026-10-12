@@ -1,11 +1,17 @@
-import { elements, firstElement, githubAnnotations, isNoise, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, isNoise, lineAt, pinnedMessage, pinnedSource, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
-const FAIL_RE = /^[^\S\n]*FAIL[^\S\n]+(.+?)[^\S\n]+>[^\S\n]+(.+?)[^\S\n]*$/;
+// The file ends where the whitespace before the chevron starts, and the test's name where the
+// trailing whitespace starts - see pinnedMessage in util.js.
+export const FAIL_RE = pinnedMessage(String.raw`^[^\S\n]*FAIL`, { separator: String.raw`[^\S\n]+`, least: 1,
+  tail: pinnedSource(">", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" }) });
 // A suite that throws before any test is declared cannot be named after a test, so
 // vitest lists it under "Failed Suites" with the file in brackets instead of a test
 // name after a chevron. Reading only the chevron form meant a file that will not even
 // import - one of the commonest ways a suite fails - fell through to the guess.
-const SUITE_RE = /^[^\S\n]*FAIL[^\S\n]+(.+?)[^\S\n]+\[[^\S\n]*(.+?)[^\S\n]*\][^\S\n]*$/;
+// Read the same way: the header ends where the whitespace before the bracket starts, and what is
+// inside the bracket where the whitespace before its end does.
+export const SUITE_RE = pinnedMessage(String.raw`^[^\S\n]*FAIL`, { separator: String.raw`[^\S\n]+`, least: 1,
+  tail: pinnedSource(String.raw`\[`, { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\][^\S\n]*$` }) });
 // vitest heads a file that failed to load with the file again in brackets:
 // "FAIL  t/crash.test.js [ t/crash.test.js ]". go writes "FAIL <pkg> [build failed]" for
 // a package that would not compile, and the same shape read that as a vitest suite named
@@ -23,7 +29,8 @@ function suiteOf(line) {
   const head = m[1].trim(), inside = m[2].trim();
   return inside && head.endsWith(inside) ? m : null;
 }
-const LOC_RE = /^[^\S\n]*[❯>][^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// Where it starts is held - see pinnedStart in util.js.
+export const LOC_RE = pinnedStart(String.raw`^[^\S\n]*[❯>]`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 // vitest writes a frame as `❯ file:line:col`, and puts the function in front of the file
 // when the frame has one: `❯ lookup cart.js:2:40`, `❯ Object.<anonymous> test/a.js:1:2`.
 // Reading everything before the position as the file reported a file called
@@ -64,7 +71,13 @@ function ownFrame(lines, at, until, expectedFile) {
   }
   return null;
 }
-const SEP_RE = /^[⎯─-╿\s]*(?:\[\d+\/\d+\])?[⎯─-╿\s]*$/;
+// One run of rule characters, then the counter and the run after it: two runs side by side split a
+// long line of spaces every way before refusing it.
+// A TAP line's `# time=` and the ` > ` between a file and its test, each from where the whitespace
+// in front of it starts.
+export const TIME_SUFFIX = /(?<![^\S\n])[^\S\n]*#[^\S\n]*time=.*$/;
+export const CHEVRON = /(?<![^\S\n])[^\S\n]+>[^\S\n]+/;
+export const SEP_RE = /^[⎯─-╿\s]*(?:\[\d+\/\d+\][⎯─-╿\s]*)?$/;
 // vitest prints a "- Expected / + Received" diff; keep the values, drop the header.
 // vitest labels its diff "- Expected:" / "+ Received:" - with a colon. Keeping those
 // headers without their values promises a diff and shows none.
@@ -76,7 +89,14 @@ const DIFF_LINE = (l) => /^[^\S\n]*[-+][^\S\n]*\S/.test(l) && !/^[-+][^\S\n]*(Ex
 // and the text under `error:`. Neither parser matched it, so a failing run came back as
 // a single guess reading "error:" - no test named, no location, no count.
 const TAP_VERSION_RE = /^TAP version \d+[^\S\n]*$/m;
-const TAP_RESULT_RE = /^[^\S\n]*(not )?ok[^\S\n]+\d+[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/;
+// The whitespace either side of a missing dash is one stretch, and the name is read to its last
+// character that is not a space at once: two stretches side by side divided a long one every way,
+// and a lazy name read the rest of it again from each place inside it.
+export const TAP_RESULT_RE = /^[^\S\n]*(not )?ok[^\S\n]+\d+[^\S\n]*(?:-[^\S\n]*)?(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
+// vitest's closing tally - " Test Files  1 failed | 2 passed (3)", " Tests  1 failed (1)" - each read
+// to where its trailing whitespace starts - see pinnedMessage in util.js.
+const tally = (word, flags) => pinnedMessage(String.raw`^[^\S\n]*${word}`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags });
+export const TESTS_LINE = tally("Tests"), TEST_FILES_LINE = tally("Test Files"), TEST_FILES_ANYWHERE = tally("Test Files", "m");
 const TAP_YAML_OPEN_RE = /^[^\S\n]*---[^\S\n]*$/;
 const TAP_YAML_END_RE = /^[^\S\n]*\.\.\.[^\S\n]*$/;
 const TAP_AT_RE = /^[^\S\n]*at:[^\S\n]*"(.+):(\d+):(\d+)"[^\S\n]*$/;
@@ -114,8 +134,8 @@ function vitestTap(text) {
     if (!file && message === undefined) continue;
     // tap-flat names the test "file > test"; the pretty reporter titles it by the test
     // alone, and the file is already carried as the location.
-    const title = (head[2] || "test").replace(/[^\S\n]*#[^\S\n]*time=.*$/, "").trim()
-      .split(/[^\S\n]+>[^\S\n]+/).pop();
+    const title = (head[2] || "test").replace(TIME_SUFFIX, "").trim()
+      .split(CHEVRON).pop();
     // The result line and its YAML block, to the `...` that closes it.
     failures.push(withSource({
       file, line: line ? +line : undefined, col: col ? +col : undefined,
@@ -149,13 +169,15 @@ const JUNIT_FAILURE_RE = /<(failure|error)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/;
 const VITEST_DOC = { open: /<testsuites\b/, close: () => "</testsuites>" };
 const JUNIT_CASE = { open: /<testcase\b/, close: () => "</testcase>", selfClosing: true };
 const JUNIT_FAILURE = { open: /<(failure|error)\b/, close: (name) => `</${name}>`, selfClosing: true };
-// vitest writes its frames with a pointer rather than the word "at".
-const VITEST_FRAME = /^[^\S\n]*[❯>][^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// vitest writes its frames with a pointer rather than the word "at" - the line LOC_RE reads.
+const VITEST_FRAME = LOC_RE;
 const base = (p) => String(p ?? "").split(/[\\/]/).pop();
 // A reporter that writes to a file says so and prints nothing else. The run failed, the
 // answer exists, and the log holding only this line came back "could not identify a
 // diagnostic" - when vitest had just said where to look.
-const REPORT_WRITTEN = /^([A-Z][A-Z-]*) report written to (\S.*?)[^\S\n]*$/m;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const REPORT_WRITTEN = /^([A-Z][A-Z-]*) report written to (\S(?:.*\S)?)[^\S\n]*$/m;
 // The diff a value comparison prints is part of the answer, and the pretty reporter's
 // reading already keeps it. The machine reporters carry the same block, so it is read
 // the same way - message first, then the values, without the "- Expected / + Received"
@@ -297,9 +319,9 @@ export default {
     // nothing was wrong. The file tally is the one that says what happened.
     let summary;
     for (const l of lines) {
-      const m = l.match(/^[^\S\n]*Tests[^\S\n]+(.+?)[^\S\n]*$/);
+      const m = l.match(TESTS_LINE);
       if (m) { summary = m[1]; break; }
-      const files = l.match(/^[^\S\n]*Test Files[^\S\n]+(.+?)[^\S\n]*$/);
+      const files = l.match(TEST_FILES_LINE);
       if (files) summary ??= `${files[1]} (no tests ran)`;
     }
     // A TAP run and a pretty run can share a log - `--reporter=tap --reporter=default`
@@ -349,7 +371,7 @@ export default {
         }, said, said + 1)],
       };
     }
-    const files = s.match(/^[^\S\n]*Test Files[^\S\n]+(.+?)[^\S\n]*$/m);
+    const files = s.match(TEST_FILES_ANYWHERE);
     if (/^no tests$/.test(summary ?? "") && files) summary = `${files[1]} (no tests ran)`;
     // "Tests  1 failed (1)" counts tests, and a file that never loaded declared none - so
     // a log holding one of each was headlined "1 failed" over two failures. Say what the

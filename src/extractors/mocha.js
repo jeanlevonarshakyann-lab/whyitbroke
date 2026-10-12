@@ -1,4 +1,4 @@
-import { isNoise } from "../util.js";
+import { isNoise, pinnedStart } from "../util.js";
 import { withSource } from "../ownership.js";
 import { v8Frame } from "../location.js";
 
@@ -32,9 +32,12 @@ const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
 // indentation share a prefix, and stripping it takes the indentation with it. "Exception
 // during run:" is distinctive enough to stand without the anchor, and a log that says it
 // inside a monorepo runner should still be read.
-const LOAD_RE = /^[^\S\n]*Exception during run:[^\S\n]*(.+?):(\d+)[^\S\n]*$/m;
+// Where it starts is held - see pinnedStart in util.js.
+export const LOAD_RE = pinnedStart(String.raw`^[^\S\n]*Exception during run:`, { before: 0, tail: String.raw`:(\d+)[^\S\n]*$`, flags: "m" });
 // mocha repeats the test file in the timeout message; the location already says it.
-const TRAILING_PATH = /[^\S\n]*\((?:\/|[A-Za-z]:\\)[^)]*\)[^\S\n]*$/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const TRAILING_PATH = /(?<![^\S\n])[^\S\n]*\((?:\/|[A-Za-z]:\\)[^)]*\)[^\S\n]*$/;
 // The assertion, the comparison, and both sides of the diff under it.
 const MAX_MESSAGE_LINES = 4;
 

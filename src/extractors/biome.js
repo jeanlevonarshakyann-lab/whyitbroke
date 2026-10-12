@@ -24,7 +24,9 @@ import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // file biome could not read at all, and `format` heads one whose formatting differs -
 // which under `biome format` is the only finding there is. Both were dropped, so a log
 // reading "Found 2 errors. Found 1 warning." came back as the one warning.
-const HEAD_RE = /^(.+?):(\d+):(\d+)[^\S\n]+(\S+?)(?:[^\S\n]+(?:FIXABLE|INFO|WARNING|ERROR|PARSE))*[^\S\n]*━*[^\S\n]*$/;
+// The whitespace on both sides of a missing rule is one stretch: two side by side divided a long
+// one every way.
+export const HEAD_RE = /^(.+?):(\d+):(\d+)[^\S\n]+(\S+?)(?:[^\S\n]+(?:FIXABLE|INFO|WARNING|ERROR|PARSE))*[^\S\n]*(?:━+[^\S\n]*)?$/;
 // `my project/src/fmt.js format ━━━` - biome's file-level sections carry no line or
 // column. The run's closing banner is `format ━━━` or `check ━━━`, the command's own
 // name with nothing in front of it - until a monorepo runner prefixes every line, and
@@ -35,7 +37,9 @@ const FILE_HEAD_RE = /^(\S.*?\.\w+)[^\S\n]+(parse|format|organizeImports|assist)
 // Said once the real diagnosis has already been printed above it.
 const RESTATEMENT = /^(?:Code formatting aborted due to parsing errors|Some errors were emitted)/;
 // "  ! This variable x is unused." - the severity glyph, then the message.
-const MESSAGE_RE = /^[^\S\n]*([!×✖⚠])[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const MESSAGE_RE = /^[^\S\n]*([!×✖⚠])[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 // "  > 1 │ const x = ;" - the marked line of the source frame.
 const MARKED_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*│[^\S\n]?(.*)$/;
 const TALLY_RE = /^(?:Checked|Found) \d+|^[^\S\n]*\d+ error[s]? found/m;
@@ -115,7 +119,9 @@ const JUNIT_FAILURE = { open: /<failure\b/, close: () => "</failure>", selfClosi
 const SUMMARY_SECTION = /^[^\S\n]*reporter\/(violations|format)[^\S\n]*━+[^\S\n]*$/;
 const SUMMARY_SECTION_ANY = /^[^\S\n]*reporter\/(?:violations|format)[^\S\n]*━+[^\S\n]*$/m;
 const SUMMARY_FILES = /^[^\S\n]*i[^\S\n]+The following files (?:have violations|need to be formatted):[^\S\n]*$/;
-const SUMMARY_ITEM = /^[^\S\n]*-[^\S\n]+(\S.*?)(?:[^\S\n]+\(([^)]*)\))?[^\S\n]*$/;
+// The file ends where the whitespace after it starts: read lazily, it stopped at each space of a
+// long stretch and read the rest of the line again from there.
+export const SUMMARY_ITEM = /^[^\S\n]*-[^\S\n]+(\S.*?)(?<![^\S\n])(?:[^\S\n]+\(([^)]*)\))?[^\S\n]*$/;
 const SUMMARY_RULES = /^[^\S\n]*i[^\S\n]+The following lint rules have violations:[^\S\n]*$/;
 const SUMMARY_RULE_ROW = /^[^\S\n]*([\w-]+\/[\w-]+(?:\/[\w-]+)*)[^\S\n]{2,}\d+/;
 

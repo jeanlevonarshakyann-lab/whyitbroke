@@ -25,13 +25,19 @@
 // line a step printed with that step's own number and elapsed time. A failing step with
 // no such line said nothing, and docker's account of it is the only one there is.
 import { alsoFrom, withSource } from "../ownership.js";
+import { pinnedMessage } from "../util.js";
 
 const LOC = /^(\S+):(\d+)[^\S\n]*$/;
 const FENCE = /^-{5,}[^\S\n]*$/;
 // `   2 | >>> COPY missing-file.txt /tmp/` - BuildKit marks the offending line itself.
-const POINTED = /^[^\S\n]*\d+[^\S\n]*\|[^\S\n]*>>>[^\S\n]?(.*?)[^\S\n]*$/;
-const STEP_ERROR = /^#(\d+)[^\S\n]+ERROR:[^\S\n]+(.+?)[^\S\n]*$/;
-const FINAL_ERROR = /^ERROR:[^\S\n]+(?:failed to build:[^\S\n]+)?failed to solve:[^\S\n]+(.+?)[^\S\n]*$/;
+// The instruction is read to its last character that is not a space at once: read lazily, it stopped
+// at each space of a long stretch and read the rest of the stretch again from there.
+export const POINTED = /^[^\S\n]*\d+[^\S\n]*\|[^\S\n]*>>>[^\S\n]?((?:.*\S)?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const STEP_ERROR = pinnedMessage(String.raw`^#(\d+)[^\S\n]+ERROR:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
+// Its message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const FINAL_ERROR = pinnedMessage(String.raw`^ERROR:[^\S\n]+(?:failed to build:[^\S\n]+)?failed to solve:`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // docker saying that the command it ran exited non-zero. The command said why.
 const RELAYED = /^process[^\S\n]+".*"[^\S\n]+did not complete successfully:[^\S\n]+exit code:[^\S\n]*\d+[^\S\n]*$/;
 // Docker CLI 28 on macOS uses the first form; Linux commonly uses the second,
@@ -66,7 +72,9 @@ function printingSteps(lines) {
 // stripped off before any parser sees it, and `#5 ERROR:` becomes `ERROR:`. The quoted
 // block comes through either way, and normalize.js already describes it as the cause
 // verbatim from whatever tool actually failed.
-const QUOTED_STEP = /^[^\S\n]*>[^\S\n]*\[\d+\/\d+\][^\S\n]*(.*):[^\S\n]*$/;
+// The whitespace after the step's number is taken whole: divided with what follows, a long stretch
+// was read again from each place in it.
+export const QUOTED_STEP = /^[^\S\n]*>[^\S\n]*\[\d+\/\d+\][^\S\n]*(?![^\S\n])(.*):[^\S\n]*$/;
 const STAMP = /^\d+\.\d+[^\S\n]/;
 
 /** What the failing step said for itself, and the line it was read from. When the command

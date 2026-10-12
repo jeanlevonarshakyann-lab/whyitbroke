@@ -95,6 +95,10 @@ function evalOrigin(location) {
   return location.slice(from, to);
 }
 
+// The whitespace before a frame's `(`, from where it starts: from each place inside a long stretch
+// the pattern read the rest of the stretch again.
+export const BEFORE_CALL = /(?<![^\S\n])[^\S\n]+\(/;
+
 /** A V8 stack frame, read in one pass: `{ fn?, file, line, col, closed }` or null.
  *
  *  V8 writes `at <name> (<location>)`, or `at <location>` for code with no name, and the
@@ -142,7 +146,7 @@ export function v8Frame(text, { indented = false, unclosed = "whole" } = {}) {
     return { ...(fn ? { fn } : {}), ...where, closed: true };
   }
   if (unclosed === "split") {
-    const cut = /[^\S\n]+\(/.exec(body);
+    const cut = BEFORE_CALL.exec(body);
     if (cut && cut.index > 0) {
       const where = lineAndColumn(body.slice(cut.index + cut[0].length));
       if (where) return { fn: body.slice(0, cut.index), ...where, closed: false };

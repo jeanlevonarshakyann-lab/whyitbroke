@@ -5,11 +5,13 @@
 //
 import { joinSources, withSource } from "../ownership.js";
 import { locatedPrefix } from "../location.js";
+import { pinnedMessage } from "../util.js";
 
 // Self-bounding: the whole finding is one line. The code is what you would put in a
 // noqa comment or a per-file ignore, so it is the code; its letter says what kind of
 // check it came from, and E9/F8 are the ones that stop a build rather than tidy it.
-const DETAIL_RE = /^[^\S\n]+([A-Z]{1,4}\d{3,4})[^\S\n]+(.+?)[^\S\n]*$/;
+// Each message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const DETAIL_RE = pinnedMessage(String.raw`^[^\S\n]+([A-Z]{1,4}\d{3,4})`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const finding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (rest) => {
   const match = rest.match(DETAIL_RE);
   return match ? { code: match[1], message: match[2] } : null;
@@ -21,7 +23,7 @@ const finding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (re
 // It went to the generic reader, which kept the file and line and put the code in the
 // message. pylint's own parseable format looks alike but always writes the check's name
 // in the bracket too - `[W0611(unused-import), ]` - so a bare code is flake8's.
-const PYLINT_DETAIL_RE = /^[^\S\n]+\[([A-Z]{1,4}\d{3,4})\][^\S\n]+(.+?)[^\S\n]*$/;
+export const PYLINT_DETAIL_RE = pinnedMessage(String.raw`^[^\S\n]+\[([A-Z]{1,4}\d{3,4})\]`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const pylintFinding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (rest) => {
   const match = rest.match(PYLINT_DETAIL_RE);
   return match ? { code: match[1], message: match[2] } : null;

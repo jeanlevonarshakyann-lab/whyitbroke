@@ -21,7 +21,9 @@
 // before, under node's name - lost both the message and the location.
 import { withSource } from "../ownership.js";
 
-const MESSAGE_RE = /^[^\S\n]*[x×✗][^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const MESSAGE_RE = /^[^\S\n]*[x×✗][^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const AT_RE = /^[^\S\n]*,-\[(.+?):(\d+):(\d+)\][^\S\n]*$/;
 const SOURCE_RE = /^[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 // Under a numbered line: the gutter, then blanks, then what marks the span - `^` in the

@@ -23,16 +23,20 @@ import { withSource } from "../ownership.js";
 const PARSE_HEAD_RE = /^go:[^\S\n]+errors parsing[^\S\n]+(\S+):[^\S\n]*$/;
 // The loader writes the path it was given, which is `go.mod` from the module root and an
 // absolute path from anywhere else.
-const PARSE_LINE_RE = /^(\S*go\.mod):(\d+):[^\S\n]*(\S.*?)[^\S\n]*$/;
+// Each is read to its last character that is not a space, at once: read lazily, it stopped at each
+// space of a long stretch and read the rest of the stretch again from there.
+export const PARSE_LINE_RE = /^(\S*go\.mod):(\d+):[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
 const IMPORTS_HEAD_RE = /^go:[^\S\n]+(\S+)[^\S\n]+imports[^\S\n]*$/;
 // `go mod download` names the module and the version it wanted, with no chain above it.
 // The "@" is what separates this from `go: downloading <module> <version>`, which is
 // progress and carries neither an "@" nor a colon.
-const AT_VERSION_RE = /^go:[^\S\n]+(\S+@\S+?):[^\S\n]*(\S.*?)[^\S\n]*$/;
+export const AT_VERSION_RE = /^go:[^\S\n]+(\S+@\S+?):[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
 // Each further link is indented; the last one names the module and says why, with a colon
 // the earlier links do not have.
 const LINK_RE = /^[^\S\n]+(\S+)[^\S\n]+imports[^\S\n]*$/;
-const REASON_RE = /^[^\S\n]+(\S+?):[^\S\n]*(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const REASON_RE = /^[^\S\n]+(\S+?):[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
 
 const chainAt = (lines, i) => {
   const head = lines[i].match(IMPORTS_HEAD_RE);

@@ -45,7 +45,9 @@ import { counted } from "../util.js";
 
 const HEAD_RE = /^(Error|Warning|WARNING|DEPRECATION WARNING(?:[^\S\n]+\[[\w-]+\])?)(?:[^\S\n]+on line \d+.*)?:[^\S\n]*(.*)$/;
 // "  bad.scss 2:10  root stylesheet" - the trailing phrase names the enclosing rule.
-const WHERE_RE = /^[^\S\n]+(\S.*?)[^\S\n]+(\d+):(\d+)[^\S\n]*(?:[^\S\n]{2,}(.*))?$/;
+// The file ends where the whitespace before its line and column starts: from each place inside a
+// long stretch the pattern read the rest of the stretch again.
+export const WHERE_RE = /^[^\S\n]+(\S.*?)(?<![^\S\n])[^\S\n]+(\d+):(\d+)[^\S\n]*(?:[^\S\n]{2,}(.*))?$/;
 // esbuild and vite draw a gutter with the same "│", so that rune alone identifies nothing -
 // and esbuild closes its box with "╵" as well. What it never writes is the opening cap,
 // which sass puts above every box it draws in Unicode.

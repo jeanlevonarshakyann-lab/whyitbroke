@@ -1,4 +1,4 @@
-import { append, colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, tailFirst, xmlAttributes } from "../util.js";
+import { append, colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, pinnedMessage, tailFirst, xmlAttributes } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // shellcheck writes two formats a CI job is likely to produce, and neither was read.
 // Its default is a block per location:
@@ -15,10 +15,14 @@ import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // The block header is what bounds this parser: a caret line is only read while a header
 // is open, so it can never be attached to a location from somewhere else in the log, and
 // the "Did you mean:" suggestion and the wiki links at the end are not read at all.
-const HEADER = /^In[^\S\n]+(.+?)[^\S\n]+line[^\S\n]+(\d+):[^\S\n]*$/;
+// Its file ends where the whitespace before "line" starts - see pinnedMessage in util.js. The whitespace
+// on both sides of a file could be divided every way: 8,000 spaces in one header took minutes.
+export const HEADER = pinnedMessage("^In", { separator: String.raw`[^\S\n]+`, least: 1, tail: String.raw`line[^\S\n]+(\d+):[^\S\n]*$` });
 // The carets are drawn under the offending span, so where they start is the column -
 // which is the same number `-f gcc` prints. `^--` and `^----^` are both spans.
-const CARET = /^([^\S\n]*)\^[-^]*[^\S\n]+(SC\d+)[^\S\n]+\((error|warning|info|style)\):[^\S\n]+(.+?)[^\S\n]*$/;
+// Its message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const CARET = pinnedMessage(String.raw`^([^\S\n]*)\^[-^]*[^\S\n]+(SC\d+)[^\S\n]+\((error|warning|info|style)\):`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // `deploy.sh:4:10: error: Iterating over ls output is fragile. Use globs. [SC2045]`.
 // The trailing code is what makes the line shellcheck's rather than any compiler's.
 // `-f gcc`: `file:line:col: severity: message [SCnnnn]` - the pattern

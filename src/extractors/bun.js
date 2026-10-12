@@ -1,4 +1,4 @@
-import { elements, firstElement, isNoise, lineAt, xmlAttributes, xmlContent } from "../util.js";
+import { elements, firstElement, isNoise, lineAt, pinnedSource, xmlAttributes, xmlContent } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { fileReference, v8Frame } from "../location.js";
 
@@ -41,8 +41,13 @@ const unfile = fileReference;
 // The cross is not bun's alone: vite ends a failed build with "✗ Build failed in 26ms".
 // What bun's line always carries and vite's never does is the timing in brackets at the
 // end, so for the cross that bracket is required.
-const FAIL_RE = /^(?:\(fail\)[^\S\n]+(.+?)(?:[^\S\n]+\[[\d.]+m?s\])?|\u2717[^\S\n]+(.+?)[^\S\n]+\[[\d.]+m?s\])[^\S\n]*$/;
-const FAIL_ANY = /^(?:\(fail\)[^\S\n]+|\u2717[^\S\n]+.+?[^\S\n]+\[[\d.]+m?s\][^\S\n]*$)/m;
+// Each name ends where the whitespace before its timing, or the trailing whitespace, starts - see
+// pinnedMessage in util.js. The timing is optional after `(fail)` and required after the cross.
+const TIMED = pinnedSource(String.raw`\u2717`, { separator: String.raw`[^\S\n]+`, least: 1, tail: String.raw`\[[\d.]+m?s\][^\S\n]*$` });
+const UNTIMED = pinnedSource(String.raw`\(fail\)`, { separator: "", least: 0,
+  tail: String.raw`(?:[^\S\n]+\[[\d.]+m?s\][^\S\n]*|[^\S\n]*)$`, corner: String.raw`[\r\u2028\u2029]*$` });
+export const FAIL_RE = new RegExp(`^(?:${UNTIMED}|${TIMED})`);
+export const FAIL_ANY = new RegExp(String.raw`^(?:\(fail\)[^\S\n]+|${TIMED})`, "m");
 const ERROR_RE = /^error:[^\S\n]*(.+)$/;
 // A thrown builtin is printed with its class, the way node prints one - "TypeError: null
 // is not an object (evaluating 'null.charge')", "RangeError: Array length must be ..." -

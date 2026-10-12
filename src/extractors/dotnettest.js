@@ -17,7 +17,7 @@
 // Message and Stack Trace blocks. It may also print xUnit's prefixed copy first; the
 // labelled result is the stable cross-framework surface and is the one parsed below.
 import { joinSources, withSource } from "../ownership.js";
-import { append, elements, firstElement, lazyIn, lineAt, tailFirst, xmlAttributes, xmlContent } from "../util.js";
+import { append, elements, firstElement, lazyIn, lineAt, pinnedMessage, tailFirst, xmlAttributes, xmlContent } from "../util.js";
 
 const MTP_FAILED_RE = /^failed[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\)[^\S\n]*$/;
 // Microsoft.Testing.Platform speaks the SDK's languages too, and translates more than
@@ -71,7 +71,11 @@ const mtpHead = (line, words) => {
   return head && words.has(head[1]) ? [head[0], head[2], head[3]] : null;
 };
 const VSTEST_FAILED_RE = /^[^\S\n]+Failed[^\S\n]+(.+?)[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/;
-const VSTEST_RESULT_RE = /^[^\S\n]+(?:Failed|Passed|Skipped)[^\S\n]+.+?[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/;
+// A result line's timing, and what comes before it read to where the whitespace before the timing
+// starts - see pinnedMessage in util.js.
+const TIMING = String.raw`\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$`;
+const resultLine = (words) => pinnedMessage(String.raw`^[^\S\n]+(?:${words})`, { separator: String.raw`[^\S\n]+`, least: 1, tail: TIMING });
+export const VSTEST_RESULT_RE = resultLine("Failed|Passed|Skipped");
 const VSTEST_END_RE = /^(?:Test Run Failed\.|Failed![^\n]*\bFailed:[^\S\n]*\d+)/m;
 // The .NET SDK speaks thirteen languages, and every word VSTest's console writes goes
 // with it: "Failed" becomes "Fehler", "失敗", "Не пройден"; "Error Message:" becomes
@@ -92,9 +96,11 @@ const VSTEST_END_RE = /^(?:Test Run Failed\.|Failed![^\n]*\bFailed:[^\S\n]*\d+)/
 // since what they say is translated and where they stand is not.
 const VSTEST_TALLY_RE = /^([^\s!][^\n!]*?)![^\n]*[^\S\n]-[^\S\n]+\S+\.dll[^\S\n]+\([^)\n]*\)[^\S\n]*$/m;
 // A result line in any language: an indented word or two, the test, and its timing.
-const VSTEST_ANY_RESULT_RE = /^[^\S\n]{2}\S[^\n]*?[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/;
+// Both start where the whitespace in front of what ends them starts: from each place inside a long
+// stretch the pattern read the rest of the stretch again.
+export const VSTEST_ANY_RESULT_RE = /^[^\S\n]{2}\S[^\n]*?(?<![^\S\n])[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/;
 // A label: two spaces in, some words, a colon, and nothing after it.
-const VSTEST_LABEL_RE = /^[^\S\n]{2}\S[^\n]*?[^\S\n]*:[^\S\n]*$/;
+export const VSTEST_LABEL_RE = /^[^\S\n]{2}\S[^\n]*?(?<![^\S\n])[^\S\n]*:[^\S\n]*$/;
 const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // A stack frame, as the pattern
 //   /^[^\S\n]*at[^\S\n]+(.+?)[^\S\n]+in[^\S\n]+(.+?):(?:line[^\S\n]+)?(\d+)[^\S\n]*$/
@@ -189,7 +195,7 @@ function vstest(text) {
   // from the first tally only read the runs that happened to speak its language.
   const failWords = new Set(["Failed"]);
   for (const t of text.matchAll(new RegExp(VSTEST_TALLY_RE.source, "gm"))) failWords.add(t[1].trim());
-  const failedRe = new RegExp(`^[^\\S\\n]+(?:${[...failWords].map(escapeRe).join("|")})[^\\S\\n]+(.+?)[^\\S\\n]+\\[(?:<[^\\S\\n]+)?\\d+(?:\\.\\d+)?[^\\S\\n]*(?:ms|s)\\][^\\S\\n]*$`);
+  const failedRe = resultLine([...failWords].map(escapeRe).join("|"));
   const lines = text.split("\n");
   const failures = [];
   for (let i = 0; i < lines.length; i++) {

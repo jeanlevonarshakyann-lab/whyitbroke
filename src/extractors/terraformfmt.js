@@ -22,8 +22,10 @@ import { withSource } from "../ownership.js";
 // terraform spells its two halves `old/<path>` and `new/<path>`, and the path is the same
 // in both. Nothing else writes a diff that way - git writes `a/<path>` and `b/<path>` -
 // so the pair is what identifies this and keeps it off every other diff a build prints.
-const OLD_RE = /^---[^\S\n]+old\/(\S.*?)[^\S\n]*$/;
-const NEW_RE = /^\+\+\+[^\S\n]+new\/(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const OLD_RE = /^---[^\S\n]+old\/(\S(?:.*\S)?)[^\S\n]*$/;
+export const NEW_RE = /^\+\+\+[^\S\n]+new\/(\S(?:.*\S)?)[^\S\n]*$/;
 const HUNK_RE = /^@@[^\S\n]+-(\d+)(?:,(\d+))?[^\S\n]+\+\d+(?:,\d+)?[^\S\n]+@@/;
 const BODY_RE = /^[-+ ]/;
 
