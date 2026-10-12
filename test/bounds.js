@@ -718,6 +718,42 @@ test("a capture whose tail is thousands of short diagnostic lines", () => {
   linearStep(capture, (n) => n, 262145);
 });
 
+test("a capture of output that arrives a line at a time", () => {
+  // The tail sheds its oldest chunks as new ones arrive, and shifting each one off the
+  // front of an array moved every chunk the tail held: twelve megabytes written a line at
+  // a time took four seconds past the default cap.
+  const line = Buffer.from("info: compiled module 0000042\n");
+  const capture = (maxBytes) => {
+    const c = createCapture(maxBytes);
+    for (let sent = 0; sent < 2 * maxBytes; sent += line.length) c.push(line);
+    return c.finish();
+  };
+  linearStep(capture, (n) => n, 1048577);
+});
+
+test("a capture of output with no line end, arriving a few bytes at a time", () => {
+  // A line longer than the scan is skipped to its end, and the scan kept its last 64KiB
+  // to find that end - copying them again for every chunk that arrived. Each chunk of such
+  // a line costs no more than a chunk of ordinary lines does.
+  const pieces = (text) => {
+    const buf = Buffer.from(text), out = [];
+    for (let at = 0; at < buf.length; at += 64) out.push(buf.subarray(at, at + 64));
+    return out;
+  };
+  const time = (chunks) => {
+    const at = performance.now();
+    const c = createCapture(10 * 1024 * 1024);
+    for (const chunk of chunks) c.push(chunk);
+    c.finish();
+    return performance.now() - at;
+  };
+  const best = (chunks) => Math.min(time(chunks), time(chunks), time(chunks));
+  const unbroken = best(pieces("x".repeat(4 * 1024 * 1024)));
+  const lines = best(pieces("info: compiled module 0000042\n".repeat(4 * 1024 * 1024 / 30)));
+  assert.ok(unbroken < lines * 2,
+    `${ms(unbroken)}ms for 4MiB with no line end, ${ms(lines)}ms for 4MiB of lines - x${(unbroken / lines).toFixed(1)}`);
+});
+
 test("a large log that nothing wraps, asked what wraps it", () => {
   // Every wrapper shape, and the search for a literal prefix, asked for the log's first two
   // hundred lines by splitting and filtering all of it: ten readings of the whole log for
