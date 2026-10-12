@@ -59,7 +59,9 @@ for CI wrappers and scripts. The wrapped command's stderr remains available on
 stderr for debugging.
 
 Output capture is bounded to 10 MiB by default. Use `--max-bytes` to tune the
-limit; JSON reports `"truncated": true` if the limit was reached. Live terminal
+limit; JSON reports `"truncated": true` if the limit was reached. The limit counts
+the log's own bytes: the lines marking where output was left out come on top of
+it, at most 1% of the limit (4 KB when that is more). Live terminal
 output is still streamed normally.
 
 Use `--no-source` when logs come from another machine, contain untrusted paths,
