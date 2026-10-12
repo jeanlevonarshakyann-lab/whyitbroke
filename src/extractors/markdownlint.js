@@ -1,4 +1,4 @@
-import { findJsonDocument, jsonDocumentsAt } from "../util.js";
+import { findJsonDocument, jsonDocumentsAt, pinnedMessage } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // markdownlint writes one line per violation and nothing else:
 //
@@ -10,11 +10,13 @@ import { joinSources, withSource } from "../ownership.js";
 // what identifies a line is the rule: MD followed by three digits, then a slash and the
 // rule's name. Nothing else writes that.
 const RULE = "MD\\d{3}";
-const VIOLATION_RE = new RegExp(
+export const VIOLATION_RE = pinnedMessage(
   // A rule can carry more than one alias - "MD041/first-line-heading/first-line-h1" -
   // and matching only the first dropped that violation silently: five findings in the
   // log, four reported, with no sign that one had gone.
-  `^(\\S.*?):(\\d+)(?::(\\d+))?[^\\S\\n]+(?:error[^\\S\\n]+)?(${RULE})/([\\w-]+(?:/[\\w-]+)*)[^\\S\\n]+(.+?)[^\\S\\n]*$`,
+  // Its message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+  `^(\\S.*?):(\\d+)(?::(\\d+))?[^\\S\\n]+(?:error[^\\S\\n]+)?(${RULE})/([\\w-]+(?:/[\\w-]+)*)`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" },
 );
 // markdownlint appends one bracket to the text, and which one it is decides whether the
 // bracket is worth keeping. [Context: "..."] quotes the offending line, which the file
@@ -25,7 +27,9 @@ const VIOLATION_RE = new RegExp(
 const JSON_MARK = (v) => Array.isArray(v) && v.length > 0 &&
   v.every((r) => r && typeof r.fileName === "string" && Number.isInteger(r.lineNumber) && Array.isArray(r.ruleNames));
 
-const CONTEXT_RE = /[^\S\n]*\[Context:[^\]]*\][^\S\n]*$/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const CONTEXT_RE = /(?<![^\S\n])[^\S\n]*\[Context:[^\]]*\][^\S\n]*$/;
 
 export default {
   name: "markdownlint",

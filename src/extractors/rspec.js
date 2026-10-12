@@ -1,6 +1,12 @@
-import { counted as many, findJsonDocument, jsonDocumentsAt } from "../util.js";
+import { counted as many, findJsonDocument, jsonDocumentsAt, pinnedStart } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
-const LOCATION_RE = /^[^\S\n]+#[^\S\n]+(.+):(\d+):in\b/;
+// The whitespace in front of the file is taken whole; the file starts inside it only on the last of
+// it, right before its place, as it did. From each place in a long stretch the pattern read the rest
+// of the line again.
+export const LOCATION_RE = /^[^\S\n]+#(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:\d+:in\b))(.+):(\d+):in\b/;
+// "# ./spec/crash_spec.rb:1:in `<top (required)>'" under a file that would not load. Where the file
+// starts is held - see pinnedStart in util.js.
+export const COMMENTED_FRAME = pinnedStart("^#", { tail: String.raw`:(\d+):in\b` });
 // A spec file that raises while being loaded never becomes a numbered example, so it is
 // reported as prose above the tally instead - and the tally then says "0 examples, 0
 // failures, 1 error occurred outside of examples", which is not a failure count the
@@ -46,7 +52,7 @@ export default {
         // each before the one footer, and reading on gave this error the later ones' prose
         // and frames - and read the rest of the log again from every one of them.
         for (let j = i + 1; j < lines.length && !/^No examples found\.|^Finished in /.test(lines[j]) && !LOAD_ERROR_RE.test(lines[j]); j++) {
-          const at = lines[j].match(/^#[^\S\n]+(.+?):(\d+):in\b/) ?? lines[j].match(LOCATION_RE);
+          const at = lines[j].match(COMMENTED_FRAME) ?? lines[j].match(LOCATION_RE);
           if (at) { file = at[1]; line = +at[2]; end = j + 1; continue; }
           if (lines[j].trim()) { message.push(lines[j].trim()); end = j + 1; }
         }

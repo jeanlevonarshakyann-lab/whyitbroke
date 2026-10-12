@@ -21,7 +21,9 @@ const KUBE_ISH = /\b(?:yaml|manifest|kubectl|kubeconfig|namespace|cluster|server
 // "error: Test failed" through the side door.
 const PLAIN_RE = /^(The connection to the server .+|Unable to connect to the server: .+)$/;
 // kubectl appends how to work around the failure; that is not what went wrong.
-const ADVICE_RE = /;[^\S\n]*if you choose to ignore these errors.*$|[^\S\n]*-[^\S\n]did you specify the right host or port\?$/;
+// The second starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const ADVICE_RE = /;[^\S\n]*if you choose to ignore these errors.*$|(?<![^\S\n])[^\S\n]*-[^\S\n]did you specify the right host or port\?$/;
 // "error parsing deploy.yaml: ... yaml: line 9: ..." carries a real location inside it.
 const IN_MESSAGE_LOC = /error parsing ([^\s:]+):.*?\byaml:[^\S\n]+line[^\S\n]+(\d+):/;
 

@@ -7,6 +7,7 @@
 // matched whole and read from a bounded region, never by scanning for loose words.
 
 import { withSource } from "../ownership.js";
+import { pinnedStart } from "../util.js";
 
 // Could not find gem 'invoice-formatter' in rubygems repository
 // https://rubygems.org/ or installed locally.
@@ -14,7 +15,9 @@ import { withSource } from "../ownership.js";
 // The sentence wraps after the source, so the rest of it is on the next line. Reading
 // only the first line drops "or installed locally", which is the half that says the gem
 // is not anywhere rather than just not in that one repository.
-const MISSING = /^(Could not find gem '([^'\n]+)' .+?)[^\S\n]*$/;
+// What follows the gem's name ends where the trailing whitespace starts; when nothing but whitespace
+// follows it, it is the first character of that, as it was.
+export const MISSING = /^(Could not find gem '([^'\n]+)' (?:.+?(?<![^\S\n])|[^\S\n\r\u2028\u2029](?=[^\S\n]*$)))[^\S\n]*$/;
 // Could not find compatible versions ... then the resolver's explanation, which ends
 // "version solving has failed." That last line is the mechanism; the "Because ..." and
 // "So, because ..." clauses above it are the reason, and they are the answer.
@@ -23,11 +26,14 @@ const SOLVING_FAILED = /^[^\S\n]*version solving has failed\.[^\S\n]*$/;
 // [!] There was an error parsing `Gemfile`: ... . Bundler cannot continue.
 const PARSING = /^\[!\] There was an error parsing `([^`\n]+)`:/;
 // followed, after the parser's own echo, by where it was:   #  from /path/Gemfile:4
-const FROM = /^[^\S\n]*#[^\S\n]+from[^\S\n]+(.+?):(\d+)[^\S\n]*$/;
+// Where it starts is held - see pinnedStart in util.js.
+export const FROM = pinnedStart(String.raw`^[^\S\n]*#[^\S\n]+from`, { tail: String.raw`:(\d+)[^\S\n]*$` });
 // and the offending line, marked out of the echoed block:    >  gem "puma" if
 const OFFENDING = /^[^\S\n]*>[^\S\n]{2}(.*\S)[^\S\n]*$/;
 // The parser draws each complaint under a caret:    |   ^~ expected a predicate ...
-const CARET_NOTE = /^[^\S\n]*\|[^\S\n]*\^~*[^\S\n]*(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const CARET_NOTE = /^[^\S\n]*\|[^\S\n]*\^~*[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
 
 export default {
   name: "bundler",

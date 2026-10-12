@@ -1,4 +1,4 @@
-import { githubAnnotations } from "../util.js";
+import { githubAnnotations, pinnedMessage } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { nodeFrame } from "../location.js";
 // With multiple jest projects the display name comes first: "FAIL jsdom src/a.js".
@@ -7,7 +7,15 @@ const FILE_RE = /^[^\S\n]*(?:FAIL|PASS)[^\S\n]+(?:\S+[^\S\n]+)*?(\S+)[^\S\n]*$/;
 // jest uses the same bullet for config complaints as for failed tests. The check reads past all of
 // the whitespace after the bullet: made after it, with two spaces or more the pattern started the
 // name on the last of them, and "●  Validation Warning:" came back as a failed test.
-const TEST_RE = /^[^\S\n]*●(?![^\S\n]*(?:Console|Validation Warning|Deprecation Warning|Invalid testPattern))[^\S\n]+(.+?)[^\S\n]*$/;
+// The name ends where the trailing whitespace starts, and the whitespace in front of it is taken
+// whole - see pinnedMessage in util.js. A name starts inside that whitespace only where it always
+// did: on the last of it when the line is nothing but whitespace.
+const NOT_A_TEST = "Console|Validation Warning|Deprecation Warning|Invalid testPattern";
+export const TEST_RE = new RegExp(String.raw`^[^\S\n]*●(?![^\S\n]*(?:${NOT_A_TEST}))(?:[^\S\n]+(?![^\S\n])|` +
+  String.raw`[^\S\n]+(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*$))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$)|.+?(?<![^\S\n]))[^\S\n]*$`);
+// jest's tallies, "Tests:       1 failed, 1 total", read the same way.
+export const TESTS_TALLY = pinnedMessage("^Tests:", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags: "m" });
+export const SUITES_TALLY = pinnedMessage("^Test Suites:", { separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags: "m" });
 // --reporters=github-actions writes one workflow annotation per failure and then repeats
 // the whole failure inside a ::group::. Neither was read: the tally jest's own reporter
 // prints is not there, and the repeated block is indented under the group, so a run with
@@ -15,7 +23,8 @@ const TEST_RE = /^[^\S\n]*●(?![^\S\n]*(?:Console|Validation Warning|Deprecatio
 //
 // The annotation shape carries no tool name and biome, eslint and yamllint write it too.
 // What marks these as jest's is the group heading, which is jest's own wording.
-const JEST_GROUP = /^[^\S\n]*::group::Errors thrown in[^\S\n]+(.+?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const JEST_GROUP = pinnedMessage(String.raw`^[^\S\n]*::group::Errors thrown in`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // Any workflow command at all. The group block is the one place jest's failure text
 // appears without a tally line after it, so without this the last block's body runs to
 // the end of the log and takes the next tool's frames with it.
@@ -135,8 +144,8 @@ export default {
     // When a suite throws before any test runs, jest's tally reads "Tests: 0 total" -
     // and a headline of "0 total" over a real failure reads as though nothing happened.
     // The suite tally is the one that says what went wrong in that case.
-    const tests = s.match(/^Tests:[^\S\n]+(.+?)[^\S\n]*$/m);
-    const suites = s.match(/^Test Suites:[^\S\n]+(.+?)[^\S\n]*$/m);
+    const tests = s.match(TESTS_TALLY);
+    const suites = s.match(SUITES_TALLY);
     const sm = /^0 total$/.test(tests?.[1] ?? "") && suites ? [null, `${suites[1]} (no tests ran)`] : tests;
 
     // ...and the same failures as the GitHub reporter annotated them. It repeats each

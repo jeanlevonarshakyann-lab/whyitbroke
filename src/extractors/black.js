@@ -9,10 +9,13 @@
 // with the reason and a location.
 import { withSource } from "../ownership.js";
 
-const REFORMAT_RE = /^would reformat[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const REFORMAT_RE = /^would reformat[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const TALLY_RE = /^\d+ files? would be reformatted/m;
 // "error: cannot format bad.py: Cannot parse: 2:9: def f( :" - the parse failure form.
-const CANNOT_RE = /^error:[^\S\n]*cannot format[^\S\n]+(\S+?):[^\S\n]*(.+?)[^\S\n]*$/;
+// The reason is read the same way, and a reason that is all spaces is the one space it always was.
+export const CANNOT_RE = /^error:[^\S\n]*cannot format[^\S\n]+(\S+?):[^\S\n]*(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$))[^\S\n]*$/;
 // "Cannot parse: 1:7" - and sometimes "Cannot parse: 1:7: def f( :" with the source
 // after it. The trailing colon is not always there.
 const AT_RE = /Cannot parse:[^\S\n]*(\d+):(\d+):?[^\S\n]*(.*)$/;

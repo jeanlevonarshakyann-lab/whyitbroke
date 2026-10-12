@@ -1,4 +1,4 @@
-import { githubAnnotations } from "../util.js";
+import { githubAnnotations, pinnedMessage } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // yamllint's default output puts the filename on its own line and indents the findings
 // under it, so no line carries both a location and a message and the whole run came back
@@ -13,15 +13,18 @@ import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // yamllint writes messages that contain brackets of their own, and "line too long (106 >
 // 80 characters)" would otherwise be read as the rule name.
 const RULE = "\\(([\\w-]+)\\)[^\\S\\n]*$";
-const TTY = new RegExp(`^[^\\S\\n]+(\\d+):(\\d+)[^\\S\\n]+(error|warning)[^\\S\\n]+(.+?)[^\\S\\n]+${RULE}`);
-const PARSABLE = new RegExp(`^(.+?):(\\d+):(\\d+):[^\\S\\n]+\\[(error|warning)\\][^\\S\\n]+(.+?)[^\\S\\n]+${RULE}`);
+// Each message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+export const TTY = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)`, { separator: String.raw`[^\S\n]+`, least: 1, tail: RULE });
+export const PARSABLE = pinnedMessage(String.raw`^(.+?):(\d+):(\d+):[^\S\n]+\[(error|warning)\]`, { separator: String.raw`[^\S\n]+`, least: 1, tail: RULE });
 // A bare filename, which is what opens a block in the default format.
-const FILE = /^(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const FILE = /^(\S(?:.*\S)?)[^\S\n]*$/;
 // -f github writes GitHub workflow annotations, which every tool's GitHub formatter
 // writes. What marks these as yamllint's is inside the message: yamllint puts its own
 // parsable line there, position and rule and all, so the annotation says the position
 // twice. That prefix is the signature and it is also noise, so it is read and removed.
-const IN_ANNOTATION = /^(\d+):(\d+)[^\S\n]+\[([\w-]+)\][^\S\n]+(.+?)[^\S\n]*$/;
+export const IN_ANNOTATION = pinnedMessage(String.raw`^(\d+):(\d+)[^\S\n]+\[([\w-]+)\]`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 
 /** The findings of a `-f github` run, or none. */
 function annotated(s) {

@@ -12,7 +12,7 @@
 // The two copies produce identical failures, so the pipeline's own de-duplication
 // collapses them - which is why nothing here counts blocks.
 import { withSource } from "../ownership.js";
-import { lazyIn, tailFirst } from "../util.js";
+import { lazyIn, pinnedMessage, tailFirst } from "../util.js";
 
 // Each header is matched as its pattern matches it, without trying the rest of a long line
 // again from every ` in ` in it. "PHP " may come first, and then `word`: where it ends, or -1.
@@ -49,11 +49,19 @@ export const fatalLine = onLine("Fatal error:", (l, start) => !/^Uncaught[^\S\n]
 export const parseLine = onLine("Parse error:");
 // The include path is longer than the diagnosis and never varies, while the file it
 // could not find is the answer. Same shape of noise as perl's @INC list.
-const INCLUDE_PATH = /[^\S\n]*\(include_path='[^']*'\)/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const INCLUDE_PATH = /(?<![^\S\n])[^\S\n]*\(include_path='[^']*'\)/;
 const WARNING_RE = /^(?:PHP[^\S\n]+)?(?:Warning|Notice|Deprecated):[^\S\n]/;
-const FRAME_RE = /^#(\d+)[^\S\n]+(?:(.+?)\((\d+)\):[^\S\n]+(.+)|\{main\})$/;
-// PHP repeats the location under the stack. The line above already said it.
-const THROWN_RE = /^[^\S\n]*thrown in[^\S\n]+.+[^\S\n]+on line[^\S\n]+\d+$/;
+// "#0 /app/src/Cart.php(12): Cart->total()". The whitespace in front of the file, and in front of
+// the call, is taken whole; a file or call starting inside it is the last of it, as it was, and
+// only where nothing else matched. Divided every way, a long stretch was read again from each place.
+const CALL_AT = String.raw`(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]$))`;
+export const FRAME_RE = new RegExp(String.raw`^#(\d+)(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]\(\d+\):${CALL_AT}.+$))` +
+  String.raw`(?:(.+?)\((\d+)\):${CALL_AT}(.+)|\{main\})$`);
+// PHP repeats the location under the stack. The line above already said it. Its file ends where the
+// whitespace before "on line" starts - see pinnedMessage in util.js.
+export const THROWN_RE = pinnedMessage(String.raw`^[^\S\n]*thrown in`, { separator: String.raw`[^\S\n]+`, least: 1, tail: String.raw`on line[^\S\n]+\d+$` });
 
 export default {
   name: "php",

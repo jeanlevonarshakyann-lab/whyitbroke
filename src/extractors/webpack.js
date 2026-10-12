@@ -11,7 +11,10 @@
 // The trace is how webpack looked, not what went wrong, and it is the bulk of the log.
 import { withSource } from "../ownership.js";
 
-const HEAD_RE = /^(ERROR|WARNING) in (.+?)(?:[^\S\n]+(\d+):(\d+)(?:-\d+)?)?[^\S\n]*$/;
+// The module ends where the whitespace after it starts; one that starts with a space is that one
+// space when only its place, or the line's end, follows - as it was. Read lazily, it stopped at
+// each space of a long stretch and read the rest of the line again from there.
+export const HEAD_RE = /^(ERROR|WARNING) in ([^\S\n\r\u2028\u2029](?=(?:[^\S\n]+\d+:\d+(?:-\d+)?)?[^\S\n]*$)|.+?(?<![^\S\n]))(?:[^\S\n]+(\d+):(\d+)(?:-\d+)?)?[^\S\n]*$/;
 // The column in that heading counts from 0: `const x = ;` fails `1:10`, with the caret
 // webpack draws under the semicolon, the eleventh character. A column here counts from 1.
 const TALLY_RE = /^webpack [\d.]+ compiled with (\d+) errors?(?:[^\S\n]+and[^\S\n]+(\d+) warnings?)?/m;
@@ -20,7 +23,9 @@ const TRACE_RE = /^(?:resolve[ds]?[^\S\n]|[^\S\n]+(?:using description file|Fiel
 // webpack echoes the offending line with a > marker, like a compiler.
 const SOURCE_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 // The rest of the drawing: unmarked source lines and the caret under them.
-const GUTTER_RE = /^[^\S\n]*\d*[^\S\n]*\|/;
+// The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
+// line of spaces every way before refusing it.
+export const GUTTER_RE = /^[^\S\n]*(?:\d+[^\S\n]*)?\|/;
 const ADVICE_RE = /^(?:You may need an appropriate loader|File was parsed as|See https?:\/\/)/;
 const MAX_MESSAGE_LINES = 2;
 

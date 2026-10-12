@@ -1,4 +1,4 @@
-import { findJsonDocument, jsonDocumentsAt } from "../util.js";
+import { findJsonDocument, jsonDocumentsAt, pinnedMessage, pinnedStart } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 // `deno lint` and `deno fmt --check` - deno's linter and formatter, as opposed to
@@ -20,12 +20,17 @@ import { fileReference } from "../location.js";
 // is JavaScript or TypeScript. Both are required, on each finding.
 const RULE = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
 const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
-const HEAD_RE = new RegExp(`^error\\[(${RULE})\\]:[^\\S\\n]+(.+?)[^\\S\\n]*$`);
-const AT_RE = /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const HEAD_RE = pinnedMessage(`^error\\[(${RULE})\\]:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
+// Where it starts is held - see pinnedStart in util.js.
+export const AT_RE = pinnedStart(String.raw`^[^\S\n]*-->`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 const SOURCE_RE = /^[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
-const HINT_RE = /^[^\S\n]*=[^\S\n]*hint:[^\S\n]*(.+?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const HINT_RE = pinnedMessage(String.raw`^[^\S\n]*=[^\S\n]*hint:`, { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 // --compact: `file:///app/orders.ts: line 1, col 14 - `any` type is not allowed (no-explicit-any)`
-const COMPACT_RE = new RegExp(`^(.+?):[^\\S\\n]+line[^\\S\\n]+(\\d+),[^\\S\\n]+col[^\\S\\n]+(\\d+)[^\\S\\n]+-[^\\S\\n]+(.+?)[^\\S\\n]+\\((${RULE})\\)[^\\S\\n]*$`);
+// Its message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+export const COMPACT_RE = pinnedMessage(`^(.+?):[^\\S\\n]+line[^\\S\\n]+(\\d+),[^\\S\\n]+col[^\\S\\n]+(\\d+)[^\\S\\n]+-`,
+  { separator: String.raw`[^\S\n]+`, least: 1, tail: `\\((${RULE})\\)[^\\S\\n]*$` });
 // --json: `{ "version": 1, "diagnostics": [...], "errors": [...] }`.
 const REPORT = (v) => !!v && typeof v === "object" && Number.isInteger(v.version) &&
   Array.isArray(v.diagnostics) && v.diagnostics.length > 0 && v.diagnostics.every((d) =>
@@ -137,7 +142,8 @@ export default {
 // The tally is deno's own sentence, and a "from <file>:" heading only counts in a log
 // that has it.
 const FMT_TALLY_RE = /^error:[^\S\n]+Found[^\S\n]+(\d+)[^\S\n]+not formatted files?[^\S\n]+in[^\S\n]+\d+[^\S\n]+files?[^\S\n]*$/m;
-const FMT_FILE_RE = /^from[^\S\n]+(.+?):[^\S\n]*$/;
+// Where it starts is held - see pinnedStart in util.js.
+export const FMT_FILE_RE = pinnedStart("^from", { tail: String.raw`:[^\S\n]*$` });
 
 export const denoFmt = {
   name: "deno fmt",

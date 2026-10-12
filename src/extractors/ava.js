@@ -1,4 +1,4 @@
-import { isNoise } from "../util.js";
+import { isNoise, pinnedMessage, pinnedStart } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
 import { fileReference, nodeFrame } from "../location.js";
 
@@ -22,14 +22,21 @@ import { fileReference, nodeFrame } from "../location.js";
 // The roll-call carries the names and the tally identifies the tool; the detail blocks
 // carry the location. A test that throws says so on the roll-call line and details the
 // throw instead of a difference.
-const ROLL_RE = /^[^\S\n]*✘[^\S\n]+\[fail\]:[^\S\n]+(.+?)[^\S\n]*$/;
+// It ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const ROLL_RE = pinnedMessage(String.raw`^[^\S\n]*✘[^\S\n]+\[fail\]:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const TALLY_RE = /^[^\S\n]*(\d+) tests? failed\b/m;
 const UNCAUGHT_RE = /^[^\S\n]*Uncaught exception in[^\S\n]+(\S+)[^\S\n]*$/;
 const EXITED_RE = /^[^\S\n]*✘[^\S\n]+(\S+) exited with a non-zero exit code/m;
 // "av/sum.test.js:3" on its own line, under the repeated test name
-const WHERE_RE = /^[^\S\n]*(.+?\.\w+):(\d+)[^\S\n]*$/;
-// "› file:///abs/av/sum.test.js:3:38" - the frame ava points at
-const FRAME_RE = /^[^\S\n]*›[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
+// matches only when it begins with what follows it, and that one match is kept.
+// What AVA adds after a test's name when the test threw. It starts where the whitespace in front of
+// it starts: from each place inside a long stretch the pattern read the rest of it again.
+export const THROWN_IN_TEST = /(?<![^\S\n])[^\S\n]+\w*(?:Error|Exception) thrown in test$/;
+export const WHERE_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]\.\w+:\d+[^\S\n]*$))(.+?\.\w+):(\d+)[^\S\n]*$/;
+// "› file:///abs/av/sum.test.js:3:38" - the frame ava points at. Where its place starts is held -
+// see pinnedStart in util.js.
+export const FRAME_RE = pinnedStart(String.raw`^[^\S\n]*›`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 const CLASS_RE = /^[^\S\n]*(\w*(?:Error|Exception)):[^\S\n]*(.*)$/;
 const THREW_RE = /^[^\S\n]*(\w*(?:Error|Exception)) thrown in test:?[^\S\n]*$/;
 const DIFF_RE = /^[^\S\n]*Difference \(- actual, \+ expected\):/;
@@ -64,7 +71,7 @@ export default {
     const names = [], rolled = [];
     lines.forEach((l, i) => {
       const m = l.match(ROLL_RE);
-      if (m) { names.push(m[1].replace(/[^\S\n]+\w*(?:Error|Exception) thrown in test$/, "").trim()); rolled.push(i); }
+      if (m) { names.push(m[1].replace(THROWN_IN_TEST, "").trim()); rolled.push(i); }
     });
 
     // Where each name's detail block begins, found in one pass. Scanning the whole log

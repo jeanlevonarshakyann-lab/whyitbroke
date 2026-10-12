@@ -1,6 +1,11 @@
-import { counted as many, elements, firstElement, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { counted as many, elements, firstElement, lineAt, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, joinSources, withSource } from "../ownership.js";
-const LOCATION_RE = /^[^\S\n]*(.+?):(\d+)$/;
+// The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
+// matches only when it begins with what follows it, and that one match is kept.
+export const LOCATION_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]:\d+$))(.+?):(\d+)$/;
+// "Location: /app/tests/CrashTest.php:2", under "An error occurred inside PHPUnit." Where the file
+// starts is held - see pinnedStart in util.js.
+export const INTERNAL_LOCATION = pinnedStart("^Location:", { tail: String.raw`:(\d+)$`, flags: "m" });
 // PHPUnit separates an assertion that did not hold ("failure") from an exception that
 // escaped ("error") and heads each block differently. Reading only the first meant an
 // uncaught exception - at least as common as a failed assertion - fell through.
@@ -22,8 +27,10 @@ const OUTCOME = { open: /<(failure|error)\b/, close: (name) => `</${name}>`, sel
 // under the class, with every line of the body behind a box-drawing rule. The renaming
 // is the point of the format, so the names it gives are the names reported - but the
 // location and the message are the same ones the console output gives.
-const TESTDOX_GROUP = /^(\S.*?)[^\S\n]*$/;
-const TESTDOX_TEST = /^[^\S\n]+[✘✗][^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const TESTDOX_GROUP = /^(\S(?:.*\S)?)[^\S\n]*$/;
+export const TESTDOX_TEST = /^[^\S\n]+[✘✗][^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const TESTDOX_BODY = /^[^\S\n]*│[^\S\n]?(.*)$/;
 const TESTDOX_ANY = /^[^\S\n]+[✘✗][^\S\n]+\S/m;
 
@@ -162,7 +169,7 @@ export default {
     const internal = [];
     if (INTERNAL_RE.test(s)) {
       const message = s.match(/^Message:[^\S\n]+(.+)$/m);
-      const at = s.match(/^Location:[^\S\n]+(.+?):(\d+)$/m);
+      const at = s.match(INTERNAL_LOCATION);
       if (message || at) {
         // The Message: and Location: lines PHPUnit wrote, wherever each is.
         const [first, second] = [message, at].filter(Boolean).map((m) => lineAt(s, m.index));

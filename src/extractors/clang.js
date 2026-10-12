@@ -14,13 +14,18 @@ import { withSource } from "../ownership.js";
 // sources, so when there is no column to identify the shape, the filename must.
 const DIAGNOSTIC_RE = /^(.+?):(\d+):(?:(\d+):)?[^\S\n]+(error|fatal error|warning|note):[^\S\n]+(.+)$/;
 const C_FAMILY = /\.(?:c|cc|cp|cxx|cpp|c\+\+|m|mm|h|hh|hp|hpp|hxx|h\+\+|tcc|i|ii|s|sx)$/i;
-const CODE_RE = /[^\S\n]+\[(-W[\w-]+)\]$/;
+// Each pattern here that lets a lazy part run into a stretch of whitespace says it may only
+// stop where the whitespace starts: the pattern could stop anywhere inside it, and read the
+// rest of it again from each place - a line padded with 32,000 spaces took a second to
+// refuse. Stopping inside a stretch never matched where its start did not, and where both
+// do the start is tried first, so what matches is what matched.
+export const CODE_RE = /(?<![^\S\n])[^\S\n]+\[(-W[\w-]+)\]$/;
 // -fdiagnostics-format=msvc and =vi move the location out of the colon shape - `a.c(2,19):`
 // for Visual Studio, `a.c +2:19:` for vi - and nothing read either: two errors came back
 // from the generic reader with no file and no line. MSBuild writes the msvc shape too, for
 // C# and every other language it builds, so a C-family source is required here as well.
 const MSVC_RE = /^(.+?)\((\d+),(\d+)\):[^\S\n]+(error|fatal error|warning|note):[^\S\n]+(.+)$/;
-const VI_RE = /^(.+?)[^\S\n]+\+(\d+):(\d+):[^\S\n]+(error|fatal error|warning|note):[^\S\n]+(.+)$/;
+export const VI_RE = /^(.+?)(?:(?<![^\S\n])|(?<=^[^\S\n]))[^\S\n]+\+(\d+):(\d+):[^\S\n]+(error|fatal error|warning|note):[^\S\n]+(.+)$/;
 
 /** A diagnostic in whichever of clang's location shapes it was printed, as the same five
  *  fields the colon shape gives: file, line, column, severity, message. */

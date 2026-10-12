@@ -16,12 +16,17 @@
 import { withSource } from "../ownership.js";
 
 const VERSION_RE = /^TAP version \d+[^\S\n]*$/m;
-const NOT_OK_RE = /^[^\S\n]*not ok[^\S\n]+(\d+)[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/;
+// The whitespace either side of a missing dash is one stretch, and the name is read to its last
+// character that is not a space at once: two stretches side by side divided a long one every way,
+// and a lazy name read the rest of it again from each place inside it.
+export const NOT_OK_RE = /^[^\S\n]*not ok[^\S\n]+(\d+)[^\S\n]*(?:-[^\S\n]*)?(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
 const AT_RE = /^[^\S\n]*at:[^\S\n]*$/;
 const FIELD_RE = /^[^\S\n]*(fileName|lineNumber|columnNumber|found|wanted|compare|stack):[^\S\n]*(.*)$/;
 // tap writes the values as a unified diff rather than as found/wanted fields.
 const DIFF_RE = /^[^\S\n]*diff:[^\S\n]*\|[^\S\n]*$/;
-const DIFF_VALUE_RE = /^[^\S\n]*([-+])(?!--|\+\+)(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const DIFF_VALUE_RE = /^[^\S\n]*([-+])(?!--|\+\+)(\S(?:.*\S)?)[^\S\n]*$/;
 // and echoes the failing line under a `source:` block, marking it with --^
 const SOURCE_RE = /^[^\S\n]*source:[^\S\n]*\|[^\S\n]*$/;
 const MARKER_RE = /^[^\S\n]*-+\^/;

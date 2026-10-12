@@ -7,6 +7,17 @@
   after the whitespace following the bullet, and with two spaces or more the pattern began
   the name on the last of them, past the check: the warning came back as a failed test
   named " Validation Warning:".
+- A line holding a long stretch of whitespace is read in time that grows with the line.
+  About 150 of the readers' line patterns could end a message, a file or a test's name
+  anywhere inside a stretch of spaces - or start one there - and from each place read the
+  rest of the stretch again before giving up: 16,000 spaces took up to two thirds of a
+  second for one pattern. Where two parts of a pattern could share the stretch, it was
+  divided every way: 4,000 spaces in one line of oxlint's unix format took fifty seconds,
+  and 8,000 in one line of a Less build log three and a half minutes. Each part now ends,
+  or starts, only where a stretch does - where every match already came from - so each
+  pattern matches exactly what it did: every one was compared with the pattern it replaced
+  on lines of its own shape changed at random, and every fixture, with stretches of
+  whitespace put into it, is read the same way.
 - Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
   and the search for a literal prefix, split and filtered the whole log to keep its first
   two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB

@@ -1,4 +1,4 @@
-import { isNoise } from "../util.js";
+import { isNoise, pinnedMessage } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 
 // Babel names the file inside the message and follows the code frame with its own
@@ -13,7 +13,11 @@ import { joinSources, withSource } from "../ownership.js";
 //
 // The position is in the message rather than beside it, and the file is in front of the
 // message rather than in a field of its own.
-const HEAD_RE = /^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):[^\S\n]*(.+?)[^\S\n]*\((\d+):(\d+)\)[^\S\n]*$/;
+// The message ends where the whitespace before `(line:col)` starts - see pinnedMessage in util.js.
+// It could end anywhere in a long stretch of spaces, and the whitespace on both sides of it could
+// be divided every way as well: 8,000 spaces at the end of one line took three and a half minutes.
+export const HEAD_RE = pinnedMessage(String.raw`^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):`,
+  { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\((\d+):(\d+)\)[^\S\n]*$` });
 // "> 1 | const x = ;" - the marked line of the code frame.
 const MARKED_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 
