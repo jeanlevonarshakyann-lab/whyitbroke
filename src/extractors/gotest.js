@@ -1,4 +1,4 @@
-import { uniqueFailures } from "../util.js";
+import { append, uniqueFailures } from "../util.js";
 import { alsoFrom, sourceRange, withScope, withSource } from "../ownership.js";
 
 const FAIL_RE = /^[^\S\n]*--- (FAIL|SKIP): (\S+)/;
@@ -325,7 +325,7 @@ export default {
 
     const distinct = uniqueFailures(packaged(failures, lines, packageOf));
     failures.length = 0;
-    failures.push(...distinct);
+    append(failures, distinct);
     const builds = failures.filter((f) => f.title === "compile error").length;
 
     if (!failures.length) {

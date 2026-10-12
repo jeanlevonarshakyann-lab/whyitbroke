@@ -17,7 +17,7 @@
 // Message and Stack Trace blocks. It may also print xUnit's prefixed copy first; the
 // labelled result is the stable cross-framework surface and is the one parsed below.
 import { joinSources, withSource } from "../ownership.js";
-import { elements, firstElement, lazyIn, lineAt, tailFirst, xmlAttributes, xmlContent } from "../util.js";
+import { append, elements, firstElement, lazyIn, lineAt, tailFirst, xmlAttributes, xmlContent } from "../util.js";
 
 const MTP_FAILED_RE = /^failed[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\)[^\S\n]*$/;
 // Microsoft.Testing.Platform speaks the SDK's languages too, and translates more than
@@ -329,7 +329,7 @@ export default {
           failures: fromDocument,
         };
       }
-      failures.push(...fresh);
+      append(failures, fresh);
     }
 
     if (!failures.length) {

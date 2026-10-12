@@ -1,5 +1,6 @@
 import { normTitle } from "./cluster.js";
 import { TRUNCATION_NOTICE, wrapperName } from "./report.js";
+import { append } from "./util.js";
 
 // The runner unescapes only these three in a message body. Escaping a colon there
 // too leaves "AssertionError%3A expected 1" on screen, so : and , are escaped in
@@ -127,8 +128,11 @@ function summaryOf(report) {
       `${fails[i].file ? ` ${code(at(fails[i]))}` : ""}: ${head(fails[i])}`);
     // A long ungrouped tail buries the causes above it. Fold it, never drop it: the
     // summary stays a complete account of everything that failed.
-    if (body.length > 10) lines.push(`<details><summary>${body.length} more</summary>`, "", ...body, "", "</details>", "");
-    else lines.push(...body, "");
+    const fold = body.length > 10;
+    if (fold) lines.push(`<details><summary>${body.length} more</summary>`, "");
+    append(lines, body);
+    if (fold) lines.push("", "</details>");
+    lines.push("");
   }
 
   // A second tool's failures are not a footnote. Give each one its own section rather
@@ -138,8 +142,11 @@ function summaryOf(report) {
     lines.push(`### ${markdown(other.tool)} — ${plural(other.failures.length, "failure")}`, "");
     const body = other.failures.map((f) => `- **${markdown(f.title || "failure")}**` +
       `${f.file ? ` ${code(at(f))}` : ""}: ${head(f)}`);
-    if (body.length > 10) lines.push(`<details><summary>${body.length} more</summary>`, "", ...body, "", "</details>", "");
-    else lines.push(...body, "");
+    const fold = body.length > 10;
+    if (fold) lines.push(`<details><summary>${body.length} more</summary>`, "");
+    append(lines, body);
+    if (fold) lines.push("", "</details>");
+    lines.push("");
   }
 
   if (report.truncated) lines.push("", "> Output capture limit reached. Increase `--max-bytes` for complete diagnostics.");

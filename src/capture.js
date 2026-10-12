@@ -1,4 +1,4 @@
-import { stripAnsi } from "./util.js";
+import { append, stripAnsi } from "./util.js";
 // Capturing a command's output has one job that matters: whatever else is dropped, the
 // part that says why it failed has to survive. That part is almost always at the END -
 // pytest's summary, cargo's error, jest's failure list, the stack trace. Keeping the
@@ -414,7 +414,7 @@ export function createCapture(maxBytes) {
       const compose = () => {
         const spans = [];
         if (headSpan.length) spans.push({ start: 0, buf: headSpan, line: 0 });
-        spans.push(...middleSpans);
+        append(spans, middleSpans);
         if (tailSpan.length) spans.push({
           start: tailAt, buf: tailSpan, line: linesEnded - newlines(tailSpan),
         });
