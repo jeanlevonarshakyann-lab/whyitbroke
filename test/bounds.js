@@ -719,9 +719,10 @@ test("a capture whose tail is thousands of short diagnostic lines", () => {
 });
 
 test("a capture of thousands of separate diagnostic windows", () => {
-  // Each window kept from the middle brings a marker the budget did not count, and when
-  // the markers outgrew the tail the middle was shed one line at a time, composing the
-  // whole text again after each line: seventy thousand windows took hours.
+  // Each window kept from the middle brings a marker, and the markers came out of the
+  // budget: when they outgrew the tail, the middle was shed one line at a time, composing
+  // the whole text again after each - seventy thousand windows took hours. Nearby gaps now
+  // share a marker, and the text is composed once.
   const filler = (bytes) => "info: compiling module of the build graph\n".repeat(Math.ceil(bytes / 42));
   const capture = (maxBytes) => {
     const c = createCapture(maxBytes);

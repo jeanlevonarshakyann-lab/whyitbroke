@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `--max-bytes` counts the log's own bytes. The lines marking where output was left out
+  were paid for from the same budget, so a capture kept less of the log than its limit, and
+  the markers could add up: a 1.7MB log with a failure every eighteen lines kept 954KB of
+  itself under a cap of 1MiB and spent 95KB on 1,116 markers. The markers now come on top
+  of the limit, and gaps near each other share one so that together they never take more
+  than 1% of it, or 4KB when that is more: past that, the smallest windows of the middle
+  give way, the oldest first among equals, and the tail keeps what they held. The same log
+  now keeps 1MiB of itself, with 116 markers taking 10KB. Output that is not UTF-8 is still
+  held to the limit as text.
 - Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
   and the search for a literal prefix, split and filtered the whole log to keep its first
   two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB

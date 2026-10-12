@@ -22,15 +22,17 @@ function test(name, run) {
   }
 }
 
-test("--max-bytes includes generated elision markers", () => {
+test("--max-bytes counts the log's own bytes, and the elision markers stay within theirs", () => {
   const limit = 1024;
   const capture = createCapture(limit);
   capture.push(Buffer.from("ordinary output\n".repeat(10_000)));
   const result = capture.finish();
   assert.equal(result.truncated, true);
   assert.match(result.text, /bytes of output elided here/);
-  assert.ok(Buffer.byteLength(result.text) <= limit,
-    "returned " + Buffer.byteLength(result.text) + " bytes for a " + limit + "-byte cap");
+  const markers = (result.text.match(/\n~~~ whyitbroke: \d+ bytes of output elided here[^\n]*~~~\n/g) ?? []).join("");
+  const own = Buffer.byteLength(result.text) - markers.length;
+  assert.ok(own <= limit, "kept " + own + " bytes of the log for a " + limit + "-byte cap");
+  assert.ok(markers.length <= 4096, "the markers took " + markers.length + " bytes");
 });
 
 test("pytest keeps spaces in parameter ids and history identity", () => {

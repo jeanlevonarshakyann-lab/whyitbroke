@@ -408,7 +408,45 @@ export function createCapture(maxBytes) {
         admit(tailStart);
         if (to === before) break;
       }
-      const middle = ordered.slice(from, to);
+      let middle = ordered.slice(from, to);
+
+      // --max-bytes counts the log's own bytes. The markers saying where output was left out
+      // are not part of the log and come on top of it, and gaps near each other share one so
+      // that they cannot add up: past a hundredth of the cap - four kilobytes, for a small one -
+      // the smallest windows of the middle give way, the oldest first among equals, each
+      // joining the two gaps around it into one, and what they held goes to the tail. A
+      // window against the head or the tail costs no marker of its own, so only one with a
+      // gap on each side gives way.
+      const markerMax = elision(totalBytes).length;
+      const allowed = Math.floor(Math.max(4096, Math.floor(maxBytes / 100)) / markerMax);
+      const windows = [];
+      for (const record of middle) {
+        const last = windows.at(-1);
+        if (last && last.end === record.start) { last.records.push(record); last.end += record.buf.length; last.bytes += record.buf.length; }
+        else windows.push({ start: record.start, end: record.start + record.buf.length, bytes: record.buf.length, records: [record] });
+      }
+      // How many markers compose() writes for these windows: one wherever a part starts past the
+      // end of the one before it, and one more if the last part ends before the output does.
+      let markers = 0, cursor = 0;
+      const part = (start, end) => { if (start > cursor) markers++; cursor = Math.max(cursor, end); };
+      if (keptHead.length) part(0, keptHead.length);
+      for (const w of windows) part(w.start, w.end);
+      if (keptTail.length) part(tailStart, totalBytes);
+      if (cursor < totalBytes) markers++;
+      if (markers > allowed) {
+        const apart = windows.filter((w, i) => w.start > (i ? windows[i - 1].end : keptHead.length) &&
+          w.end < (i + 1 < windows.length ? windows[i + 1].start : keptTail.length ? tailStart : totalBytes));
+        const drop = new Set(apart.sort((a, b) => a.bytes - b.bytes || a.start - b.start).slice(0, markers - allowed));
+        const kept = windows.filter((w) => !drop.has(w));
+        middleBytes = kept.reduce((n, w) => n + w.bytes, 0);
+        const tailBudget = Math.max(1, maxBytes - keptHead.length - middleBytes);
+        const tailOffset = Math.max(0, tailBuf.length - tailBudget);
+        const rawTail = tailBuf.subarray(tailOffset);
+        keptTail = trimStartToLine(rawTail, tailOffset ? tailBuf[tailOffset - 1] : beforeTail);
+        tailStart = totalBytes - tailBuf.length + tailOffset + (rawTail.length - keptTail.length);
+        // A window the longer tail now holds is part of it.
+        middle = kept.filter((w) => w.start < tailStart).flatMap((w) => w.records);
+      }
 
       let headSpan = keptHead;
       let middleSpans = middle;
@@ -426,6 +464,7 @@ export function createCapture(maxBytes) {
         let text = "";
         let cursor = 0;
         let kept = 0;
+        let markerBytes = 0;
         // Which line of the output each line of the text is: runs of lines kept together.
         // A marker's lines are the capture's own, and in no run.
         const segments = [];
@@ -436,6 +475,7 @@ export function createCapture(maxBytes) {
           if (span.start > cursor) {
             const marker = elision(span.start - cursor);
             text += marker;
+            markerBytes += marker.length;
             lineAt += marker.split("\n").length - 1;
             open = false;
           }
@@ -458,13 +498,17 @@ export function createCapture(maxBytes) {
             open = part[part.length - 1] !== NL;
           }
         }
-        if (cursor < totalBytes) text += elision(totalBytes - cursor);
-        return { text, kept, segments };
+        if (cursor < totalBytes) {
+          const marker = elision(totalBytes - cursor);
+          text += marker;
+          markerBytes += marker.length;
+        }
+        return { text, kept, segments, markerBytes };
       };
 
-      // The size in bytes of what compose() hands back with the middle from `first` on:
-      // each part as text - larger than its bytes where they are not UTF-8 - and a marker
-      // for each gap.
+      // The size in bytes of the log's own text compose() hands back with the middle from
+      // `first` on: each part as text, larger than its bytes where they are not UTF-8. The
+      // markers are not counted.
       const decoded = new Map();
       const textBytes = (buf) => {
         let bytes = decoded.get(buf);
@@ -474,7 +518,6 @@ export function createCapture(maxBytes) {
       const composedBytes = (first) => {
         let bytes = 0, cursor = 0;
         const add = (start, buf) => {
-          if (start > cursor) bytes += elision(start - cursor).length;
           const overlap = Math.max(0, cursor - start);
           if (overlap < buf.length) {
             bytes += overlap ? Buffer.byteLength(buf.subarray(overlap).toString("utf8")) : textBytes(buf);
@@ -484,19 +527,16 @@ export function createCapture(maxBytes) {
         if (headSpan.length) add(0, headSpan);
         for (let i = first; i < middleSpans.length; i++) add(middleSpans[i].start, middleSpans[i].buf);
         if (tailSpan.length) add(tailAt, tailSpan);
-        if (cursor < totalBytes) bytes += elision(totalBytes - cursor).length;
         return bytes;
       };
 
-      // The cap applies to the captured text a caller receives, including the markers
-      // generated here. Usually reclaiming one line from the tail pays for them. A log
-      // with hundreds of isolated diagnostic windows can need more: shed tail, then the
-      // least recent middle windows, and only then the head. The middle sheds at once
-      // as many of its windows as the cap needs, oldest first: it shed the newest, one
-      // line at a time, composing the whole text again after each - and seventy thousand
-      // short windows, whose markers outgrew the tail, took hours to cut.
+      // What was kept above is within the cap in bytes, and the cap holds for it as text as
+      // well: a byte that is not UTF-8 reads as U+FFFD, three bytes, and output made of such
+      // bytes outgrows the cap once read. Shed tail, then the least recent middle windows -
+      // as many at once as the cap needs - and only then the head. The markers are not
+      // counted, so output that is UTF-8 is never shed here.
       let captured = compose();
-      let size = Buffer.byteLength(captured.text);
+      let size = Buffer.byteLength(captured.text) - captured.markerBytes;
       while (size > maxBytes) {
         const overflow = size - maxBytes;
         if (tailSpan.length) {
@@ -518,7 +558,7 @@ export function createCapture(maxBytes) {
           break;
         }
         captured = compose();
-        size = Buffer.byteLength(captured.text);
+        size = Buffer.byteLength(captured.text) - captured.markerBytes;
       }
       return {
         text: captured.text,
