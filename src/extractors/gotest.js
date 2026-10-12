@@ -73,7 +73,9 @@ const GO_USAGE_RE = /^(?:usage: go[^\S\n]|Run 'go help)/;
 // here - the failure of running go in the wrong directory, which is a CI staple.
 const UNKNOWN_CMD_RE = /^go[^\S\n]+(\S+):[^\S\n]+unknown command[^\S\n]*$/;
 const SEE_HELP_RE = /^go:[^\S\n]+(\S.*?);[^\S\n]*see 'go help[^\S\n]+[^']+'[^\S\n]*$/;
-const NO_MODULE_RE = /^pattern[^\S\n]+(\S+):[^\S\n]+(\S.*?\bmain module\b.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const NO_MODULE_RE = /^pattern[^\S\n]+(\S+):[^\S\n]+(\S.*?\bmain module\b(?:.*\S)?)[^\S\n]*$/;
 
 /** Where the tool said it would not run, and what it said, or null. */
 function refusal(lines) {

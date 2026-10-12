@@ -88,9 +88,13 @@ export function relPath(p) {
   return next === "/" || next === "\\" ? p.slice(cwd.length + 1) : p;
 }
 
+// A line's trailing whitespace, from where it starts: from each place inside a long stretch earlier in
+// the line the pattern read the rest of the stretch again.
+export const TRAILING_SPACE = /(?<!\s)\s+$/;
+
 /** Collapse runs of blank lines, trim trailing space. */
 export const tidy = (lines) =>
-  lines.map((l) => l.replace(/\s+$/, ""))
+  lines.map((l) => l.replace(TRAILING_SPACE, ""))
        .filter((l, i, a) => !(l === "" && a[i - 1] === ""));
 
 // CI viewers stamp every line: GitHub Actions writes an ISO timestamp, and
@@ -365,6 +369,70 @@ export function tailFirst(line, { tail, spaceBefore = 0, emptyMessage, heads, ad
     }
   }
   return null;
+}
+
+// A line pattern of the shape `head[^\S\n]+(.+?)separator tail` - a head, whitespace, a lazy
+// message, a separator of whitespace, and a tail - built to match exactly what that pattern
+// matches, in time that grows with the line rather than its square.
+//
+// A message that can stop inside a stretch of whitespace stops at each place in it, and from
+// each the separator reads the rest of the stretch again before the tail refuses it: a line of
+// 16,000 spaces could take a second, and where the whitespace before the message could be
+// divided too, minutes. The result is the same without either:
+//
+//  - the separator is whitespace and the tail does not start with any, so a message ends where
+//    a stretch of whitespace starts, or right before the tail - and those are the first places
+//    it can end, so the match is the one the lazy message found;
+//  - the whitespace before the message is greedy, so the message starts after all of it, and
+//    starts inside it only when nothing matched from there. That leaves one match: nothing
+//    but whitespace between head and tail, where the message is the last of it that is not a
+//    line separator and still leaves the separator its `least` characters.
+//
+// `before` is the least whitespace before the message. The tail's groups come after the
+// message's, as they did. `corner` is what must follow the last character in that one match,
+// for a tail that can itself begin with whitespace - an optional suffix - and so cannot say
+// where the separator ends.
+export function pinnedMessage(head, options) {
+  return new RegExp(pinnedSource(head, options), options.flags ?? "");
+}
+
+/** The source of `pinnedMessage`'s pattern, for a pattern holding more than one message. */
+export function pinnedSource(head, { separator, least, tail, before = 1, corner }) {
+  const breaks = String.raw`\r\u2028\u2029`;
+  const after = corner ?? `[${breaks}]*[^\\S\\n]{${least}}${uncaptured(tail)}`;
+  const lead = `[^\\S\\n]{${before},}`;
+  return `${head}(?:${lead}(?![^\\S\\n])|${lead}(?=[^\\S\\n${breaks}]${after}))` +
+    `([^\\S\\n${breaks}](?=${after})|(?![^\\S\\n]).+?(?<![^\\S\\n]))${separator}${tail}`;
+}
+
+// The same for a message that runs into a tail starting with something other than whitespace,
+// with nothing between them: `head[^\S\n]+(.+?)tail`, a path before its `:line:col`. A message can
+// end in whitespace here, so only where it starts is held: after all of the whitespace in front of
+// it, or - when nothing matched from there - on the last of it, right before the tail, which is the
+// one place a message starting inside the whitespace could match from.
+export function pinnedStart(head, { tail, before = 1, flags = "" }) {
+  const lead = `[^\\S\\n]{${before},}`;
+  return new RegExp(`${head}(?:${lead}(?![^\\S\\n])|${lead}(?=[^\\S\\n\\r\\u2028\\u2029]${uncaptured(tail)}))(.+?)${tail}`, flags);
+}
+
+/** A pattern's source with its groups made ones that capture nothing, so that a copy of it in
+ *  a lookahead does not renumber the groups that come after the copy. */
+function uncaptured(source) {
+  let out = "", inClass = false;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (c === "\\") { out += c + source[++i]; continue; }
+    if (inClass) { inClass = c !== "]"; out += c; continue; }
+    if (c === "[") { inClass = true; out += c; continue; }
+    if (c === "(" && source[i + 1] !== "?") { out += "(?:"; continue; }
+    if (source.startsWith("(?<", i) && source[i + 3] !== "=" && source[i + 3] !== "!") {
+      out += "(?:";
+      i = source.indexOf(">", i);
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 const LINE_TERMINATORS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCharCode(0x2029)];
@@ -752,7 +820,9 @@ export function* jsonDocuments(text, accept) {
 // The shape is shared - biome, yamllint, eslint and jest all write it - and it carries
 // severity, location and message but never the tool's own name. So this decodes the
 // shape and the parsers decide which annotations are theirs, by what is inside them.
-const ANNOTATION_RE = /^[^\S\n]*::(error|warning|notice)[^\S\n]+([^:\n]*)::(.*)$/;
+// The whitespace in front of the properties is taken whole: they end at the same colon wherever in a
+// stretch they start, and from each place in a long one the pattern read the rest of the line again.
+export const ANNOTATION_RE = /^[^\S\n]*::(error|warning|notice)[^\S\n]+(?![^\S\n])([^:\n]*)::(.*)$/;
 
 /** The GitHub workflow annotations in `text`.
  *

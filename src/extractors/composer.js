@@ -17,7 +17,9 @@ import { withSource } from "../ownership.js";
 //     - Root composer.json requires vendor/x, it could not be found in any version, ...
 const UNRESOLVED = /^Your requirements could not be resolved to an installable set of packages\.[^\S\n]*$/;
 const PROBLEM = /^[^\S\n]{2}Problem[^\S\n]+(\d+)[^\S\n]*$/;
-const CAUSE = /^[^\S\n]{4}-[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const CAUSE = /^[^\S\n]{4}-[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 // Everything composer prints after the problems to be helpful rather than to say what
 // went wrong. "Potential causes" is a list of guesses about a problem already stated.
 const ADVICE = /^(?:Potential causes:|Read <|[^\S\n]*see <|Use the option|Alternatively|$)/;
@@ -36,7 +38,9 @@ const REQUIRED = /\brequires[^\S\n]+([a-z0-9](?:[a-z0-9._-]*[a-z0-9])?(?:\/[a-z0
 //     "./composer.json" does not contain valid JSON
 //     Parse error on line 4:
 const BOXED = /^In[^\S\n]+(\S+\.php)[^\S\n]+line[^\S\n]+(\d+):[^\S\n]*$/;
-const BOXED_BODY = /^[^\S\n]{2}(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const BOXED_BODY = /^[^\S\n]{2}(\S(?:.*\S)?)[^\S\n]*$/;
 // Where the offending file actually is, when the message names it: `"./composer.json"`
 const QUOTED_FILE = /^"([^"\n]+)"[^\S\n]+(?:does not|is not|could not)/;
 const AT_LINE = /^(?:Parse error|Syntax error)[^\S\n]+on[^\S\n]+line[^\S\n]+(\d+)/i;

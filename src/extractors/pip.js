@@ -10,7 +10,14 @@ const NOTICE = /^\[notice\]/;
 const SUBPROCESS_NOTE = /^[^\S\n]*note: This error originates from a subprocess/;
 const IGNORED = /^ERROR: Ignored the following/;
 // "(from versions: 1.3.0, 1.4.1, … 300 more)" is the whole index, not the diagnosis.
-const VERSION_LIST = /[^\S\n]*\(from versions:[^)]*\)/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const VERSION_LIST = /(?<![^\S\n])[^\S\n]*\(from versions:[^)]*\)/;
+// "ERROR: Invalid requirement: 'requests==': Expected end or semicolon (from line 1 of bad.txt)"
+// The reason ends where the whitespace after it starts: read lazily, it stopped at each space of a
+// long stretch and read the rest of the line again from there. A reason that starts with a space is
+// that one space when the line's end, or where it came from, follows it - as it was.
+export const INVALID_REQUIREMENT = /^ERROR: Invalid requirement: '([^']*)': ([^\S\n\r\u2028\u2029](?=(?:[^\S\n]*\(from line \d+ of .+?\))?[^\S\n]*$)|.+?(?<![^\S\n]))(?:[^\S\n]*\(from line (\d+) of (.+?)\))?[^\S\n]*$/;
 
 // A build runner reporting that a step exited non-zero, rather than any tool's finding.
 const RUNNER_MECHANISM = /failed to solve:|did not complete successfully/;
@@ -105,7 +112,7 @@ export default {
       //   ERROR: Invalid requirement: 'requests==': Expected end or semicolon
       //       requests==
       //               ^ (from line 1 of bad.txt)
-      const bad = l.match(/^ERROR: Invalid requirement: '([^']*)': (.+?)(?:[^\S\n]*\(from line (\d+) of (.+?)\))?[^\S\n]*$/);
+      const bad = l.match(INVALID_REQUIREMENT);
       if (bad) {
         let file = bad[4];
         let line = bad[3] ? +bad[3] : undefined;

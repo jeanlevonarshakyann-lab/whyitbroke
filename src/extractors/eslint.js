@@ -1,7 +1,9 @@
-import { counted, lineAt, uniqueFailures } from "../util.js";
+import { counted, lineAt, pinnedMessage, uniqueFailures } from "../util.js";
 import { withSource } from "../ownership.js";
 
-const PROB_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)\s{2,}([\w@/-]+)[^\S\n]*$/;
+// Its message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+export const PROB_RE = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)`,
+  { separator: String.raw`\s{2,}`, least: 2, tail: String.raw`([\w@/-]+)[^\S\n]*$` });
 // A file eslint could not parse is a problem with no rule, because no rule ran:
 //
 //   syn.js
@@ -12,7 +14,10 @@ const PROB_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)\s{2,}(
 // dropped - under a tally that still counted it. "Parsing error:" is eslint's own
 // wording for it, and the -f json reader already reports the same problem as a parse
 // error, so this reads the table the same way.
-const PARSE_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+error[^\S\n]+(Parsing error:[^\S\n].+?)[^\S\n]*$/;
+// The error ends where the trailing whitespace starts; when only whitespace follows "Parsing error:",
+// it is the first two characters of that, as it was. Read lazily, it stopped at each space of a long
+// stretch and read the rest of the stretch again from there.
+export const PARSE_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+error[^\S\n]+(Parsing error:[^\S\n](?:[^\S\n\r\u2028\u2029](?=[^\S\n]*$)|.+?(?<![^\S\n])))[^\S\n]*$/;
 
 // eslint reports a broken config by crashing, so the log is a Node stack pointing into
 // eslint's own internals - and the node parser then reports node_modules/eslint/lib/... ,

@@ -24,8 +24,10 @@ const SRC_EXT = "js|jsx|mjs|cjs|ts|tsx|py|pyi|rs|go|java|kt|kts|rb|php|c|cc|cpp|
 // in it. Step 3 turned "Cannot find module './a.js'" into "Cannot find module <path>", so
 // three different missing modules became one "likely cause" - the reader adds one
 // dependency, reruns, and watches the other two fail. These phrases name the thing that is
-// missing, and whatever follows them is held out of the path rules and put back after.
-const MISSING_OPERAND = /\b(?:(?:cannot|could not|can't|couldn't|unable to)[^\S\n]+(?:find|resolve|locate|load)(?:[^\S\n]+(?:module|package|crate|dependency|declaration file for module))?|no[^\S\n]+module[^\S\n]+named|unresolved[^\S\n]+import|module[^\S\n]+not[^\S\n]+found:?(?:[^\S\n]+Error:)?(?:[^\S\n]+Can't[^\S\n]+resolve)?|failed[^\S\n]+to[^\S\n]+resolve)[^\S\n]*:?[^\S\n]+(?!in\b|from\b)([^\s,;]+)/gi;
+// missing, and whatever follows them is held out of the path rules and put back after. The
+// whitespace on either side of a missing colon is one stretch: two side by side divided a long one
+// every way.
+export const MISSING_OPERAND = /\b(?:(?:cannot|could not|can't|couldn't|unable to)[^\S\n]+(?:find|resolve|locate|load)(?:[^\S\n]+(?:module|package|crate|dependency|declaration file for module))?|no[^\S\n]+module[^\S\n]+named|unresolved[^\S\n]+import|module[^\S\n]+not[^\S\n]+found:?(?:[^\S\n]+Error:)?(?:[^\S\n]+Can't[^\S\n]+resolve)?|failed[^\S\n]+to[^\S\n]+resolve)(?:[^\S\n]*:)?[^\S\n]+(?!in\b|from\b)([^\s,;]+)/gi;
 // Letters then digits: no word boundary sits between "F" and "0", so steps 4 and 5 - which
 // all begin with \b - cannot see a number here and the marker survives them intact.
 const HELD = (n) => `MODULEREF${n}`;

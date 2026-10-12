@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { locatedPrefix } from "../location.js";
 // oxlint prints one run ten ways, and it chooses among them itself: a terminal gets a
@@ -19,7 +19,10 @@ const RULE_RE = /^([\w-]+)\(([\w/-]+)\)$/;
 const RULE = String.raw`([\w-]+)\(([\w/-]+)\)`;
 
 // -f agent: `lintme.js:1:5: error eslint(no-unused-vars): Variable 'unused' is ... help: ...`
-const AGENT_DETAIL_RE = /^[^\S\n]+(error|warning)[^\S\n]+(?:([\w-]+)\()?([\w-]+)\)?:[^\S\n]*(.+?)[^\S\n]*$/;
+// The message is read to its last character that is not a space, at once - lazily, it stopped at
+// each space of a long stretch and read the rest of it again - and a message that is all spaces is
+// the one space it always was.
+export const AGENT_DETAIL_RE = /^[^\S\n]+(error|warning)[^\S\n]+(?:([\w-]+)\()?([\w-]+)\)?:[^\S\n]*(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$))[^\S\n]*$/;
 const agentFinding = (line) => locatedPrefix(line, (rest) => {
   const match = rest.match(AGENT_DETAIL_RE);
   return match ? {
@@ -27,7 +30,9 @@ const agentFinding = (line) => locatedPrefix(line, (rest) => {
   } : null;
 });
 // "... help: Consider removing this declaration." - advice, not what happened.
-const HELP_RE = /[^\S\n]*\bhelp:[^\S\n].*$/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const HELP_RE = /(?<![^\S\n])[^\S\n]*\bhelp:[^\S\n].*$/;
 // The two lines every drawn report ends with, the second of which no other tool writes.
 const TALLY_LINE_RE = /^Found \d+ warnings? and \d+ errors?\.[^\S\n]*$/;
 const FINISHED_LINE_RE = /^Finished in [\d.]+\S*s on \d+ files? with \d+ rules using \d+ threads\.[^\S\n]*$/;
@@ -42,7 +47,9 @@ const DRAWN_BODY_RE = /^[^\S\n]*(?:$|\d+[^\S\n]*[|\u2502]|[:\u00b7]|[`\u2570][-\
 //
 //   x eslint(no-cond-assign): Expected a conditional expression and instead saw an assignment
 //    ,-[src/checkout.js:3:14]
-const DRAWN_HEAD_RE = new RegExp(String.raw`^[^\S\n]*(x|!|\u00d7|\u26a0)[^\S\n]+(?:${RULE}:[^\S\n]+)?(\S.*?)[^\S\n]*$`);
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const DRAWN_HEAD_RE = new RegExp(String.raw`^[^\S\n]*(x|!|\u00d7|\u26a0)[^\S\n]+(?:${RULE}:[^\S\n]+)?(\S(?:.*\S)?)[^\S\n]*$`);
 const DRAWN_AT_RE = /^[^\S\n]*(?:,-|\u256d\u2500)\[(.+):(\d+):(\d+)\][^\S\n]*$/;
 
 /** For each line, whether a drawn diagnostic heading just above it is part of an oxlint
@@ -65,7 +72,11 @@ function reportsBelow(lines) {
 }
 
 // -f unix: `src/cart.js:2:1: `debugger` statement is not allowed [Error/eslint(no-debugger)]`
-const UNIX_DETAIL_RE = /^[^\S\n]+(.+?)[^\S\n]+\[(Error|Warning)\/([\w-]+)\(([\w/-]+)\)\][^\S\n]*$/;
+// The leading whitespace is taken whole and the message ends where the whitespace before the bracket
+// starts. Otherwise the pattern divided a line of spaces every way between the two and read the rest
+// of it from each: 4,000 spaces took twenty seconds. When the line is nothing but spaces before the
+// bracket, the message is the last of them that is not a line separator, as it was.
+export const UNIX_DETAIL_RE = /^(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*[^\S\n]\[))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*[^\S\n]\[)|(?![^\S\n]).+?(?<![^\S\n]))[^\S\n]+\[(Error|Warning)\/([\w-]+)\(([\w/-]+)\)\][^\S\n]*$/;
 const UNIX_TAIL_RE = /\[(?:Error|Warning)\/[\w-]+\([\w/-]+\)\][^\S\n]*$/;
 const unixFinding = (line) => UNIX_TAIL_RE.test(line) && locatedPrefix(line, (rest) => {
   const match = rest.match(UNIX_DETAIL_RE);
@@ -78,8 +89,12 @@ const unixFinding = (line) => UNIX_TAIL_RE.test(line) && locatedPrefix(line, (re
 //
 //   /app/src/cart.js
 //     2:1   error  `debugger` statement is not allowed  eslint(no-debugger)
-const STYLISH_ROW_RE = new RegExp(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)[^\S\n]{2,}${RULE}[^\S\n]*$`);
-const STYLISH_FILE_RE = /^(\S.*?)[^\S\n]*$/;
+// Its message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+export const STYLISH_ROW_RE = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)`,
+  { separator: String.raw`[^\S\n]{2,}`, least: 2, tail: String.raw`${RULE}[^\S\n]*$` });
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const STYLISH_FILE_RE = /^(\S(?:.*\S)?)[^\S\n]*$/;
 
 // -f json: `{ "diagnostics": [...], "number_of_files": 2, "number_of_rules": 97, ... }`
 const JSON_MARK = (v) => !!v && typeof v === "object" && Array.isArray(v.diagnostics) &&

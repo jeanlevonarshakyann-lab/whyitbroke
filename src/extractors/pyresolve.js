@@ -15,9 +15,11 @@ import { withSource } from "../ownership.js";
 //   error: No solution found when resolving dependencies
 //     cause: Because requests==2.31.0 depends on urllib3>=1.21.1,<3 ...
 //            And because your project depends on urllib3==1.0, ...
-const UV_ERROR = /^error:[^\S\n]+(\S.*?)[^\S\n]*$/;
-const UV_CAUSE = /^[^\S\n]{2}cause:[^\S\n]+(\S.*?)[^\S\n]*$/;
-const UV_MORE = /^[^\S\n]{4,}(\S.*?)[^\S\n]*$/;
+// Each is read to its last character that is not a space, at once: read lazily, it stopped at each
+// space of a long stretch and read the rest of the stretch again from there.
+export const UV_ERROR = /^error:[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+export const UV_CAUSE = /^[^\S\n]{2}cause:[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+export const UV_MORE = /^[^\S\n]{4,}(\S(?:.*\S)?)[^\S\n]*$/;
 // ...except when what it wraps is an echo of the source rather than more of the sentence.
 // A TOML error draws the offending line in a gutter, and reading that as prose puts
 // "1 | [project" in the middle of a sentence.
@@ -90,7 +92,8 @@ const PO_OPENS = /^Because\b/;
 const PO_CLOSES = /\bversion solving failed\.[^\S\n]*$/;
 // Poetry says a broken file in one line, with the path and the place in it.
 //   Invalid TOML file /home/dev/shop/pyproject.toml: Unexpected character: ... at line 1 col 8
-const PO_INVALID = /^Invalid (\w+) file[^\S\n]+(\S.*?):[^\S\n]+(\S.*?)[^\S\n]*$/;
+// The reason is read to its last character that is not a space at once, like uv's lines above.
+export const PO_INVALID = /^Invalid (\w+) file[^\S\n]+(\S.*?):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const AT_LINE_COL = /\bat[^\S\n]+line[^\S\n]+(\d+)[^\S\n]+col[^\S\n]+(\d+)/;
 
 export const poetry = {

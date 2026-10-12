@@ -22,53 +22,93 @@ import { wrapperCandidates } from "../src/normalize.js";
 import { lineAt } from "../src/util.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
-import bundler from "../src/extractors/rubygems.js";
+import bundler, { CARET_NOTE as RUBYGEMS_CARET_NOTE, FROM as RUBYGEMS_FROM, MISSING as RUBYGEMS_MISSING } from "../src/extractors/rubygems.js";
 import pytest from "../src/extractors/pytest.js";
 import swift from "../src/extractors/swift.js";
 import markdownlint from "../src/extractors/markdownlint.js";
-import gotest, { PANIC_LINE, panicMessage } from "../src/extractors/gotest.js";
-import terraform from "../src/extractors/terraform.js";
-import rspec from "../src/extractors/rspec.js";
-import ruff from "../src/extractors/ruff.js";
+import gotest, { NO_MODULE_RE as GOTEST_NO_MODULE_RE, PANIC_LINE, panicMessage } from "../src/extractors/gotest.js";
+import rspec, { COMMENTED_FRAME as RSPEC_COMMENTED_FRAME, LOCATION_RE as RSPEC_LOCATION_RE } from "../src/extractors/rspec.js";
+import ruff, { ARROW_RE as RUFF_ARROW_RE } from "../src/extractors/ruff.js";
+import terraform, { AT_RE as TERRAFORM_AT_RE } from "../src/extractors/terraform.js";
 import vitest from "../src/extractors/vitest.js";
-import docker from "../src/extractors/docker.js";
+import docker, { FINAL_ERROR as DOCKER_FINAL_ERROR, POINTED as DOCKER_POINTED, QUOTED_STEP as DOCKER_QUOTED_STEP, STEP_ERROR as DOCKER_STEP_ERROR } from "../src/extractors/docker.js";
 import phpunit from "../src/extractors/phpunit.js";
 import { unixLine } from "../src/extractors/stylelint.js";
-import { issueLine } from "../src/extractors/golangci.js";
+import { EMBEDDED as GOLANGCI_EMBEDDED, issueLine, TAB as GOLANGCI_TAB } from "../src/extractors/golangci.js";
 import { gccLine } from "../src/extractors/shellcheck.js";
 import { raiseLine } from "../src/extractors/ruby.js";
 import { FRAME_WITH_CALL } from "../src/extractors/node.js";
 import { FAILED_TALLY } from "../src/extractors/junitjvm.js";
-import jest from "../src/extractors/jest.js";
+import jest, { JEST_GROUP as JEST_JEST_GROUP, SUITES_TALLY as JEST_SUITES_TALLY, TEST_RE as JEST_TEST_RE, TESTS_TALLY as JEST_TESTS_TALLY } from "../src/extractors/jest.js";
 import ava from "../src/extractors/ava.js";
-import jasmine from "../src/extractors/jasmine.js";
+import jasmine, { HEAD_RE as JASMINE_HEAD_RE } from "../src/extractors/jasmine.js";
 import mocha from "../src/extractors/mocha.js";
 import mochaxunit from "../src/extractors/mochaxunit.js";
-import bun, { bunRuntime } from "../src/extractors/bun.js";
+import bun, { bunRuntime, FAIL_ANY as BUN_FAIL_ANY, FAIL_RE as BUN_FAIL_RE } from "../src/extractors/bun.js";
 import node from "../src/extractors/node.js";
 import taptext from "../src/extractors/taptext.js";
-import nodetest from "../src/extractors/nodetest.js";
+import nodetest, { ALT_FAILURE_RE as NODETEST_ALT_FAILURE_RE, ALT_LOCATION_RE as NODETEST_ALT_LOCATION_RE, ERROR_INLINE_RE as NODETEST_ERROR_INLINE_RE, NOT_OK_RE as NODETEST_NOT_OK_RE } from "../src/extractors/nodetest.js";
 import junitjvm from "../src/extractors/junitjvm.js";
-import deno from "../src/extractors/deno.js";
-import shellcheck from "../src/extractors/shellcheck.js";
-import { xmlAttributes, xmlText } from "../src/util.js";
+import deno, { HEADER_RE as DENO_HEADER_RE, TAP_NOT_OK_RE as DENO_TAP_NOT_OK_RE } from "../src/extractors/deno.js";
+import shellcheck, { CARET as SHELLCHECK_CARET, HEADER as SHELLCHECK_HEADER } from "../src/extractors/shellcheck.js";
+import { ANNOTATION_RE as UTIL_ANNOTATION_RE, TRAILING_SPACE as UTIL_TRAILING_SPACE, xmlAttributes, xmlText } from "../src/util.js";
 import gojson, { isEvent } from "../src/extractors/gojson.js";
-import jvm, { gradleTestLine } from "../src/extractors/jvm.js";
+import jvm, { CHEVRON as JVM_CHEVRON, gradleTestLine, MAVEN_RE as JVM_MAVEN_RE } from "../src/extractors/jvm.js";
 import less, { headLine as lessHead } from "../src/extractors/less.js";
 import php, { fatalLine, parseLine, uncaughtLine } from "../src/extractors/php.js";
-import dotnettest, { atLine } from "../src/extractors/dotnettest.js";
+import dotnettest, { atLine, VSTEST_ANY_RESULT_RE as DOTNETTEST_VSTEST_ANY_RESULT_RE, VSTEST_LABEL_RE as DOTNETTEST_VSTEST_LABEL_RE, VSTEST_RESULT_RE as DOTNETTEST_VSTEST_RESULT_RE } from "../src/extractors/dotnettest.js";
+import clang, { CODE_RE, VI_RE } from "../src/extractors/clang.js";
+import dotnet, { DIAGNOSTIC_RE, PROJECT_RE, PROJECT_SUFFIX as DOTNET_PROJECT_SUFFIX } from "../src/extractors/dotnet.js";
+import { CANNOT_RE, REFORMAT_RE } from "../src/extractors/black.js";
+import { BOXED_BODY, CAUSE as COMPOSER_CAUSE } from "../src/extractors/composer.js";
+import { AT_VERSION_RE as GOMOD_AT_VERSION_RE, PARSE_LINE_RE as GOMOD_PARSE_LINE_RE, REASON_RE } from "../src/extractors/gomod.js";
+import { AGENT_DETAIL_RE, DRAWN_HEAD_RE as OXLINT_DRAWN_HEAD_RE, HELP_RE, STYLISH_FILE_RE, STYLISH_ROW_RE as OXLINT_STYLISH_ROW_RE, UNIX_DETAIL_RE as OXLINT_UNIX_DETAIL_RE } from "../src/extractors/oxlint.js";
+import { INTERNAL_LOCATION as PHPUNIT_INTERNAL_LOCATION, LOCATION_RE, TESTDOX_GROUP, TESTDOX_TEST as PHPUNIT_TESTDOX_TEST } from "../src/extractors/phpunit.js";
+import { PO_INVALID as PYRESOLVE_PO_INVALID, UV_CAUSE, UV_ERROR, UV_MORE } from "../src/extractors/pyresolve.js";
+import { BANNER_RE as PYTEST_BANNER_RE, ONE_LINE_RE, SUMMARY_ENTRY_RE as PYTEST_SUMMARY_ENTRY_RE, TALLY_RE as PYTEST_TALLY_RE, TRAILING_RE as PYTEST_TRAILING_RE } from "../src/extractors/pytest.js";
+import { COMPACT_RE as STYLELINT_COMPACT_RE, FILE_RE as STYLELINT_FILE, PROBLEM_RE as STYLELINT_PROBLEM_RE, TAP_FILE_RE as STYLELINT_TAP_FILE_RE, TRAILING_RULE_RE } from "../src/extractors/stylelint.js";
+import { FILE as YAMLLINT_FILE, IN_ANNOTATION as YAMLLINT_IN_ANNOTATION, PARSABLE as YAMLLINT_PARSABLE, TTY as YAMLLINT_TTY } from "../src/extractors/yamllint.js";
+import { GUTTER_RE as DENO_GUTTER } from "../src/extractors/denorun.js";
+import { ANNOTATION } from "../src/extractors/generic.js";
+import { GROUP_RE, GUTTER_RE as SWIFT_GUTTER } from "../src/extractors/swift.js";
+import { GUTTER_RE as WEBPACK_GUTTER, HEAD_RE as WEBPACK_HEAD_RE } from "../src/extractors/webpack.js";
+import { CHEVRON as VITEST_CHEVRON, FAIL_RE as VITEST_FAIL_RE, LOC_RE as VITEST_LOC_RE, REPORT_WRITTEN as VITEST_REPORT_WRITTEN, SEP_RE, SUITE_RE as VITEST_SUITE_RE, TAP_RESULT_RE as VITEST_TAP_RESULT_RE, TEST_FILES_ANYWHERE as VITEST_TEST_FILES_ANYWHERE, TEST_FILES_LINE as VITEST_TEST_FILES_LINE, TESTS_LINE as VITEST_TESTS_LINE, TIME_SUFFIX as VITEST_TIME_SUFFIX } from "../src/extractors/vitest.js";
+import { FRAME_RE as AVA_FRAME_RE, ROLL_RE as AVA_ROLL_RE, THROWN_IN_TEST as AVA_THROWN_IN_TEST, WHERE_RE as AVA_WHERE } from "../src/extractors/ava.js";
+import { MARKDOWN_ROW as RUBOCOP_MARKDOWN_ROW, OFFENSE as RUBOCOP_OFFENSE, SIMPLE_ROW as RUBOCOP_SIMPLE_ROW, WHERE as RUBOCOP_WHERE } from "../src/extractors/rubocop.js";
+import { ADVICE_RE } from "../src/extractors/kubectl.js";
+import { CONTEXT_RE, VIOLATION_RE as MARKDOWNLINT_VIOLATION_RE } from "../src/extractors/markdownlint.js";
+import { LOAD_RE as MOCHA_LOAD_RE, TRAILING_PATH } from "../src/extractors/mocha.js";
+import { INC_LIST } from "../src/extractors/perl.js";
+import { FRAME_RE as PHP_FRAME_RE, INCLUDE_PATH, THROWN_RE as PHP_THROWN_RE } from "../src/extractors/php.js";
+import pip, { INVALID_REQUIREMENT as PIP_INVALID_REQUIREMENT, VERSION_LIST } from "../src/extractors/pip.js";
+import { AT_RE as TAPTEXT_AT_RE, DIRECTIVE_RE, GOT_RE as TAPTEXT_GOT_RE, NOT_OK_RE as TAPTEXT_NOT_OK_RE, WANTED_RE as TAPTEXT_WANTED_RE } from "../src/extractors/taptext.js";
+import cargo, { ARROW_RE as CARGO_ARROW_RE, panicLine, RAN_TESTS as CARGO_RAN_TESTS, SHORT_RE as CARGO_SHORT_RE, TEST_RESULT as CARGO_TEST_RESULT, WARNING_RE as CARGO_WARNING_RE } from "../src/extractors/cargo.js";
 import eslintjson from "../src/extractors/eslintjson.js";
 import git from "../src/extractors/git.js";
-import pip from "../src/extractors/pip.js";
-import playwright from "../src/extractors/playwright.js";
+import playwright, { HEAD_RE as PLAYWRIGHT_HEAD_RE, JUNIT_HEAD_RE as PLAYWRIGHT_JUNIT_HEAD_RE } from "../src/extractors/playwright.js";
 import { collapseRepeats } from "../src/util.js";
 import { githubOutput } from "../src/github.js";
-import cargo, { panicLine } from "../src/extractors/cargo.js";
 import ruby, { frameLine } from "../src/extractors/ruby.js";
 import minitest from "../src/extractors/minitest.js";
-import cmake, { headLine as cmakeHead } from "../src/extractors/cmake.js";
+import cmake, { FLAT_RE as CMAKE_FLAT_RE, headLine as cmakeHead } from "../src/extractors/cmake.js";
 import mypy, { diagnosticLine } from "../src/extractors/mypy.js";
 import perl, { bracketed } from "../src/extractors/perl.js";
+import { HEAD_RE as BABEL_HEAD_RE } from "../src/extractors/babel.js";
+import { FINDING_RE as PYLINT_FINDING_RE, MSVS_RE as PYLINT_MSVS_RE, PARSEABLE_RE as PYLINT_PARSEABLE_RE } from "../src/extractors/pylint.js";
+import { DETAIL_RE as FLAKE8_DETAIL_RE, PYLINT_DETAIL_RE as FLAKE8_PYLINT_DETAIL_RE } from "../src/extractors/flake8.js";
+import { AT_LINE as MAKE_AT_LINE, SELF as MAKE_SELF } from "../src/extractors/make.js";
+import { ERROR_RE as PRETTIER_ERROR_RE, FILE_RE as PRETTIER_FILE_RE, FRAME_RE as PRETTIER_FRAME_RE } from "../src/extractors/prettier.js";
+import { HEAD_RE as BIOME_HEAD_RE, MESSAGE_RE as BIOME_MESSAGE_RE, SUMMARY_ITEM as BIOME_SUMMARY_ITEM } from "../src/extractors/biome.js";
+import { NEW_RE as TERRAFORMFMT_NEW_RE, OLD_RE as TERRAFORMFMT_OLD_RE } from "../src/extractors/terraformfmt.js";
+import { PNPM_LINE as PKGMANAGER_PNPM_LINE, YARN_LINE as PKGMANAGER_YARN_LINE } from "../src/extractors/pkgmanager.js";
+import { WHERE_RE as SASS_WHERE_RE } from "../src/extractors/sass.js";
+import { PARSE_RE as ESLINT_PARSE_RE, PROB_RE as ESLINT_PROB_RE } from "../src/extractors/eslint.js";
+import { AT_RE as DENOLINT_AT_RE, COMPACT_RE as DENOLINT_COMPACT_RE, FMT_FILE_RE as DENOLINT_FMT_FILE_RE, HEAD_RE as DENOLINT_HEAD_RE, HINT_RE as DENOLINT_HINT_RE } from "../src/extractors/denolint.js";
+import { MESSAGE_RE as SWC_MESSAGE_RE } from "../src/extractors/swc.js";
+import { DIFF_VALUE_RE as TAP_DIFF_VALUE_RE, NOT_OK_RE as TAP_NOT_OK_RE } from "../src/extractors/tap.js";
+import { BUILDKIT_STEP as NORMALIZE_BUILDKIT_STEP } from "../src/normalize.js";
+import { MISSING_OPERAND as CLUSTER_MISSING_OPERAND } from "../src/cluster.js";
+import { BEFORE_CALL as LOCATION_BEFORE_CALL } from "../src/location.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -541,11 +581,11 @@ const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 214748364
 const pick = (a) => a[Math.floor(rand() * a.length)];
 const gap = () => pick(["", " ", "  ", "\t", " \t ", "\u2028", "\r", "   "]);
 const junk = () => pick(["", "x", ":", "1", ":1:2:", "(", ")", "[", "]", "'", "`", "':", ".go", "./", ".\\", "\u2028", "\u2029", "\r", " ", "SC", "Error", "a:b", "at ", "<<<", "Time elapsed:"]);
-const agrees = (name, expected, replacement, near) => {
+const agrees = (name, expected, replacement, near, tries = 20000) => {
   const shown = (m) => (m ? JSON.stringify([...m]) : "null");
   const wrong = [];
   let matched = 0;
-  for (let k = 0; k < 20000 && wrong.length < 3; k++) {
+  for (let k = 0; k < tries && wrong.length < 3; k++) {
     let line = near();
     if (rand() < 0.5) { const at = Math.floor(rand() * (line.length + 1)); line = line.slice(0, at) + junk() + line.slice(at); }
     let loose = "";
@@ -562,6 +602,12 @@ const agrees = (name, expected, replacement, near) => {
 
 const matching = (pattern) => (text) => text.match(pattern);
 const testing = (pattern) => (text) => (pattern.test(text) ? [text] : null);
+const splitting = (pattern) => (text) => text.split(pattern);
+const replacing = (pattern) => (text) => [text.replace(pattern, "")];
+const everyMatch = (pattern) => (text) => {
+  const all = [...text.matchAll(pattern)];
+  return all.length ? all.map((m) => JSON.stringify([...m, m.index])) : null;
+};
 
 test("each replacement matches exactly what its pattern matched", () => {
   agrees("stylelint -f unix", matching(/^(\S.*?):(\d+):(\d+):[^\S\n]+(.+?)[^\S\n]*\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*\[(error|warning)\][^\S\n]*$/), unixLine,
@@ -872,6 +918,411 @@ test("thousands of docker build steps whose commands failed", () => {
     ...Array.from({ length: n }, (_, k) => `#${k + 1} 0.${String(k).padStart(3, "0")} step ${k} said something`),
   ].join("\n");
   linearIn(docker, steps, 1001);
+});
+
+// A part of a pattern that can stop inside a stretch of whitespace, or a pattern that can start
+// inside one, read the rest of the stretch again from each place: 16,000 spaces took up to two
+// thirds of a second for one pattern to refuse, and 32,000 four times as long. Each is now held
+// to where the stretch starts, which is the only place it ever matched from - or, where a part
+// may start with a space, to the one place more that it matched from too.
+const PINNED = [
+  ["clang vi", /^(.+?)[^\S\n]+\+(\d+):(\d+):[^\S\n]+(error|fatal error|warning|note):[^\S\n]+(.+)$/, VI_RE,
+    () => gap() + pick(["a.c", "a b.c", "x", "+1"]) + gap() + pick(["+", "++"]) + pick(["2", "12", "x"]) + ":" + pick(["19", ""]) + ":" + gap() +
+      pick(["error", "fatal error", "warning", "note"]) + ":" + gap() + pick(["msg", "", " ", "a +1:2: error: b"]) + gap()],
+  ["clang warning flag", /[^\S\n]+\[(-W[\w-]+)\]$/, CODE_RE, () => pick(["unused variable", "", " ", "x [y]"]) + gap() + pick(["[-Wunused]", "[-W]", "[-Wa-b]", "[W]", "[-Wx] y"]) + gap()],
+  ["dotnet diagnostic", /^[^\S\n]*(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m, DIAGNOSTIC_RE,
+    () => gap() + pick(["Program", "a b", "", ".", "x.cs"]) + pick([".cs", ".fs", ".vb"]) + pick(["(", "(("]) + pick(["1", "x"]) + "," + pick(["2", "2", ""]) + "):" + gap() +
+      pick(["error", "warning"]) + gap() + pick(["CS0103", "FS1", "cs1"]) + ":" + gap() + pick(["msg", "", " ", "a.cs(1,2): error CS1: b"]) + gap()],
+  ["dotnet project", /^[^\S\n]*(\S.*?)[^\S\n]+:[^\S\n]+(error|warning)[^\S\n]+((?:MSB|NU|NETSDK)\d+):[^\S\n]+(.+)$/, PROJECT_RE,
+    () => gap() + pick(["app.csproj", "MSBUILD", "a b", "", "x : y"]) + gap() + pick([":", "::", ""]) + gap() + pick(["error", "warning", "x"]) + gap() +
+      pick(["NU1101", "MSB1003", "NETSDK1", "CS1"]) + ":" + gap() + pick(["msg", "", " ", "a : error NU1: b"]) + gap()],
+  ["black reformat", /^would reformat[^\S\n]+(\S.*?)[^\S\n]*$/, REFORMAT_RE, () => "would reformat" + gap() + words() + gap() + words() + gap()],
+  ["black cannot format", /^error:[^\S\n]*cannot format[^\S\n]+(\S+?):[^\S\n]*(.+?)[^\S\n]*$/, CANNOT_RE,
+    () => "error:" + gap() + "cannot format" + gap() + pick(["a.py", "a:b.py", "", "x"]) + ":" + gap() + words() + gap() + words() + gap()],
+  ["composer box", /^[^\S\n]{2}(\S.*?)[^\S\n]*$/, BOXED_BODY, () => gap() + gap() + words() + gap() + words() + gap()],
+  ["go mod reason", /^[^\S\n]+(\S+?):[^\S\n]*(\S.*?)[^\S\n]*$/, REASON_RE, () => gap() + pick(["example.com/a", "a:b", "", "x"]) + ":" + gap() + words() + gap() + words() + gap()],
+  ["oxlint stylish file", /^(\S.*?)[^\S\n]*$/, STYLISH_FILE_RE, () => gap() + words() + gap() + words() + gap()],
+  ["oxlint agent detail", /^[^\S\n]+(error|warning)[^\S\n]+(?:([\w-]+)\()?([\w-]+)\)?:[^\S\n]*(.+?)[^\S\n]*$/, AGENT_DETAIL_RE,
+    () => gap() + pick(["error", "warning", "x"]) + gap() + pick(["eslint(no-x)", "no-x", "a(b", "b)"]) + ":" + gap() + words() + gap() + words() + gap()],
+  ["oxlint help", /[^\S\n]*\bhelp:[^\S\n].*$/, HELP_RE, () => words() + gap() + pick(["help: x", "help:", "xhelp: y", "help:\u2028"]) + gap() + words()],
+  ["phpunit testdox", /^(\S.*?)[^\S\n]*$/, TESTDOX_GROUP, () => gap() + words() + gap() + words() + gap()],
+  ["phpunit location", /^[^\S\n]*(.+?):(\d+)$/, LOCATION_RE, () => gap() + pick(["/a/b.php", "", ":", "a:1", " "]) + gap() + pick([":12", ":", ":x", "12"]) + pick(["", ":3"])],
+  ["uv error", /^error:[^\S\n]+(\S.*?)[^\S\n]*$/, UV_ERROR, () => "error:" + gap() + words() + gap() + words() + gap()],
+  ["uv cause", /^[^\S\n]{2}cause:[^\S\n]+(\S.*?)[^\S\n]*$/, UV_CAUSE, () => pick(["  ", " \t", "\t "]) + "cause:" + gap() + words() + gap() + words() + gap()],
+  ["uv wrapped cause", /^[^\S\n]{4,}(\S.*?)[^\S\n]*$/, UV_MORE, () => gap() + gap() + gap() + words() + gap() + words() + gap()],
+  ["pytest one line", /^(.+?):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/, ONE_LINE_RE, () => pick(["a.py", "a b.py", "", "x:1"]) + ":" + pick(["12", "x", ""]) + ":" + gap() + words() + gap() + words() + gap()],
+  ["stylelint file", /^(?![^\S\n])(\S.*?)[^\S\n]*$/, STYLELINT_FILE, () => gap() + words() + gap() + words() + gap()],
+  ["stylelint rule", /[^\S\n]*\([\w-]+(?:\/[\w-]+)?\)[^\S\n]*$/, TRAILING_RULE_RE, () => words() + gap() + pick(["(rule)", "(a/b)", "()", "(a b)"]) + gap() + pick(["", "x"])],
+  ["yamllint file", /^(\S.*?)[^\S\n]*$/, YAMLLINT_FILE, () => gap() + words() + gap() + words() + gap()],
+  ["deno gutter", /^[^\S\n]*\d*[^\S\n]*\|/, DENO_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["generic annotation", /^[^\S\n]*\d*[^\S\n]*\|/, ANNOTATION, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["swift gutter", /^[^\S\n]*\d*[^\S\n]*\|/, SWIFT_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["swift group", /[^\S\n]+\[#([\w-]+)\]$/, GROUP_RE, () => words() + gap() + pick(["[#Group]", "[#a-b]", "[#]", "[#x] y"]) + pick(["", " "])],
+  ["webpack gutter", /^[^\S\n]*\d*[^\S\n]*\|/, WEBPACK_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["vitest separator", /^[\u23af\u2500-\u257f\s]*(?:\[\d+\/\d+\])?[\u23af\u2500-\u257f\s]*$/, SEP_RE,
+    () => pick(["\u23af\u23af", "\u2500", "", " "]) + gap() + pick(["[1/2]", "", "[x/2]", "[1/2"]) + gap() + pick(["\u23af", "", "x"])],
+  ["ava location", /^[^\S\n]*(.+?\.\w+):(\d+)[^\S\n]*$/, AVA_WHERE, () => gap() + pick(["test.js", "", ".js", "a b.js", "a.b.c"]) + pick([":12", ":", ":x", ""]) + gap()],
+  ["rubocop location", /^[^\S\n]*(.+):(\d+):(\d+)[^\S\n]*$/, RUBOCOP_WHERE, () => gap() + pick(["app.rb", "", ":", "a:1"]) + pick([":1:2", ":1", ":x:2", ""]) + gap()],
+  ["kubectl advice", /;[^\S\n]*if you choose to ignore these errors.*$|[^\S\n]*-[^\S\n]did you specify the right host or port\?$/, ADVICE_RE,
+    () => words() + gap() + pick(["; if you choose to ignore these errors, x", "- did you specify the right host or port?", "-  did you specify the right host or port?", ""]) + pick(["", " "])],
+  ["markdownlint context", /[^\S\n]*\[Context:[^\]]*\][^\S\n]*$/, CONTEXT_RE, () => words() + gap() + pick(["[Context: \"x\"]", "[Context:]", "[Context: a] b", ""]) + gap()],
+  ["mocha trailing path", /[^\S\n]*\((?:\/|[A-Za-z]:\\)[^)]*\)[^\S\n]*$/, TRAILING_PATH, () => words() + gap() + pick(["(/a/b.js:1:2)", "(C:\\a.js)", "(x)", "(/a"]) + gap()],
+  ["perl @INC", /[^\S\n]*\(@INC (?:contains|entries checked):[^)]*\)/, INC_LIST, () => words() + gap() + pick(["(@INC contains: /a /b)", "(@INC entries checked: x)", "(@INC x)", ""]) + gap() + words()],
+  ["php include path", /[^\S\n]*\(include_path='[^']*'\)/, INCLUDE_PATH, () => words() + gap() + pick(["(include_path='.:/usr')", "(include_path='')", "(include_path=x)", ""]) + gap() + words()],
+  ["pip versions", /[^\S\n]*\(from versions:[^)]*\)/, VERSION_LIST, () => words() + gap() + pick(["(from versions: 1.0, 2.0)", "(from versions: none)", "(from x)", ""]) + gap() + words()],
+  ["tap directive", /[^\S\n]*#[^\S\n]*(?:time=|SKIP\b|TODO\b).*$/i, DIRECTIVE_RE, () => words() + gap() + pick(["# time=1ms", "# SKIP", "#todo x", "# x", "#"]) + gap() + words()],
+];
+const words = () => pick(["msg", "", " ", "a b", "x  y", "'q'", "a:1", "\u00a0", "\u00e9"]);
+
+test("each pattern pinned to where whitespace starts matches what it matched", () => {
+  for (const [name, was, now, near] of PINNED) agrees(name, matching(was), matching(now), near);
+});
+
+test("lines with long stretches of whitespace, read by each pinned pattern", () => {
+  // The lines each pattern found slowest - a stretch inside, at the start, at the end, or
+  // the whole line - fifty of them a read, so that a read is long enough to time.
+  const shapes = (n) => {
+    const s = " ".repeat(n);
+    return ["x" + s + "y", s, s + "y", "x" + s + "[y", "  x" + s + "[y", "  x" + s + "y", "x" + s.slice(n / 2) + "y" + s.slice(n / 2),
+      "error: x" + s + "y", "  error r: x" + s + "y", "would reformat x" + s + "y", "error: cannot format a: x" + s + "y", "  cause: x" + s + "y",
+      "    x" + s + "y", "a:1:2: x" + s + "y", "- x" + s + "y", "FAIL x" + s + "y"];
+  };
+  const slow = [];
+  for (const [name, , pattern] of PINNED) {
+    const once = (n) => {
+      const lines = shapes(n);
+      let best = Infinity;
+      const at = performance.now();
+      do {
+        const start = performance.now();
+        for (let k = 0; k < 50; k++) for (const line of lines) pattern.test(line);
+        best = Math.min(best, performance.now() - start);
+      } while (performance.now() - at < FLOOR_MS);
+      return best;
+    };
+    const small = once(2000);
+    let large = once(8000);
+    if (large >= small * 8) large = Math.min(large, once(8000), once(8000));
+    if (large >= small * 8) slow.push(`${name}: ${ms(small)}ms for the lines, ${ms(large)}ms for lines four times as long - x${(large / small).toFixed(1)}`);
+  }
+  assert.deepEqual(slow, []);
+});
+
+// The rest are held the same way, and each comes with lines of its own shape. What is compared is
+// those lines changed at random - whitespace put into them or in place of some of them, pieces
+// taken out, repeated, cut off or borrowed from another of the lines - and what is timed is the
+// same lines with a long stretch of spaces put where their whitespace starts, at their end, and
+// before them. Two are only ever asked whether a line matches, and are compared that way.
+const SHAPED = [
+  ["deno HEADER_RE", /^(\S.*?)[^\S\n]+=>[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, DENO_HEADER_RE,
+    ["adds numbers => ./math_test.ts:3:6", "a b  =>  file:///x/a.ts:10:2  "]],
+  ["oxlint STYLISH_ROW_RE", /^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)[^\S\n]{2,}([\w-]+)\(([\w/-]+)\)[^\S\n]*$/, OXLINT_STYLISH_ROW_RE,
+    ["  3:14  error  Expected a conditional expression  eslint(no-cond-assign)"]],
+  ["oxlint DRAWN_HEAD_RE", /^[^\S\n]*(x|!|\u00d7|\u26a0)[^\S\n]+(?:([\w-]+)\(([\w/-]+)\):[^\S\n]+)?(\S.*?)[^\S\n]*$/, OXLINT_DRAWN_HEAD_RE,
+    ["  x eslint(no-cond-assign): Expected a conditional", "\u00d7 eslint(no-debugger): `debugger` statement  ", "! msg"]],
+  ["babel HEAD_RE", /^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):[^\S\n]*(.+?)[^\S\n]*\((\d+):(\d+)\)[^\S\n]*$/, BABEL_HEAD_RE,
+    ["SyntaxError: /app/src/a.js: Unexpected token (3:14)", "SyntaxError: a.js:   Missing semicolon.   (1:2)  "]],
+  ["rubocop OFFENSE", /^(#[^\S\n])?(.+?):(\d+):(\d+):[^\S\n]+([CWEFRI]):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?([A-Z]\w*\/[A-Z]\w*):[^\S\n]+(.+?)[^\S\n]*$/, RUBOCOP_OFFENSE,
+    ["app/a.rb:3:5: C: Style/StringLiterals: Prefer single-quoted strings.", "# a.rb:1:1: W: [Correctable] Lint/X: msg  "]],
+  ["rubocop SIMPLE_ROW", /^([CWEFRI]):[^\S\n]*(\d+):[^\S\n]*(\d+):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?([A-Z]\w*\/[A-Z]\w*):[^\S\n]+(.+?)[^\S\n]*$/, RUBOCOP_SIMPLE_ROW,
+    ["C:  3:  5: Style/StringLiterals: Prefer single-quoted strings.", "W:1:1: [Correctable] Lint/X: msg  "]],
+  ["rubocop MARKDOWN_ROW", /^[^\S\n]*\*[^\S\n]+\*\*Line # (\d+) - (\w+):\*\*[^\S\n]+([A-Z]\w*\/[A-Z]\w*):[^\S\n]+(.+?)[^\S\n]*$/, RUBOCOP_MARKDOWN_ROW,
+    ["* **Line # 3 - convention:** Style/StringLiterals: Prefer single-quoted strings."]],
+  ["docker FINAL_ERROR", /^ERROR:[^\S\n]+(?:failed to build:[^\S\n]+)?failed to solve:[^\S\n]+(.+?)[^\S\n]*$/, DOCKER_FINAL_ERROR,
+    ["ERROR: failed to solve: process \"/bin/sh -c make\" did not complete successfully: exit code: 2", "ERROR: failed to build: failed to solve: x  "]],
+  ["pylint FINDING_RE", /^(.+?):(\d+):(\d+):[^\S\n]+([CRWEF]\d{4}):[^\S\n]+(.+?)(?:[^\S\n]+\(([\w-]+)\))?[^\S\n]*$/, PYLINT_FINDING_RE,
+    ["a.py:3:0: C0114: Missing module docstring (missing-module-docstring)", "a.py:1:2: E0401: Unable to import 'x'  "]],
+  ["pylint PARSEABLE_RE", /^(.+?):(\d+):[^\S\n]+\[([CRWEF]\d{4})\(([\w-]+)\)[^\]]*\][^\S\n]+(.+?)[^\S\n]*$/, PYLINT_PARSEABLE_RE,
+    ["a.py:3: [C0114(missing-module-docstring), ] Missing module docstring", "a.py:3: [E0401(import-error), f] Unable  "]],
+  ["pylint MSVS_RE", /^(.+?)\((\d+)\):[^\S\n]+\[([CRWEF]\d{4})\(([\w-]+)\)[^\]]*\][^\S\n]+(.+?)[^\S\n]*$/, PYLINT_MSVS_RE,
+    ["a.py(3): [C0114(missing-module-docstring), ] Missing module docstring"]],
+  ["flake8 DETAIL_RE", /^[^\S\n]+([A-Z]{1,4}\d{3,4})[^\S\n]+(.+?)[^\S\n]*$/, FLAKE8_DETAIL_RE,
+    ["    E501 line too long (88 > 79 characters)", "  W291  trailing whitespace  "]],
+  ["flake8 PYLINT_DETAIL_RE", /^[^\S\n]+\[([A-Z]{1,4}\d{3,4})\][^\S\n]+(.+?)[^\S\n]*$/, FLAKE8_PYLINT_DETAIL_RE,
+    ["    [E501] line too long (88 > 79 characters)"]],
+  ["shellcheck CARET", /^([^\S\n]*)\^[-^]*[^\S\n]+(SC\d+)[^\S\n]+\((error|warning|info|style)\):[^\S\n]+(.+?)[^\S\n]*$/, SHELLCHECK_CARET,
+    ["  ^-- SC2086 (info): Double quote to prevent globbing and word splitting.", "^---^ SC2034 (warning): foo appears unused.  "]],
+  ["yamllint TTY", /^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)[^\S\n]+\(([\w-]+)\)[^\S\n]*$/, YAMLLINT_TTY,
+    ["  3:1       error    wrong indentation: expected 2 but found 0  (indentation)", "  1:1  warning  missing document start \"---\"  (document-start)"]],
+  ["yamllint PARSABLE", /^(.+?):(\d+):(\d+):[^\S\n]+\[(error|warning)\][^\S\n]+(.+?)[^\S\n]+\(([\w-]+)\)[^\S\n]*$/, YAMLLINT_PARSABLE,
+    ["a.yaml:3:1: [error] wrong indentation: expected 2 but found 0 (indentation)"]],
+  ["yamllint IN_ANNOTATION", /^(\d+):(\d+)[^\S\n]+\[([\w-]+)\][^\S\n]+(.+?)[^\S\n]*$/, YAMLLINT_IN_ANNOTATION,
+    ["3:1 [indentation] wrong indentation: expected 2 but found 0"]],
+  ["cargo WARNING_RE", /^warning(?:\[(E\d+)\])?:[^\S\n]+(.+?)[^\S\n]*$/, CARGO_WARNING_RE,
+    ["warning: unused variable: `x`", "warning[E0001]:   something  "]],
+  ["cargo SHORT_RE", /^(.+?\.rs):(\d+):(\d+):[^\S\n]+(error|warning)(?:\[(E\d+)\])?:[^\S\n]*(.*?)[^\S\n]*$/, CARGO_SHORT_RE,
+    ["src/main.rs:3:5: error[E0425]: cannot find value `x` in this scope", "src/a.rs:1:1: warning:   ", "src/a.rs:1:1: error:"]],
+  ["make AT_LINE", /^([^\s:]+):(\d+):[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m, MAKE_AT_LINE,
+    ["Makefile:3: *** missing separator.  Stop.", "x.mk:10: ***   recipe commences before first target. Stop.  "]],
+  ["make SELF", /^make(?:\[\d+\])?:[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m, MAKE_SELF,
+    ["make: *** No rule to make target 'x'.  Stop.", "make[2]: *** [all] Error 1 Stop."]],
+  ["stylelint COMPACT_RE", /^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),[^\S\n]+(error|warning)[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*$/, STYLELINT_COMPACT_RE,
+    ["/app/a.css: line 1, col 13, error - Expected \"#FFF\" to be \"#FFFFFF\" (color-hex-length)"]],
+  ["stylelint PROBLEM_RE", /^[^\S\n]+(\d+):(\d+)[^\S\n]+([\u2716\u26a0\u24d8])[^\S\n]+(.+?)[^\S\n]{2,}([\w-]+(?:\/[\w-]+)?)[^\S\n]*$/, STYLELINT_PROBLEM_RE,
+    ["  1:8   \u2716  Unknown property \"colr\"     property-no-unknown", "  4:6  \u26a0  Duplicate  declaration-block-no-duplicate-properties  "]],
+  ["markdownlint VIOLATION_RE", /^(\S.*?):(\d+)(?::(\d+))?[^\S\n]+(?:error[^\S\n]+)?(MD\d{3})\/([\w-]+(?:\/[\w-]+)*)[^\S\n]+(.+?)[^\S\n]*$/, MARKDOWNLINT_VIOLATION_RE,
+    ["README.md:3 MD022/blanks-around-headings Headings should be surrounded by blank lines", "a.md:3:1 error MD009/no-trailing-spaces Trailing spaces [Expected: 0; Actual: 1]  "]],
+  ["gomod PARSE_LINE_RE", /^(\S*go\.mod):(\d+):[^\S\n]*(\S.*?)[^\S\n]*$/, GOMOD_PARSE_LINE_RE,
+    ["go.mod:3: unknown directive: foo", "/a/go.mod:10:   usage: require module/path v1.2.3  "]],
+  ["gomod AT_VERSION_RE", /^go:[^\S\n]+(\S+@\S+?):[^\S\n]*(\S.*?)[^\S\n]*$/, GOMOD_AT_VERSION_RE,
+    ["go: example.com/x@v1.2.3: invalid version: unknown revision v1.2.3", "go: a@b:   reading  "]],
+  ["prettier ERROR_RE", /^\[error\][^\S\n]+(\S.*?)[^\S\n]*$/, PRETTIER_ERROR_RE,
+    ["[error] src/a.js: SyntaxError: Unexpected token (1:5)", "[error]  x  "]],
+  ["rubygems CARET_NOTE", /^[^\S\n]*\|[^\S\n]*\^~*[^\S\n]*(\S.*?)[^\S\n]*$/, RUBYGEMS_CARET_NOTE,
+    ["  | ^~~~~ note: here", "|^ x  "]],
+  ["rubygems MISSING", /^(Could not find gem '([^'\n]+)' .+?)[^\S\n]*$/, RUBYGEMS_MISSING,
+    ["Could not find gem 'rails (~> 7.0)' in locally installed gems.", "Could not find gem 'x'  in any source  "]],
+  ["biome MESSAGE_RE", /^[^\S\n]*([!\u00d7\u2716\u26a0])[^\S\n]+(\S.*?)[^\S\n]*$/, BIOME_MESSAGE_RE,
+    ["  \u00d7 This variable is unused.", "! msg  ", "\u2716 a"]],
+  ["biome HEAD_RE", /^(.+?):(\d+):(\d+)[^\S\n]+(\S+?)(?:[^\S\n]+(?:FIXABLE|INFO|WARNING|ERROR|PARSE))*[^\S\n]*\u2501*[^\S\n]*$/, BIOME_HEAD_RE,
+    ["src/a.js:3:7 lint/correctness/noUnusedVariables FIXABLE \u2501\u2501\u2501\u2501\u2501", "a.ts:1:1 parse \u2501\u2501", "a.ts:1:1 lint/x  "]],
+  ["cmake FLAT_RE", /^CMake (Error|Warning):[^\S\n]+(\S.*?)[^\S\n]*$/, CMAKE_FLAT_RE,
+    ["CMake Error: The source directory \"/x\" does not exist.", "CMake Warning:   y  "]],
+  ["terraformfmt OLD_RE", /^---[^\S\n]+old\/(\S.*?)[^\S\n]*$/, TERRAFORMFMT_OLD_RE,
+    ["--- old/main.tf", "--- old/a b.tf  "]],
+  ["golangci EMBEDDED", /^(?:\.[\\/])?(\S+\.go):(\d+):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/m, GOLANGCI_EMBEDDED,
+    ["a.go:3:5: undefined: x", "./b/c.go:1:2: msg  "]],
+  ["golangci TAB", /^(?:\.[\\/])?(\S+?\.go):(\d+):(\d+)[^\S\n]+([\w-]+)[^\S\n]{2,}(\S.*?)[^\S\n]*$/, GOLANGCI_TAB,
+    ["a.go:3:5  errcheck  Error return value is not checked", "./a.go:1:1 unused   x  "]],
+  ["gotest NO_MODULE_RE", /^pattern[^\S\n]+(\S+):[^\S\n]+(\S.*?\bmain module\b.*?)[^\S\n]*$/, GOTEST_NO_MODULE_RE,
+    ["pattern ./...: directory prefix . does not contain main module or its selected dependencies", "pattern x: a main module b  "]],
+  ["pyresolve PO_INVALID", /^Invalid (\w+) file[^\S\n]+(\S.*?):[^\S\n]+(\S.*?)[^\S\n]*$/, PYRESOLVE_PO_INVALID,
+    ["Invalid poetry file pyproject.toml: invalid key", "Invalid lock file /a/poetry.lock:   bad  "]],
+  ["vitest REPORT_WRITTEN", /^([A-Z][A-Z-]*) report written to (\S.*?)[^\S\n]*$/m, VITEST_REPORT_WRITTEN,
+    ["JUNIT report written to /app/junit.xml", "JSON report written to  a b  "]],
+  ["vitest FAIL_RE", /^[^\S\n]*FAIL[^\S\n]+(.+?)[^\S\n]+>[^\S\n]+(.+?)[^\S\n]*$/, VITEST_FAIL_RE,
+    [" FAIL  t/a.test.js > suite > adds", "FAIL a > b  "]],
+  ["vitest SUITE_RE", /^[^\S\n]*FAIL[^\S\n]+(.+?)[^\S\n]+\[[^\S\n]*(.+?)[^\S\n]*\][^\S\n]*$/, VITEST_SUITE_RE,
+    [" FAIL  t/crash.test.js [ t/crash.test.js ]", "FAIL |unit| a.js [a.js]  "]],
+  ["pkgmanager PNPM_LINE", /^[^\S\n]+(ERR_PNPM_[A-Z0-9_]+|E[A-Z]{3,})[^\S\n]{2,}(.+?)[^\S\n]*$/, PKGMANAGER_PNPM_LINE,
+    [" ERR_PNPM_NO_MATCHING_VERSION  No matching version found for x@99", "  ENOENT  no such file  "]],
+  ["nodetest ALT_FAILURE_RE", /^\u2716[^\S\n]+(.+?)(?:[^\S\n]+\([\d.]+ms\))?[^\S\n]*$/, NODETEST_ALT_FAILURE_RE,
+    ["\u2716 adds numbers (1.2ms)", "\u2716 a b  ", "\u2716  "]],
+  ["bun FAIL_RE", /^(?:\(fail\)[^\S\n]+(.+?)(?:[^\S\n]+\[[\d.]+m?s\])?|\u2717[^\S\n]+(.+?)[^\S\n]+\[[\d.]+m?s\])[^\S\n]*$/, BUN_FAIL_RE,
+    ["(fail) suite > name [3.10ms]", "\u2717 adds [1ms]", "(fail) x  "]],
+  ["bun FAIL_ANY", /^(?:\(fail\)[^\S\n]+|\u2717[^\S\n]+.+?[^\S\n]+\[[\d.]+m?s\][^\S\n]*$)/m, BUN_FAIL_ANY,
+    ["(fail) suite > name [3.10ms]", "\u2717 adds [1ms]"], testing],
+  ["playwright HEAD_RE", /^[^\S\n]*(\d+)\)[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]+\u203a[^\S\n]+(.+?)[^\S\n]*(?:[\u2500\u2014-]{3,})?[^\S\n]*$/, PLAYWRIGHT_HEAD_RE,
+    ["  1) a.spec.ts:3:5 \u203a adds \u2500\u2500\u2500\u2500\u2500\u2500", "  2) [chromium] \u203a a.spec.ts:3:5 \u203a x", "1) a.ts:1:1 \u203a t  "]],
+  ["playwright JUNIT_HEAD_RE", /^[^\S\n]*()(\S+?):(\d+):(\d+)[^\S\n]+\u203a[^\S\n]+(.+?)[^\S\n]*[\u2500\u2014-]{3,}[^\S\n]*$/, PLAYWRIGHT_JUNIT_HEAD_RE,
+    ["  a.spec.ts:3:5 \u203a adds \u2500\u2500\u2500\u2500\u2500"]],
+  ["sass WHERE_RE", /^[^\S\n]+(\S.*?)[^\S\n]+(\d+):(\d+)[^\S\n]*(?:[^\S\n]{2,}(.*))?$/, SASS_WHERE_RE,
+    ["    src/a.scss 3:5  root stylesheet", "  a b.scss 1:1"]],
+  ["eslint PROB_RE", /^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)[^\S\n]+(.+?)\s{2,}([\w@/-]+)[^\S\n]*$/, ESLINT_PROB_RE,
+    ["  3:14  error  'x' is defined but never used  no-unused-vars", "  1:1  warning  msg  @x/y"]],
+  ["denolint COMPACT_RE", /^(.+?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+)[^\S\n]+-[^\S\n]+(.+?)[^\S\n]+\(([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\)[^\S\n]*$/, DENOLINT_COMPACT_RE,
+    ["/app/a.ts: line 3, col 7 - `x` is never used (no-unused-vars)"]],
+  ["cargo TEST_RESULT", /^test result: \w+\.[^\S\n]*(.+?)[^\S\n]*$/m, CARGO_TEST_RESULT,
+    ["test result: FAILED. 1 passed; 1 failed; 0 ignored", "test result: ok.   "]],
+  ["pip INVALID_REQUIREMENT", /^ERROR: Invalid requirement: '([^']*)': (.+?)(?:[^\S\n]*\(from line (\d+) of (.+?)\))?[^\S\n]*$/, PIP_INVALID_REQUIREMENT,
+    ["ERROR: Invalid requirement: 'requests==': Expected end or semicolon", "ERROR: Invalid requirement: 'x':  (from line 3 of r.txt)", "ERROR: Invalid requirement: 'x': y (from line 1 of a b.txt)  "]],
+  ["ava FRAME_RE", /^[^\S\n]*\u203a[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, AVA_FRAME_RE,
+    ["  \u203a file:///abs/av/sum.test.js:3:38", "\u203a a b.js:1:2  ", "  \u203a  :1:2", "\u203a x :1:2"]],
+  ["biome SUMMARY_ITEM", /^[^\S\n]*-[^\S\n]+(\S.*?)(?:[^\S\n]+\(([^)]*)\))?[^\S\n]*$/, BIOME_SUMMARY_ITEM,
+    ["  - src/checkout.js (1 error)", "- a b.js", "  -  x  (y)  ", "- a (b) (c)"]],
+  ["rubygems FROM", /^[^\S\n]*#[^\S\n]+from[^\S\n]+(.+?):(\d+)[^\S\n]*$/, RUBYGEMS_FROM,
+    [" #  from /home/dev/shop/Gemfile:4", "# from a b:1  ", "# from  :2"]],
+  ["cargo ARROW_RE", /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, CARGO_ARROW_RE,
+    [" --> src/main.rs:3:5", "-->  a b.rs:1:2  ", "--> x :1:2"]],
+  ["cargo RAN_TESTS", /^test result:|^----[^\S\n]+\S.*[^\S\n]+stdout[^\S\n]+----/m, CARGO_RAN_TESTS,
+    ["test result: ok", "---- tests::a stdout ----", "---- a b  stdout ----", "----  x stdout  ----"]],
+  ["ruff ARROW_RE", /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, RUFF_ARROW_RE,
+    [" --> src/main.py:3:5", "-->  a b.py:1:2  "]],
+  ["denolint AT_RE", /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, DENOLINT_AT_RE,
+    ["  --> /app/a.ts:3:7", "-->  :1:2"]],
+  ["denolint HEAD_RE", /^error\[([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\]:[^\S\n]+(.+?)[^\S\n]*$/, DENOLINT_HEAD_RE,
+    ["error[no-unused-vars]: `x` is never used", "error[a-b]:  msg  ", "error[x]:   "]],
+  ["denolint HINT_RE", /^[^\S\n]*=[^\S\n]*hint:[^\S\n]*(.+?)[^\S\n]*$/, DENOLINT_HINT_RE,
+    ["  = hint: Use a specific type other than `any`", "=hint:x  ", "= hint:   "]],
+  ["denolint FMT_FILE_RE", /^from[^\S\n]+(.+?):[^\S\n]*$/, DENOLINT_FMT_FILE_RE,
+    ["from /app/a.ts:", "from a b.ts:  ", "from  :"]],
+  ["composer CAUSE", /^[^\S\n]{4}-[^\S\n]+(\S.*?)[^\S\n]*$/, COMPOSER_CAUSE,
+    ["    - Root composer.json requires php ^5.3 but your php version (8.5.10) does not satisfy that requirement.", "    -  x  "]],
+  ["mocha LOAD_RE", /^[^\S\n]*Exception during run:[^\S\n]*(.+?):(\d+)[^\S\n]*$/m, MOCHA_LOAD_RE,
+    [" Exception during run: /home/dev/app/test/syn.test.js:2", "Exception during run:a b:1  ", "Exception during run:  :3"]],
+  ["deno TAP_NOT_OK_RE", /^[^\S\n]*not ok[^\S\n]+\d+[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/, DENO_TAP_NOT_OK_RE,
+    ["not ok 1 - adds", "not ok 12", "  not ok 3 -  x  ", "not ok 1-", "not ok 1 - - x"]],
+  ["vitest TAP_RESULT_RE", /^[^\S\n]*(not )?ok[^\S\n]+\d+[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/, VITEST_TAP_RESULT_RE,
+    ["ok 2 - ok", "not ok 1 - fails", "ok 3", "ok 4 -  a b  "]],
+  ["docker POINTED", /^[^\S\n]*\d+[^\S\n]*\|[^\S\n]*>>>[^\S\n]?(.*?)[^\S\n]*$/, DOCKER_POINTED,
+    ["   2 | >>> RUN exit 3", "1|>>>", "  3 | >>>   COPY x  ", "4 |>>>x"]],
+  ["jasmine HEAD_RE", /^[^\S\n]*(\d+)\)[^\S\n]+(\S.*?)[^\S\n]*$/, JASMINE_HEAD_RE,
+    ["2) invoice totals an invoice", "  1)  x  "]],
+  ["jest TEST_RE", /^[^\S\n]*\u25cf[^\S\n]+(?!Console|Validation Warning|Deprecation Warning|Invalid testPattern)(.+?)[^\S\n]*$/, JEST_TEST_RE,
+    ["  \u25cf invoice total", "\u25cf Console", "  \u25cf  x  ", "\u25cf Validation Warning:", "\u25cf   "]],
+  ["nodetest ALT_LOCATION_RE", /^(?:test|suite)[^\S\n]+at[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, NODETEST_ALT_LOCATION_RE,
+    ["test at crash.test.js:1:1", "suite at  a b.js:2:3  ", "test at  :1:2"]],
+  ["nodetest NOT_OK_RE", /^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*$/, NODETEST_NOT_OK_RE,
+    ["not ok 1 - adds", "  not ok 2 -  x  ", "not ok 3 -   "]],
+  ["nodetest ERROR_INLINE_RE", /^[^\S\n]*error:[^\S\n]*'?(.+?)'?[^\S\n]*$/, NODETEST_ERROR_INLINE_RE,
+    ["  error: 'expected 1 to equal 2'", "error: msg", "error: ' '", "error: a '", "error:   ", "error: '", "error: '  x'  ", "error: 'it's'"]],
+  ["prettier FILE_RE", /^\[warn\][^\S\n]+(\S.*?)[^\S\n]*$/, PRETTIER_FILE_RE,
+    ["[warn] ugly.js", "[warn]  a b  "]],
+  ["prettier FRAME_RE", /^\[error\][^\S\n]+(?:>[^\S\n]*)?\d*[^\S\n]*\|/, PRETTIER_FRAME_RE,
+    ["[error]   2 |", "[error] > 1 | x", "[error]  |", "[error] >2|"]],
+  ["swc MESSAGE_RE", /^[^\S\n]*[x\u00d7\u2717][^\S\n]+(\S.*?)[^\S\n]*$/, SWC_MESSAGE_RE,
+    ["  x Expression expected", "\u00d7 a  ", "\u2717 b"]],
+  ["tap DIFF_VALUE_RE", /^[^\S\n]*([-+])(?!--|\+\+)(\S.*?)[^\S\n]*$/, TAP_DIFF_VALUE_RE,
+    ["        -1050", "+ x  ", "--- a", "+x"]],
+  ["terraformfmt NEW_RE", /^\+\+\+[^\S\n]+new\/(\S.*?)[^\S\n]*$/, TERRAFORMFMT_NEW_RE,
+    ["+++ new/main.tf", "+++ new/a b.tf  "]],
+  ["webpack HEAD_RE", /^(ERROR|WARNING) in (.+?)(?:[^\S\n]+(\d+):(\d+)(?:-\d+)?)?[^\S\n]*$/, WEBPACK_HEAD_RE,
+    ["ERROR in ./wsrc/syn.js 1:10", "ERROR in  1:2", "WARNING in a b  ", "ERROR in x 1:2-3", "ERROR in   "]],
+  ["pkgmanager YARN_LINE", /^(error|warning|info)[^\S\n]+(.+?)[^\S\n]*$/, PKGMANAGER_YARN_LINE,
+    ["warning package.json: No license field", "error  x  ", "info a", "error   "]],
+  ["dotnettest VSTEST_RESULT_RE", /^[^\S\n]+(?:Failed|Passed|Skipped)[^\S\n]+(.+?)[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/, DOTNETTEST_VSTEST_RESULT_RE,
+    ["  Failed ArithmeticTests.Crash [< 1 ms]", "  Passed X [12 ms]", "  Skipped  a b  [1 s]"]],
+  ["dotnettest VSTEST_ANY_RESULT_RE", /^[^\S\n]{2}\S[^\n]*?[^\S\n]+\[(?:<[^\S\n]+)?\d+(?:\.\d+)?[^\S\n]*(?:ms|s)\][^\S\n]*$/, DOTNETTEST_VSTEST_ANY_RESULT_RE,
+    ["  Fehler ArithmeticTests.Crash [< 1 ms]", "  x y [1 ms]", "  a  [2.5 s]  "]],
+  ["dotnettest VSTEST_LABEL_RE", /^[^\S\n]{2}\S[^\n]*?[^\S\n]*:[^\S\n]*$/, DOTNETTEST_VSTEST_LABEL_RE,
+    ["  Error Message:", "  Stack Trace:", "  a :  ", "  x:"]],
+  ["php FRAME_RE", /^#(\d+)[^\S\n]+(?:(.+?)\((\d+)\):[^\S\n]+(.+)|\{main\})$/, PHP_FRAME_RE,
+    ["#0 /app/src/Cart.php(12): Cart->total()", "#1 {main}", "#2  a b(1):  f() ", "#3  (1): x", "#4 a(1):  "]],
+  ["php THROWN_RE", /^[^\S\n]*thrown in[^\S\n]+.+[^\S\n]+on line[^\S\n]+\d+$/, PHP_THROWN_RE,
+    ["  thrown in /home/dev/app/p3.php on line 2", "thrown in a b  on line 12", "thrown in    on line 1"], testing],
+  ["pytest TRAILING_RE", /^(.+?):(\d+):[^\S\n]*(?:in[^\S\n]+\S+|(\w[\w.]*))?[^\S\n]*$/, PYTEST_TRAILING_RE,
+    ["a.py:11: KeyError", "a.py:11:", "a.py:3: in test_x", "a.py:1:  x  ", "a.py:1: x y"]],
+  ["pytest SUMMARY_ENTRY_RE", /^(?:FAILED|ERROR)[^\S\n]+((?:.+?::.+?)|(?:.+?\.[A-Za-z0-9]+))(?:[^\S\n]+-[^\S\n]+(.*))?[^\S\n]*$/, PYTEST_SUMMARY_ENTRY_RE,
+    ["FAILED tests/test_a.py::test_x - AssertionError: assert 1 == 2", "ERROR test_broken.py", "FAILED a.py::b", "FAILED  a b.py::c d - e  ", "FAILED x::  - y", "FAILED x:: ", "FAILED   ::x", "FAILED  .py", "ERROR a.b - c"]],
+  ["normalize BUILDKIT_STEP", /^[^\S\n]*>[^\S\n]+\[[^\]]+\][^\S\n]+.*:[^\S\n]*$/, NORMALIZE_BUILDKIT_STEP,
+    [" > [2/2] RUN exit 3:", "> [1/3] x  :  ", ">  [a]  :"]],
+  ["vitest TESTS_LINE", /^[^\S\n]*Tests[^\S\n]+(.+?)[^\S\n]*$/, VITEST_TESTS_LINE,
+    [" Tests  1 failed | 2 passed (3)", "Tests x  "]],
+  ["vitest TEST_FILES_LINE", /^[^\S\n]*Test Files[^\S\n]+(.+?)[^\S\n]*$/, VITEST_TEST_FILES_LINE,
+    [" Test Files  1 failed (1)", "Test Files   "]],
+  ["vitest TEST_FILES_ANYWHERE", /^[^\S\n]*Test Files[^\S\n]+(.+?)[^\S\n]*$/m, VITEST_TEST_FILES_ANYWHERE,
+    [" Test Files  1 failed (1)\n Tests  1 failed", "x\nTest Files a  \n"]],
+  ["jest TESTS_TALLY", /^Tests:[^\S\n]+(.+?)[^\S\n]*$/m, JEST_TESTS_TALLY,
+    ["Tests:       1 failed, 1 total", "Tests: x  \nTest Suites: 1"]],
+  ["jest SUITES_TALLY", /^Test Suites:[^\S\n]+(.+?)[^\S\n]*$/m, JEST_SUITES_TALLY,
+    ["Test Suites: 1 failed, 1 total", "Test Suites:   "]],
+  ["phpunit INTERNAL_LOCATION", /^Location:[^\S\n]+(.+?):(\d+)$/m, PHPUNIT_INTERNAL_LOCATION,
+    ["Location: /home/dev/app/tests/CrashTest.php:2", "Location:  a b:1", "x\nLocation: a:1\n"]],
+  ["rspec COMMENTED_FRAME", /^#[^\S\n]+(.+?):(\d+):in\b/, RSPEC_COMMENTED_FRAME,
+    ["# ./spec/crash_spec.rb:1:in `<top (required)>'", "#  a b:2:in x", "#  :3:in"]],
+  ["ava ROLL_RE", /^[^\S\n]*\u2718[^\S\n]+\[fail\]:[^\S\n]+(.+?)[^\S\n]*$/, AVA_ROLL_RE,
+    ["  \u2718 [fail]: totals an invoice", "\u2718 [fail]:  a b  ", "\u2718 [fail]:   "]],
+  ["shellcheck HEADER", /^In[^\S\n]+(.+?)[^\S\n]+line[^\S\n]+(\d+):[^\S\n]*$/, SHELLCHECK_HEADER,
+    ["In JsonFile.php line 398:", "In a b  line 1:  ", "In   line 2:", "In x line 3: y"]],
+  ["taptext NOT_OK_RE", /^[^\S\n]*not ok(?:[^\S\n]+(\d+))?[^\S\n]*(?:-[^\S\n]*)?(.*?)[^\S\n]*$/, TAPTEXT_NOT_OK_RE,
+    ["not ok 1 - adds", "not ok", "  not ok 2", "not ok - x", "not ok 3 -  a b  ", "not ok12x"]],
+  ["taptext AT_RE", /^[^\S\n]*#[^\S\n]*at[^\S\n]+(\S.*?)[^\S\n]+line[^\S\n]+(\d+)\.?[^\S\n]*$/, TAPTEXT_AT_RE,
+    ["#   at shop.t line 5.", "# at a b  line 12  ", "#at x line 1."]],
+  ["taptext GOT_RE", /^[^\S\n]*#[^\S\n]*got:[^\S\n]*(.*?)[^\S\n]*$/, TAPTEXT_GOT_RE,
+    ["#          got: 'abc'", "# got:", "#got:  a b  "]],
+  ["taptext WANTED_RE", /^[^\S\n]*#[^\S\n]*expected:[^\S\n]*(.*?)[^\S\n]*$/, TAPTEXT_WANTED_RE,
+    ["#     expected: 'abd'", "# expected:", "#expected:  a b  "]],
+  ["stylelint TAP_FILE_RE", /^not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(\S.*?)[^\S\n]*$/, STYLELINT_TAP_FILE_RE,
+    ["not ok 1 - /app/style.css", "not ok 2 -  a b  "]],
+  ["docker STEP_ERROR", /^#(\d+)[^\S\n]+ERROR:[^\S\n]+(.+?)[^\S\n]*$/, DOCKER_STEP_ERROR,
+    ["#5 ERROR: process \"/bin/sh -c exit 3\" did not complete successfully: exit code: 3", "#1 ERROR:  x  ", "#2 ERROR:   "]],
+  ["docker QUOTED_STEP", /^[^\S\n]*>[^\S\n]*\[\d+\/\d+\][^\S\n]*(.*):[^\S\n]*$/, DOCKER_QUOTED_STEP,
+    [" > [5/5] RUN pytest -q:", "> [1/2]   :", ">[1/1] x :  "], testing],
+  ["terraform AT_RE", /^[^\S\n]*on[^\S\n]+(\S+)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in[^\S\n]+(.+?))?:[^\S\n]*$/, TERRAFORM_AT_RE,
+    ["  on main.tf line 1, in resource \"local_file\" \"demo\":", "on a.tf line 2:", "  on x line 3, in  :", "on a line 4, in   b c  :  "]],
+  ["eslint PARSE_RE", /^[^\S\n]+(\d+):(\d+)[^\S\n]+error[^\S\n]+(Parsing error:[^\S\n].+?)[^\S\n]*$/, ESLINT_PARSE_RE,
+    ["  1:11  error  Parsing error: Unexpected token ;", "  1:1  error  Parsing error:   ", "  2:3 error Parsing error:  x  "]],
+  ["jvm MAVEN_RE", /^\[ERROR\][^\S\n]+(.+?):\[(\d+),(\d+)\][^\S\n]+(.+)$/, JVM_MAVEN_RE,
+    ["[ERROR] /app/src/main/java/A.java:[3,5] cannot find symbol", "[ERROR]  a b:[1,2]  x", "[ERROR]  :[1,2]  ", "[ERROR] a:[1,2] "]],
+  ["jest JEST_GROUP", /^[^\S\n]*::group::Errors thrown in[^\S\n]+(.+?)[^\S\n]*$/, JEST_JEST_GROUP,
+    ["::group::Errors thrown in test/ship.test.js", "  ::group::Errors thrown in  a b  "]],
+  ["phpunit TESTDOX_TEST", /^[^\S\n]+[\u2718\u2717][^\S\n]+(\S.*?)[^\S\n]*$/, PHPUNIT_TESTDOX_TEST,
+    [" \u2718 Addition", "  \u2717 a b  "]],
+  ["tap NOT_OK_RE", /^[^\S\n]*not ok[^\S\n]+(\d+)[^\S\n]*-?[^\S\n]*(.*?)[^\S\n]*$/, TAP_NOT_OK_RE,
+    ["not ok 1 - totals an invoice", "    not ok 1 - x", "not ok 2", "not ok 3-", "not ok 4 -  a  "]],
+  ["vitest LOC_RE", /^[^\S\n]*[\u276f>][^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/, VITEST_LOC_RE,
+    [" \u276f shop.test.js:6:53", "> a b.js:1:2  ", " \u276f  :1:2"]],
+  ["rspec LOCATION_RE", /^[^\S\n]+#[^\S\n]+(.+):(\d+):in\b/, RSPEC_LOCATION_RE,
+    ["     # ./spec/shop_spec.rb:12:in `fetch'", "  #  :3:in x", "  # a:1:in b:2:in c"]],
+  ["cluster MISSING_OPERAND", /\b(?:(?:cannot|could not|can't|couldn't|unable to)[^\S\n]+(?:find|resolve|locate|load)(?:[^\S\n]+(?:module|package|crate|dependency|declaration file for module))?|no[^\S\n]+module[^\S\n]+named|unresolved[^\S\n]+import|module[^\S\n]+not[^\S\n]+found:?(?:[^\S\n]+Error:)?(?:[^\S\n]+Can't[^\S\n]+resolve)?|failed[^\S\n]+to[^\S\n]+resolve)[^\S\n]*:?[^\S\n]+(?!in\b|from\b)([^\s,;]+)/gi, CLUSTER_MISSING_OPERAND,
+    ["Cannot find module './a.js'", "error: could not resolve:  x, y", "unable to load  in x", "No module named foo", "cannot find :x"], everyMatch],
+  ["util ANNOTATION_RE", /^[^\S\n]*::(error|warning|notice)[^\S\n]+([^:\n]*)::(.*)$/, UTIL_ANNOTATION_RE,
+    ["::error file=deploy.yml,line=9,col=18::9:18 [trailing-spaces] trailing spaces", "::warning  ::msg", "  ::notice a b::c"]],
+  ["pytest BANNER_RE", /^_{3,}[^\S\n]+(.+?)[^\S\n]+_{3,}$/, PYTEST_BANNER_RE,
+    ["______________________________ test_invoice_total ______________________________", "___ a b ___", "___    ___"]],
+  ["pytest TALLY_RE", /^=+[^\S\n]+(.*?(?:failed|passed|error).*?)[^\S\n]+=+$/i, PYTEST_TALLY_RE,
+    ["========================= 3 failed, 2 passed in 0.01s ==========================", "== a  ERROR  b ==", "=  failed  ="]],
+  ["ava THROWN_IN_TEST", /[^\S\n]+\w*(?:Error|Exception) thrown in test$/, AVA_THROWN_IN_TEST,
+    ["totals an invoice TypeError thrown in test", "a b  Error thrown in test", "x thrown in test"], replacing],
+  ["dotnet PROJECT_SUFFIX", /[^\S\n]+\[[^\]]+\.csproj\][^\S\n]*$/, DOTNET_PROJECT_SUFFIX,
+    ["error CS0103: The name 'x' does not exist [/app/App.csproj]", "msg  [a b.csproj]  ", "x [y]"], replacing],
+  ["jvm CHEVRON", /[^\S\n]+>[^\S\n]+/, JVM_CHEVRON, ["CartTest > totals an invoice > FAILED", "a  >  b", "x>y"], splitting],
+  ["vitest CHEVRON", /[^\S\n]+>[^\S\n]+/, VITEST_CHEVRON, ["t/a.test.js > suite > adds", "a > b >"], splitting],
+  ["vitest TIME_SUFFIX", /[^\S\n]*#[^\S\n]*time=.*$/, VITEST_TIME_SUFFIX, ["not ok 1 - adds # time=1.2ms", "x #time=", "a # b"], replacing],
+  ["location BEFORE_CALL", /[^\S\n]+\(/, LOCATION_BEFORE_CALL, ["at total (/app/a.js:1:2)", "f  (x", "g(y"]],
+  ["util TRAILING_SPACE", /\s+$/, UTIL_TRAILING_SPACE, ["msg  ", "a b \t", "x"], replacing],
+  ["oxlint UNIX_DETAIL_RE", /^[^\S\n]+(.+?)[^\S\n]+\[(Error|Warning)\/([\w-]+)\(([\w/-]+)\)\][^\S\n]*$/, OXLINT_UNIX_DETAIL_RE,
+    [" `debugger` statement is not allowed [Error/eslint(no-debugger)]", "  a b  [Warning/x(y/z)]  ", "   [Error/a(b)]"]],
+];
+const WHITE = [" ", " ", " ", "\t", "\r", "\u00a0", "\u2028", "\u2029", "\u3000"];
+/** One of `lines`, changed a few ways at random. */
+const reshaped = (lines) => {
+  let line = pick(lines);
+  for (let n = 1 + Math.floor(rand() * 4); n > 0; n--) {
+    const i = Math.floor(rand() * (line.length + 1)), j = Math.min(line.length, i + Math.floor(rand() * 9));
+    let white = "";
+    for (let k = 1 + Math.floor(rand() * 5); k > 0; k--) white += pick(WHITE);
+    const other = pick(lines), from = Math.floor(rand() * other.length);
+    switch (Math.floor(rand() * 6)) {
+      case 0: line = line.slice(0, i) + white + line.slice(i); break;
+      case 1: line = line.slice(0, i) + white + line.slice(j); break;
+      case 2: line = line.slice(0, i) + line.slice(j); break;
+      case 3: line = line.slice(0, i) + other.slice(from, from + 1 + Math.floor(rand() * 6)) + line.slice(i); break;
+      case 4: line = line.slice(0, i); break;
+      default: line = line.slice(0, i) + line.slice(i, j) + line.slice(i);
+    }
+  }
+  return line;
+};
+/** `lines` with a stretch of `n` spaces put where each stretch of whitespace in them starts, at
+ *  their end - with and without something after it - and before them. */
+const stretched = (lines, n) => {
+  const s = " ".repeat(n);
+  return lines.flatMap((line) => {
+    const out = [line + s + "y", line + s, s + line];
+    for (let p = 0; p < line.length; p++) {
+      if (/[^\S\n]/.test(line[p]) && (p === 0 || !/[^\S\n]/.test(line[p - 1]))) out.push(line.slice(0, p) + s + line.slice(p), line.slice(0, p) + s);
+    }
+    return out;
+  });
+};
+
+test("each pattern held to where whitespace starts reads lines of its own shape as it did", () => {
+  for (const [name, was, now, lines, compare = matching] of SHAPED) agrees(name, compare(was), compare(now), () => reshaped(lines), 5000);
+});
+
+test("lines of each held pattern's own shape with long stretches of whitespace in them", () => {
+  const slow = [];
+  for (const [name, , pattern, lines] of SHAPED) {
+    const once = (n) => {
+      const all = stretched(lines, n);
+      let best = Infinity;
+      const at = performance.now();
+      do {
+        const start = performance.now();
+        for (let k = 0; k < 5; k++) for (const line of all) { pattern.lastIndex = 0; pattern.test(line); }
+        best = Math.min(best, performance.now() - start);
+      } while (performance.now() - at < FLOOR_MS);
+      return best;
+    };
+    const small = once(2000);
+    let large = once(8000);
+    if (large >= small * 8) large = Math.min(large, once(8000), once(8000));
+    if (large >= small * 8) slow.push(`${name}: ${ms(small)}ms for the lines, ${ms(large)}ms for lines four times as long - x${(large / small).toFixed(1)}`);
+  }
+  assert.deepEqual(slow, []);
+});
+
+test("C and .NET build logs with a line of thousands of spaces", () => {
+  // A file or project could end anywhere in a stretch of whitespace, and from each place
+  // the pattern read the rest of the stretch again: 32,000 spaces took a second.
+  const padded = (n) => [
+    "x" + " ".repeat(n) + "y", " ".repeat(n) + "y",
+    "a.c:1:2: error: x" + " ".repeat(n) + "y",
+    "Program.cs(1,2): error CS0103: x" + " ".repeat(n) + "y",
+  ].join("\n");
+  linearIn(clang, padded, 2001);
+  linearIn(dotnet, padded, 2001);
 });
 
 test("thousands of PHPUnit tallies above one failure", () => {

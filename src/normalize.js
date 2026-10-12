@@ -279,7 +279,9 @@ export function stripRedrawnCiPrefix(text) {
 // A coverage ratio cannot find it - a short npm failure is five lines inside a frame of
 // twenty - so the block is located by its own markers instead.
 const BUILDKIT_RULE = /^-{6,}[^\S\n]*$/;
-const BUILDKIT_STEP = /^[^\S\n]*>[^\S\n]+\[[^\]]+\][^\S\n]+.*:[^\S\n]*$/;
+// The whitespace after the step's number is taken whole: divided with what follows, a long stretch
+// was read again from each place in it.
+export const BUILDKIT_STEP = /^[^\S\n]*>[^\S\n]+\[[^\]]+\][^\S\n]+(?![^\S\n]).*:[^\S\n]*$/;
 const BUILDKIT_ELAPSED = /^\d+\.\d+[^\S\n]/;
 
 /** The failing step's output, lifted out of the frame Docker wraps it in. */

@@ -1,4 +1,4 @@
-import { colonPlaces, findJsonDocument, jsonDocumentsAt, tailFirst } from "../util.js";
+import { colonPlaces, findJsonDocument, jsonDocumentsAt, pinnedMessage, tailFirst } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // stylelint reports like eslint - the file on its own line, the problems indented under
 // it - but marks severity with a glyph rather than a word:
@@ -11,10 +11,13 @@ import { joinSources, withSource } from "../ownership.js";
 //
 // The rule name is the last field and is what you would disable or search for, so it is
 // the code; the message is what is left once it is taken off the end.
-const PROBLEM_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+([✖⚠ⓘ])[^\S\n]+(.+?)[^\S\n]{2,}([\w-]+(?:\/[\w-]+)?)[^\S\n]*$/;
+export const PROBLEM_RE = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+([✖⚠ⓘ])`,
+  { separator: String.raw`[^\S\n]{2,}`, least: 2, tail: String.raw`([\w-]+(?:\/[\w-]+)?)[^\S\n]*$` });
 const SUMMARY_RE = /^[^\S\n]*[✖⚠][^\S\n]+(\d+ problems? \(.+?\))[^\S\n]*$/m;
 // A file is named on its own line, unindented, with no colon or glyph of its own.
-const FILE_RE = /^(?![^\S\n])(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const FILE_RE = /^(?![^\S\n])(\S(?:.*\S)?)[^\S\n]*$/;
 const NOISE_RE = /potentially fixable|^\s*$/;
 // --formatter unix: one line per problem, the rule in brackets at the end of the text
 // and the severity after it. The fallback scraped these and left the rule inside the
@@ -29,7 +32,9 @@ export const unixLine = (line) => tailFirst(line, {
 // --formatter compact: `/app/style.css: line 1, col 13, error - Expected ... (color-hex-length)`.
 // eslint's compact formatter writes `Error` with a capital, and deno lint's writes no
 // severity at all; stylelint's word is lower case.
-const COMPACT_RE = /^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),[^\S\n]+(error|warning)[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*$/;
+// Each message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+export const COMPACT_RE = pinnedMessage(String.raw`^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),[^\S\n]+(error|warning)[^\S\n]+-`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*$` });
 // --formatter tap: a `not ok` per file with a YAML block under it, keyed by rule, each
 // problem a list item carrying its message, severity, line and column.
 //
@@ -40,12 +45,16 @@ const COMPACT_RE = /^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),
 //         severity: error
 //         line: 1
 //         column: 13
-const TAP_FILE_RE = /^not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(\S.*?)[^\S\n]*$/;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const TAP_FILE_RE = /^not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const TAP_RULE_RE = /^[^\S\n]{2}([\w-]+(?:\/[\w-]+)?):[^\S\n]*$/;
 const TAP_MESSAGE_RE = /^[^\S\n]{4}-[^\S\n]+message:[^\S\n]+("(?:\\.|[^"\\])*")[^\S\n]*$/;
 const TAP_FIELD_RE = /^[^\S\n]{6}(severity|line|column):[^\S\n]+(\S+)[^\S\n]*$/;
 const TAP_END_RE = /^[^\S\n]{2}\.\.\.[^\S\n]*$/;
-const TRAILING_RULE_RE = /[^\S\n]*\([\w-]+(?:\/[\w-]+)?\)[^\S\n]*$/;
+// It starts where the whitespace in front of it starts. From each place inside a long stretch the
+// pattern read the rest of the stretch again, and the match never started anywhere but its start.
+export const TRAILING_RULE_RE = /(?<![^\S\n])[^\S\n]*\([\w-]+(?:\/[\w-]+)?\)[^\S\n]*$/;
 
 /** The problems of a --formatter tap report. */
 function tap(lines) {
@@ -160,7 +169,7 @@ export default {
             file: file.source, line: w.line, col: w.column,
             title: w.rule, code: w.rule, severity: "error",
             // stylelint repeats the rule in brackets at the end of its own text.
-            message: String(w.text ?? "").replace(/[^\S\n]*\([\w-]+(?:\/[\w-]+)?\)[^\S\n]*$/, ""),
+            message: String(w.text ?? "").replace(TRAILING_RULE_RE, ""),
           }, start, end);
         }
       }

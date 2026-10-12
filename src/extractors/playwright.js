@@ -1,4 +1,4 @@
-import { append, elements, jsonDocuments, jsonDocumentsAt, lineAt, stripAnsi, xmlAttributes, xmlText } from "../util.js";
+import { append, elements, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, stripAnsi, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
 // Playwright numbers each failure and heads it with the location of the TEST, then the
 // error, then an excerpt of the source with the offending line marked, then the location
@@ -14,7 +14,12 @@ import { withSource } from "../ownership.js";
 //
 // The fallback read the first Error: line and both "Error Context:" paths, so a run with
 // two failures came back as three, two of which were the names of files to go and read.
-const HEAD_RE = /^[^\S\n]*(\d+)\)[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]+›[^\S\n]+(.+?)[^\S\n]*(?:[─—-]{3,})?[^\S\n]*$/;
+// The title ends where the whitespace before the rule, or the trailing whitespace, starts - see
+// pinnedMessage in util.js - and the whitespace on both sides of a missing rule is one stretch. It
+// could end anywhere in a long stretch of spaces, and the stretch be divided every way between the
+// two as well: 8,000 spaces at the end of one heading took three minutes.
+export const HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*(\d+)\)[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]+›`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`(?:[─—-]{3,}[^\S\n]*)?$` });
 // The throw's own location is more precise than the test's, and is what you want.
 const AT_RE = /^[^\S\n]*at[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]*$/;
 // The excerpt marks the offending line with a chevron.
@@ -50,7 +55,8 @@ const MAX_MESSAGE = 4;
 //
 // The document names no tool - `<testsuites id="" name="">` - so what makes a body
 // Playwright's is that heading, with its chevron and its rule.
-const JUNIT_HEAD_RE = /^[^\S\n]*()(\S+?):(\d+):(\d+)[^\S\n]+›[^\S\n]+(.+?)[^\S\n]*[─—-]{3,}[^\S\n]*$/;
+export const JUNIT_HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*()(\S+?):(\d+):(\d+)[^\S\n]+›`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`[─—-]{3,}[^\S\n]*$` });
 // A self-closing `<error .../>` has no body, and must not be read as an opening tag: its
 // "body" then ran to the next `</error>` in the log, which was the first of Playwright's -
 // shellcheck's checkstyle report, written just above, took it with it.

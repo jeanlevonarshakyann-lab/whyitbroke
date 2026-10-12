@@ -57,7 +57,9 @@ const SIGNAL = [
 // the annotation repeats the message word for word. Counting both said swiftc reported
 // four errors for two, and the repeat check cannot catch it - the two copies differ by
 // their prefixes, not by a prefix one of them has.
-const ANNOTATION = /^[^\S\n]*\d*[^\S\n]*\|/;
+// The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
+// line of spaces every way before refusing it.
+export const ANNOTATION = /^[^\S\n]*(?:\d+[^\S\n]*)?\|/;
 // "note:", "help:" and "hint:" introduce the rest of a diagnostic, never the diagnostic.
 // Widening the vocabulary below to catch tar's "Error opening archive" also caught pip's
 // "note: This error originates from a subprocess, and is likely not a problem with pip",

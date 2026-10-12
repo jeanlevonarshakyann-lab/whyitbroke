@@ -13,12 +13,16 @@
 // Everything matched here is anchored on a prefix make writes about itself, so the
 // parser never reads a line make did not produce. There is no surrounding-context scan.
 import { joinSources, withSource } from "../ownership.js";
+import { pinnedMessage } from "../util.js";
 
 const QUOTED = /[`'"]([^`'"]+)['"]/;
 // `Makefile:2: *** missing separator.  Stop.` - a makefile make could not parse.
-const AT_LINE = /^([^\s:]+):(\d+):[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m;
+// Each message ends where the whitespace before `Stop.` starts - see pinnedMessage in util.js.
+export const AT_LINE = pinnedMessage(String.raw`^([^\s:]+):(\d+):[^\S\n]+\*\*\*`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`Stop\.[^\S\n]*$`, flags: "m" });
 // `make: *** No rule to make target 'missing.o', needed by 'all'.  Stop.`
-const SELF = /^make(?:\[\d+\])?:[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m;
+export const SELF = pinnedMessage(String.raw`^make(?:\[\d+\])?:[^\S\n]+\*\*\*`,
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`Stop\.[^\S\n]*$`, flags: "m" });
 // `make: this-command-does-not-exist: No such file or directory` - the recipe's command.
 //
 // The middle is a bare name: no spaces, no colons. That is what separates these two

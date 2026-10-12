@@ -1,8 +1,9 @@
 import { withSource } from "../ownership.js";
-import { headThenTail } from "../util.js";
+import { headThenTail, pinnedMessage, pinnedStart } from "../util.js";
 
 const ERR_RE = /^error(?:\[(E\d+)\])?: (.+)$/;
-const ARROW_RE = /^[^\S\n]*-->[^\S\n]+(.+?):(\d+):(\d+)[^\S\n]*$/;
+// Where it starts is held - see pinnedStart in util.js.
+export const ARROW_RE = pinnedStart(String.raw`^[^\S\n]*-->`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 const DIFF_CONTEXT_RE = /^[^\S\n]*\d+[^\S\n]+\d+[^\S\n]*\|/;
 // cargo indents a build script's captured stderr under "--- stderr", so the panic that
 // actually failed the build arrives two spaces in and the anchored pattern missed it.
@@ -34,7 +35,9 @@ const panicAnywhere = (s) => s.split(/[\n\r\u2028\u2029]/).some((l) => panicLine
 const BUILD_SCRIPT = /^error: failed to run custom build command/m;
 // What says a panic came out of a test run rather than out of the program itself: the
 // tally cargo prints at the end, or the per-test stdout block it prints above one.
-const RAN_TESTS = /^test result:|^----[^\S\n]+\S.*[^\S\n]+stdout[^\S\n]+----/m;
+// The test's name in a stdout heading ends where the whitespace before "stdout" starts: from each
+// place inside a long stretch the pattern read the rest of the stretch again.
+export const RAN_TESTS = /^test result:|^----[^\S\n]+\S.*(?<![^\S\n])[^\S\n]+stdout[^\S\n]+----/m;
 // A dependency that cannot be resolved never reaches the compiler, so there is no
 // E-code and no --> line for detection to key on.
 // Cargo's own toplevel complaints - the ones that name no source file because none is
@@ -48,7 +51,10 @@ const STDLIB = /\/rustlib\/|\/\.cargo\/registry\//;
 // fallback - with the "could not compile" tally counted as a third error, and no error
 // codes to group on. The file has to be a Rust source: without that the shape is just
 // `file:line:col: error:`, which is half the tools in the corpus.
-const SHORT_RE = /^(.+?\.rs):(\d+):(\d+):[^\S\n]+(error|warning)(?:\[(E\d+)\])?:[^\S\n]*(.*?)[^\S\n]*$/;
+// The message, which may be empty, is read to its last character that is not a space at once; the
+// summary after `test result:` the way pinnedMessage in util.js reads one.
+export const SHORT_RE = /^(.+?\.rs):(\d+):(\d+):[^\S\n]+(error|warning)(?:\[(E\d+)\])?:[^\S\n]*(?![^\S\n])((?:\S(?:.*\S)?)?)[^\S\n]*$/;
+export const TEST_RESULT = pinnedMessage(String.raw`^test result: \w+\.`, { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: "$", flags: "m" });
 // A warning does not fail the build, and it is not reported as a failure - but the JSON
 // form has always said how many there were, "2 errors - 1 warning hidden", and the text
 // form of the same run said "2 errors". rustc writes a warning as it writes an error:
@@ -64,7 +70,8 @@ const SHORT_RE = /^(.+?\.rs):(\d+):(\d+):[^\S\n]+(error|warning)(?:\[(E\d+)\])?:
 // carries an error code, which cargo's own never do. --message-format=short keeps the
 // location on the line and drops the gutter; a warning with neither a location nor a code
 // is, in that format, the one thing indistinguishable from cargo's own chatter.
-const WARNING_RE = /^warning(?:\[(E\d+)\])?:[^\S\n]+(.+?)[^\S\n]*$/;
+// Its message ends where the trailing whitespace starts - see pinnedMessage in util.js.
+export const WARNING_RE = pinnedMessage(String.raw`^warning(?:\[(E\d+)\])?:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const GUTTER_RE = /^[^\S\n]*\|[^\S\n]*$/;
 
 /** The distinct compiler warnings a text log shows. */
@@ -232,7 +239,7 @@ export default {
     if (panics) {
       // "FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
       // -> "1 passed; 2 failed"
-      const sm = s.match(/^test result: \w+\.[^\S\n]*(.+?)[^\S\n]*$/m);
+      const sm = s.match(TEST_RESULT);
       const summary = sm?.[1]
         .split(";")
         .map((p) => p.trim())

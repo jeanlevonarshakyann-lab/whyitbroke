@@ -39,7 +39,9 @@ import { withSource } from "../ownership.js";
 // same shape the README already describes for `go vet`. The embedded place is taken
 // only when it names the file the record already names, so a message that merely
 // quotes some other file's line cannot move a finding to it.
-const EMBEDDED = /^(?:\.[\\/])?(\S+\.go):(\d+):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/m;
+// Read to its last character that is not a space, at once: read lazily, it stopped at each space of
+// a long stretch and read the rest of the stretch again from there.
+export const EMBEDDED = /^(?:\.[\\/])?(\S+\.go):(\d+):(\d+):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/m;
 const sameFile = (a, b) => {
   const x = String(a ?? "").replace(/\\/g, "/"), y = String(b ?? "").replace(/\\/g, "/");
   return !!x && !!y && (x === y || x.endsWith("/" + y) || y.endsWith("/" + x));
@@ -76,7 +78,7 @@ const BREAKDOWN = /^\* [\w-]+: \d+[^\S\n]*$/m;
 // The ones that name no tool are Go's by their files, and golangci-lint's by the tally it
 // prints after any of them.
 const GO_FILE = /\.go$/;
-const TAB = /^(?:\.[\\/])?(\S+?\.go):(\d+):(\d+)[^\S\n]+([\w-]+)[^\S\n]{2,}(\S.*?)[^\S\n]*$/;
+export const TAB = /^(?:\.[\\/])?(\S+?\.go):(\d+):(\d+)[^\S\n]+([\w-]+)[^\S\n]{2,}(\S(?:.*\S)?)[^\S\n]*$/;
 const CHECKSTYLE_FILE = /<file\b([^>]*)>([\s\S]*?)<\/file>/dg;
 const CHECKSTYLE_ERROR = /<error\b([^>]*?)(?:\/>|>[\s\S]*?<\/error>)/g;
 const CHECKSTYLE_FILE_ELEMENT = { open: /<file\b/, close: () => "</file>" };
