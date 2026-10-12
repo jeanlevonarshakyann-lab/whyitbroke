@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyse } from "../src/index.js";
 import { createCapture } from "../src/capture.js";
+import { wrapperCandidates } from "../src/normalize.js";
 import { lineAt } from "../src/util.js";
 import { trackedCauseId } from "../src/history.js";
 import { render } from "../src/render.js";
@@ -26,6 +27,7 @@ import pytest from "../src/extractors/pytest.js";
 import swift from "../src/extractors/swift.js";
 import markdownlint from "../src/extractors/markdownlint.js";
 import gotest, { PANIC_LINE, panicMessage } from "../src/extractors/gotest.js";
+import terraform from "../src/extractors/terraform.js";
 import rspec from "../src/extractors/rspec.js";
 import ruff from "../src/extractors/ruff.js";
 import vitest from "../src/extractors/vitest.js";
@@ -55,6 +57,12 @@ import jvm, { gradleTestLine } from "../src/extractors/jvm.js";
 import less, { headLine as lessHead } from "../src/extractors/less.js";
 import php, { fatalLine, parseLine, uncaughtLine } from "../src/extractors/php.js";
 import dotnettest, { atLine } from "../src/extractors/dotnettest.js";
+import eslintjson from "../src/extractors/eslintjson.js";
+import git from "../src/extractors/git.js";
+import pip from "../src/extractors/pip.js";
+import playwright from "../src/extractors/playwright.js";
+import { collapseRepeats } from "../src/util.js";
+import { githubOutput } from "../src/github.js";
 import cargo, { panicLine } from "../src/extractors/cargo.js";
 import ruby, { frameLine } from "../src/extractors/ruby.js";
 import minitest from "../src/extractors/minitest.js";
@@ -255,6 +263,21 @@ test("the first two lines of a terraform report, over and over", () => {
   // terraform balanced the braces of every report-looking line down to wherever they
   // balanced, and these never do.
   linear(repeat(`{\n  "format_version": "1.0",`), 401);
+});
+
+test("a log of a million empty lines that names format_version once", () => {
+  // terraform counted the braces of every line of any log that named its schema identifier,
+  // into three arrays as long as the log in lines: sixteen bytes a line, and 16MB to decide
+  // whether this log of 1MB was its own.
+  // A collection during one call can free what that call made, so the most any of three
+  // calls leaves behind is what is measured.
+  const log = '"format_version"\n' + "\n".repeat(1_000_000);
+  const grew = Math.max(...[1, 2, 3].map(() => {
+    const before = process.memoryUsage().arrayBuffers;
+    terraform.detect(log);
+    return process.memoryUsage().arrayBuffers - before;
+  }));
+  assert.ok(grew < log.length, `deciding a ${(log.length / 1e6).toFixed(0)}MB log took ${(grew / 1e6).toFixed(0)}MB of arrays`);
 });
 
 test("two tools whose findings share no text", () => {
@@ -616,11 +639,19 @@ test("each replacement matches exactly what its pattern matched", () => {
  *  own time does not hide the step's. A first read of the larger input within the bound is
  *  enough; one past it is read twice more, so that a pause in the machine does not fail it. */
 function linearStep(read, grow, n) {
+  // An input's time is its fastest read. A read can take a tenth of a millisecond, and a
+  // collection of the heap landing among twenty milliseconds of them takes longer than all
+  // of them together - Node 18 pauses for ten to forty milliseconds at a time late in this
+  // file. A quadratic step is slow on every read.
   const once = (input) => {
-    let runs = 0;
+    let best = Infinity;
     const at = performance.now();
-    do { read(input); runs++; } while (performance.now() - at < FLOOR_MS);
-    return (performance.now() - at) / runs;
+    do {
+      const start = performance.now();
+      read(input);
+      best = Math.min(best, performance.now() - start);
+    } while (performance.now() - at < FLOOR_MS);
+    return best;
   };
   const small = Math.min(...Array.from({ length: 3 }, () => once(grow(n))));
   const big = grow(4 * n - 3);
@@ -704,6 +735,22 @@ test("a capture of thousands of separate diagnostic windows", () => {
   linearStep(capture, (n) => n, 65537);
 });
 
+test("a large log that nothing wraps, asked what wraps it", () => {
+  // Every wrapper shape, and the search for a literal prefix, asked for the log's first two
+  // hundred lines by splitting and filtering all of it: ten readings of the whole log for
+  // each log analysed, a quarter of a second for 10MB with no wrapper on it.
+  const words = ["compiling", "linking", "Resolving", "warning:", "src/a.ts", "npm", "Done", "  at x", "Downloading", "info"];
+  const log = Array.from({ length: 50000 }, (_, k) => `${words[k % 10]} module ${k} of the monorepo`).join("\n");
+  const fastestOf = (read) => Math.min(...Array.from({ length: 5 }, () => {
+    const at = performance.now();
+    read();
+    return performance.now() - at;
+  }));
+  const once = fastestOf(() => log.split("\n").filter((line) => line.trim()));
+  const asked = fastestOf(() => wrapperCandidates(log));
+  assert.ok(asked < once * 5, `${ms(asked)}ms to ask, against ${ms(once)}ms to read the log's lines once`);
+});
+
 test("thousands of failures, every one of them new since the last run", () => {
   // Each failure printed was looked up in the list of new causes, one entry at a time.
   const report = (n) => {
@@ -738,6 +785,21 @@ test("the line of an offset, asked again of a fresh copy of the same log", () =>
   // half a second.
   assert.ok(lookups < Math.max(build, 5) * 4,
     `2,000 lookups on an equal copy took ${lookups.toFixed(0)}ms, against ${build.toFixed(1)}ms to build the cache`);
+});
+
+test("the lines of each of thousands of elements of a report written on one line", () => {
+  // Every reader of an XML report asks lineAt for the line each element starts on and the
+  // line it ends on. Where one function held lineAt twice, Node 18's compiler ran the first
+  // two newline searches of the cache's rebuild on every call, ahead of the check that the
+  // cache still held the log: each element searched the log to its second newline, and a
+  // report written on one line has none. The compiler does this to a rebuild it has seen
+  // run, so the cache is rebuilt a few hundred times first.
+  for (let k = 0; k < 500; k++) lineAt(`a\nb\n${k}`, 3);
+  const report = (n) => ({ n, text: `<testsuites>${'<testcase name="t"><failure/></testcase>'.repeat(n)}</testsuites>` });
+  linearStep(({ n, text }) => {
+    const element = (at, length) => ({ start: lineAt(text, at), end: lineAt(text, at + length - 1) + 1 });
+    for (let k = 0; k < n; k++) element(12 + 40 * k, 40);
+  }, report, 4001);
 });
 
 // ------------------------------------------------------------- runner formats
@@ -836,6 +898,79 @@ test("thousands of PHPUnit tallies above one failure", () => {
     "1) App\\CartTest::testTotal", "Failed asserting that 4 is identical to 5.", "", "/app/tests/CartTest.php:12",
   ].join("\n");
   linearIn(phpunit, tallies, 2001);
+});
+
+// ---------------------------------------------------------------- large reports
+// `list.push(...items)` and `Math.min(...items)` hand each item over as an argument of its
+// own, and past about 125,000 of them V8 throws. A reader that throws is skipped, so a
+// report that large lost everything in it - and the capture, which nothing catches, took
+// the whole run down. 150,000 is past that on every platform.
+
+const LARGE = 150000;
+const failuresOf = (extractor, log) => (extractor.detect(log) ? extractor.extract(log).failures.length : 0);
+
+test("a verbose go test run of 150,000 failing tests", () => {
+  const log = ["=== RUN   TestA", ...Array.from({ length: LARGE }, (_, k) => `--- FAIL: T${k} (0.00s)\n    a_test.go:${k + 1}: m${k}`), "FAIL", "FAIL\tex/p\t0.1s", "FAIL"].join("\n");
+  assert.equal(failuresOf(gotest, log), LARGE);
+});
+
+test("a pip build whose subprocess printed 150,000 lines", () => {
+  const log = ["Processing ./pkg", "  error: subprocess-exited-with-error", "  × Building wheel for pkg (pyproject.toml) did not run successfully.",
+    `  ╰─> [${LARGE} lines of output]`, ...Array.from({ length: LARGE }, (_, k) => `      line ${k}`), "      [end of output]",
+    "error: subprocess-exited-with-error"].join("\n");
+  assert.equal(pip.extract(log).failures[0]?.message, `line ${LARGE - 1}`);
+});
+
+test("a legacy ESLint JSON report of 150,000 files", () => {
+  const log = JSON.stringify(Array.from({ length: LARGE }, (_, k) => ({ filePath: `/s/${k}.js`, errorCount: k % 1000 ? 0 : 1, warningCount: 0,
+    messages: k % 1000 ? [] : [{ ruleId: "no-undef", severity: 2, message: "x is not defined", line: 1, column: 1 }] })));
+  assert.equal(failuresOf(eslintjson, log), LARGE / 1000);
+});
+
+test("a message holding 150,000 blank lines", () => {
+  assert.equal(collapseRepeats("a\n" + "\n".repeat(LARGE) + "b").split("\n").length, LARGE + 2);
+});
+
+test("a ShellCheck JSON report of 150,000 comments", () => {
+  const log = JSON.stringify({ comments: Array.from({ length: LARGE }, (_, k) => ({ file: "a.sh", line: k + 1, endLine: k + 1, column: 1, endColumn: 2,
+    level: "warning", code: 2086, message: "Double quote to prevent globbing and word splitting.", fix: null })) });
+  assert.equal(failuresOf(shellcheck, log), LARGE);
+});
+
+test("a Playwright JUnit failure naming 150,000 tests", () => {
+  const heads = Array.from({ length: LARGE }, (_, k) => `  a.spec.ts:${k + 1}:3 › t${k} ────────────`).join("\n");
+  const log = ['<?xml version="1.0" encoding="UTF-8"?>', '<testsuites id="" name="" tests="1" failures="1">', '<testsuite name="a.spec.ts" tests="1" failures="1">',
+    `<testcase name="t" classname="a.spec.ts" time="1"><failure message="a.spec.ts:1:3 t" type="FAILURE"><![CDATA[${heads}\n\n    Error: boom\n]]></failure></testcase>`,
+    "</testsuite>", "</testsuites>"].join("\n");
+  assert.equal(failuresOf(playwright, log), LARGE);
+});
+
+test("a .NET run beside a TRX document of 150,000 failed results", () => {
+  const log = ["Running tests from /home/dev/A.Tests/bin/Debug/net10.0/A.Tests.dll (net10.0|arm64)", "failed A.Tests.Console.Fails (11ms)",
+    "  Assert.Equal() Failure: Values differ", "  from /home/dev/A.Tests/bin/Debug/net10.0/A.Tests.dll (net10.0|arm64)",
+    '<?xml version="1.0" encoding="utf-8"?>', '<TestRun id="1" name="r" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>',
+    ...Array.from({ length: LARGE }, (_, k) => `<UnitTestResult testName="A.T${k}" outcome="Failed"><x/></UnitTestResult>`), "</Results></TestRun>"].join("\n");
+  assert.equal(failuresOf(dotnettest, log), LARGE + 1);
+});
+
+test("150,000 git errors", () => {
+  const log = Array.from({ length: LARGE }, (_, k) => `error: pathspec 'f${k}' did not match any file(s) known to git`).join("\n");
+  assert.equal(failuresOf(git, log), LARGE);
+});
+
+test("a capture with 150,000 diagnostic lines between its head and its tail", () => {
+  const max = 10 * 1024 * 1024, filler = "info: compiling module of the build graph\n";
+  const c = createCapture(max);
+  c.push(Buffer.from(filler.repeat(Math.ceil(max / 4 / filler.length))));
+  c.push(Buffer.from("FAIL\n".repeat(LARGE)));
+  c.push(Buffer.from(filler.repeat(Math.ceil(max * 2 / filler.length))));
+  assert.equal(c.finish().text.split("\n").filter((line) => line === "FAIL").length, LARGE);
+});
+
+test("a GitHub summary of 150,000 failures", () => {
+  const failures = Array.from({ length: LARGE }, (_, k) => ({ title: `T${k}`, message: "m", severity: "error", file: "a_test.go", line: k + 1 }));
+  const { summary } = githubOutput({ tool: "go test", summary: "x", failures, others: [], wrappers: [] });
+  assert.ok(summary.includes("**T0**"), "the summary names the first failure");
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);

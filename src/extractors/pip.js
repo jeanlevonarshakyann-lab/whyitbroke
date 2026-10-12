@@ -20,7 +20,10 @@ const OUTPUT_END = /^[^\S\n]*\[end of output\]/;
 
 /** Strip the common indentation pip adds when it quotes a subprocess. */
 function dedent(lines) {
-  const width = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^[^\S\n]*/)[0].length));
+  // The least indentation of the lines that hold anything, found one line at a time: one
+  // argument to Math.min per line threw for a block of more than about 125,000.
+  let width = Infinity;
+  for (const l of lines) if (l.trim()) width = Math.min(width, l.match(/^[^\S\n]*/)[0].length);
   return lines.map((l) => l.slice(width)).join("\n");
 }
 

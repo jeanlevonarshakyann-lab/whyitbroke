@@ -18,6 +18,7 @@
 // was not read at all.
 const LOOKS_LIKE = /^[^\S\n]*[[{].*[\]}][^\S\n]*$/;
 import { withSource } from "../ownership.js";
+import { append } from "../util.js";
 
 function results(s) {
   // Parsing a document to decide whether to claim it is worth avoiding when the answer
@@ -36,7 +37,7 @@ function results(s) {
     if (!list?.length) continue;
     parsed = list;
     if (!parsed.every((r) => r && typeof r.filePath === "string" && Array.isArray(r.messages))) continue;
-    out.push(...parsed.map((file) => ({ file, at: i })));
+    append(out, parsed.map((file) => ({ file, at: i })));
   }
   return out.length ? out : null;
 }

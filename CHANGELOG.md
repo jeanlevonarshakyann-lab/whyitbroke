@@ -2,18 +2,34 @@
 
 ## Unreleased
 
+- Looking for a wrapper reads only the lines it samples. Each of the nine wrapper shapes,
+  and the search for a literal prefix, split and filtered the whole log to keep its first
+  two hundred lines - ten readings of every log analysed, a quarter of a second for 10MB
+  that had no wrapper at all. It now reads up to its two hundredth line, and the check for
+  mixed task labels walks the lines without splitting the log.
 - A log read again no longer costs a full comparison per finding. The cache of where a
   log's lines start was checked by comparing strings, which compares their content, and a
   fresh copy of the same log matched without replacing the cached one - so every later
   lookup compared the whole log again. A one-line JSON report from mypy, mocha or
   markdownlint read in quadratic time; the eslint, vitest and dotnet test readers share
   the same lookup.
+- A log that names Terraform's `format_version` is no longer read line by line into arrays
+  as long as it. Terraform's reader counted the braces of every line of such a log into
+  three arrays of sixteen bytes a line - 160MiB for a 10MiB log of empty lines - and now
+  finds its reports with the scan every JSON reader shares. Its `plan -json` events are
+  looked for only in a log that names Terraform's UI module.
 - A JSON report printed on one line is read in linear time on Node 18 as well. Its
   readers asked for two lines per record, and Node 18 moved the first two newline searches
   of the line cache's rebuild ahead of the check that the cache still held the report -
   so every record searched the report to its second newline, all of it twice when it has
   none. 16,001 markdownlint records took eight seconds; 4,001 took 300ms. Each document
   now asks the cache once and looks up its records' lines in what it gave.
+- An XML report printed on one line no longer risks quadratic time on Node 18. Readers that
+  ask for the lines each element starts and ends on hold the line cache's rebuild twice in
+  one function, and there Node 18 can run its first two newline searches on every call: in
+  0.5.0, bun's JUnit report of 8,001 failed tests on one line took fifteen times as long as
+  one of 2,001. Which readers it reached depended on how Node 18 compiled each; the cache
+  now finds newlines with a search the compiler keeps inside the rebuild.
 - A runner's prefix in front of a line-start location comes off again. Since paths may
   hold spaces, flake8, oxlint, pyright, deno lint, Ruby and `dotnet` read a stamp such as
   `12:34:56 `, a `web-1  | ` compose relay or a `ci> ` prompt as the start of every file
@@ -55,6 +71,16 @@
   the middle sheds the windows it must in one step, oldest first. Output under the cap
   came back whole even where it was not UTF-8, and each such byte reads as three: 1024 of
   them came back as 3072 under a cap of 1024.
+- A report holding more than about 125,000 of anything is no longer lost. Ten places
+  handed every item of a list to one call, each as an argument of its own, and past about
+  125,000 arguments V8 throws. A reader that throws is skipped: 150,000 failing Go tests
+  came back as "2 errors (no parser for this tool — best guess)", a pip build whose
+  subprocess printed that many lines and git lost theirs the same way, and so did
+  ESLint's and ShellCheck's JSON and .NET beside a TRX document once `--max-bytes` let a
+  report that large in. Where nothing catches the throw, whyitbroke itself stopped with a
+  stack trace and exit code 1: on a message holding that many blank lines in a row, on a
+  GitHub summary of that many failures, and on a run's output past the capture limit
+  holding that many diagnostic lines. Each now adds items one at a time.
 - `--since-last` preserves unreadable or malformed baselines instead of replacing them,
   and rejects missing tool identity and duplicate causes. GitHub output now stays within
   the platform's ten-annotation, 64 KiB-message and 1 MiB-summary limits while declaring
