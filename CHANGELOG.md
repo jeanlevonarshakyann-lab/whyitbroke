@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `--max-bytes` counts the log's own bytes. The lines marking where output was left out
+  were paid for from the same budget, so a capture kept less of the log than its limit, and
+  the markers could add up: a 1.7MB log with a failure every eighteen lines kept 954KB of
+  itself under a cap of 1MiB and spent 95KB on 1,116 markers. The markers now come on top
+  of the limit, and gaps near each other share one so that together they never take more
+  than 1% of it, or 4KB when that is more: past that, the smallest windows of the middle
+  give way, the oldest first among equals, and the tail keeps what they held. The same log
+  now keeps 1MiB of itself, with 116 markers taking 10KB. Output that is not UTF-8 is still
+  held to the limit as text.
 - A line holding a long stretch of whitespace is read in time that grows with the line.
   About 150 of the readers' line patterns could end a message, a file or a test's name
   anywhere inside a stretch of spaces - or start one there - and from each place read the

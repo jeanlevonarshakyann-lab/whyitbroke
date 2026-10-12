@@ -153,14 +153,35 @@ test("diagnostics already in the tail do not spend the capture budget twice", ()
   const max = 20000;
   const r = capture("ordinary output\n".repeat(20000) + fx("pytest_fail.txt"), max, 997);
   const payload = Buffer.byteLength(r.text.replace(MARKER, ""));
-  assert.ok(Buffer.byteLength(r.text) <= max, "capture exceeded " + max + " bytes");
+  assert.ok(payload <= max, "kept " + payload + " bytes of the log under a cap of " + max);
   assert.ok(payload > max - 250, "only " + payload + " of " + max + " available bytes were used");
   assert.equal(analyse(r.text)?.failures.length, 3);
 });
 
-test("the capture stays within its budget", () => {
+test("the capture keeps the log within its budget, and its markers within theirs", () => {
+  // --max-bytes counts the log's own bytes; the markers come on top of it.
   const r = capture("y\n".repeat(500000), 8192);
-  assert.ok(Buffer.byteLength(r.text) <= 8192, "returned " + Buffer.byteLength(r.text) + " bytes");
+  assert.ok(Buffer.byteLength(r.text.replace(MARKER, "")) <= 8192, "kept " + Buffer.byteLength(r.text.replace(MARKER, "")) + " bytes of the log");
+  assert.ok((r.text.match(MARKER) ?? []).join("").length <= 4096, "the markers took more than 4KB");
+});
+
+test("nearby gaps share a marker, so the markers cannot add up", () => {
+  // Sixty failures, each kept with the lines around it and one line apart: a marker for
+  // every gap would take more than the markers may. The smallest windows give way, the
+  // oldest first among equals, each joining the gaps on either side of it - so the one
+  // window larger than the rest stays although it is the oldest.
+  let text = "ordinary compiler output\n".repeat(200);
+  text += '  "severity": "error",\n' + "x\n".repeat(70) + "ordinary compiler output\n".repeat(20) + "x\n".repeat(17);
+  for (let k = 0; k < 60; k++) text += `FAIL ${String(k).padStart(2, "0")}\n` + "x\n".repeat(17);
+  text += "cleanup completed\n".repeat(600);
+  const r = capture(text, 16384);
+  const markers = r.text.match(MARKER) ?? [];
+  assert.ok(markers.join("").length <= 4096, `${markers.length} markers took ${markers.join("").length} bytes`);
+  assert.ok(Buffer.byteLength(r.text.replace(MARKER, "")) <= 16384);
+  assert.match(r.text, /"severity": "error"/, "the larger window gave way to smaller ones");
+  const kept = [...r.text.matchAll(/^FAIL (\d+)$/gm)].map((m) => +m[1]);
+  assert.ok(kept.length > 0 && kept.length < 60, `${kept.length} of 60 kept`);
+  assert.deepEqual(kept, Array.from({ length: kept.length }, (_, k) => 60 - kept.length + k), "among equals the oldest gave way");
 });
 
 // -------------------------------------------------------------- cut quality
@@ -292,21 +313,22 @@ test("output that is not UTF-8 stays within the cap", () => {
     const c = createCapture(1024);
     c.push(bytes);
     const r = c.finish();
-    assert.ok(Buffer.byteLength(r.text) <= 1024, `${Buffer.byteLength(r.text)} bytes of text under a cap of 1024`);
+    const own = Buffer.byteLength(r.text.replace(MARKER, ""));
+    assert.ok(own <= 1024, `${own} bytes of the log's text under a cap of 1024`);
     assert.equal(r.truncated, true, "and it says it was cut");
   }
 });
 
 test("the least recent windows in the middle are shed first", () => {
-  // Fifty failures, each kept with the lines around it, whose markers leave no room for
-  // the tail and then some: what has to go comes from the oldest. The newest were shed
+  // Fifty failures, each kept with the lines around it and one line apart, need more
+  // markers than they may take: what has to go comes from the oldest. The newest were shed
   // first, against what the capture says it does.
   let text = "ordinary compiler output\n".repeat(90) + "x\n".repeat(17);
   for (let k = 0; k < 50; k++) text += `FAIL ${String(k).padStart(2, "0")}\n` + "x\n".repeat(17);
   text += "cleanup completed\n".repeat(600);
   const r = capture(text, 8192);
   const kept = [...r.text.matchAll(/^FAIL (\d+)$/gm)].map((m) => +m[1]);
-  assert.ok(Buffer.byteLength(r.text) <= 8192);
+  assert.ok(Buffer.byteLength(r.text.replace(MARKER, "")) <= 8192);
   assert.ok(kept.length > 0 && kept.length < 50, `${kept.length} of 50 kept`);
   assert.deepEqual(kept, Array.from({ length: kept.length }, (_, k) => 50 - kept.length + k), "the newest are the ones kept");
 });

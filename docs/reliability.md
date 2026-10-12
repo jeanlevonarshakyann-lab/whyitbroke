@@ -23,7 +23,7 @@ true.
 - **Output it cannot read is never swallowed.** The command's output streams as it runs
   unless you pass `-q` or `--json`, and when nothing in it could be read, the captured
   output comes back in every mode — printed, in JSON's `fallback.rawOutput`, or in the
-  GitHub summary — up to `--max-bytes`, with a note when it was cut. *(test/commandline.js, test/report.js)*
+  GitHub summary — up to `--max-bytes` of the log, with a note when it was cut. *(test/commandline.js, test/report.js)*
 - **Reading takes time in proportion to the log**, whatever it holds.
   *(test/bounds.js)*
 - **The directory it runs in is only read**, for the source lines around a failure. The
@@ -165,6 +165,11 @@ What is dropped is stated, never silently stitched:
 ```
 ~~~ whyitbroke: 1743102 bytes of output elided here (raise --max-bytes to keep them) ~~~
 ```
+
+The cap counts the log's own bytes. These lines are not part of the log and come on top of
+it, and gaps close together share one, so together they never take more than 1% of the cap,
+or 4 KB when that is more: a log with more separate windows than that keeps the larger
+ones, and the tail keeps what the others held.
 
 Cuts land on line boundaries, so a parser is never handed half a line, and multi-byte
 characters are never split. A bare carriage return - how a progress bar redraws itself -
