@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Reading a log of short JSON lines holds half its size, not three and a half times it.
+  Every reader of JSON shares one pass that finds where each document opening a line
+  starts and ends, and it kept an object and a pair for each, for as long as the log was
+  the last one read: 600,000 lines of `{"severity":"x"}` - 10MB - held 35MB. It keeps two
+  numbers for each document now, 5MB for the same log, and finds the same documents.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began
