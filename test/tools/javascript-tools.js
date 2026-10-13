@@ -156,6 +156,15 @@ const CASES = [
       // the loader advice is a suggestion, not what happened
       assert.doesNotMatch(JSON.stringify(r.failures), /appropriate loader|webpack\.js\.org/);
     } },
+  // Captured with webpack 4.47 and webpack-cli 3, run with nothing to build. webpack 4 writes
+  // an error that belongs to no module on its heading line, as a sentence, and nothing under
+  // it - and the sentence was read as the module: a file called "Entry module not found:
+  // Error: ...", and no explanation at all.
+  { file: "webpack4_entry_fail.txt", tool: "webpack", n: 1, check: (r) => {
+      assert.equal(r.failures[0].file, undefined);
+      assert.equal(r.failures[0].message, "Entry module not found: Can't resolve './src' in '/home/dev/app'");
+      assert.equal(r.summary, "1 error, 1 warning");
+    } },
   // Captured with prettier 3.6. A file that will not parse is followed by its code frame,
   // every line of it tagged [error] like the diagnosis - and each was read as another
   // unparsable file, so one such file counted as four.
@@ -689,6 +698,23 @@ const CASES = [
 ];
 
 let pass = 0, fail = 0;
+// Babel ends the file in its heading at the first colon a space follows. Ended at the first
+// colon, a file on a drive, `C:\work\bad.jsx`, was the file `C` - no path, so the error was not
+// read at all - and `/work/src/foo:bar.jsx`, a name POSIX allows, was `/work/src/foo`, with the
+// rest of the name read into the message.
+try {
+  const text = fx("babel_fail.txt"), was = "/home/dev/app/bad.jsx";
+  assert.ok(text.includes(was), `babel_fail.txt does not name ${was}`);
+  const read = (r) => r?.failures.map((f) => [f.file, f.line, f.col, f.code, f.message, f.stmt]);
+  const bare = read(analyse(text));
+  for (const file of ["C:\\work\\bad.jsx", "/work/src/foo:bar.jsx", "/work/My Project/bad.jsx"]) {
+    const r = analyse(text.replaceAll(was, file));
+    assert.equal(r?.tool, "babel", `${file}: read as ${r?.tool}`);
+    assert.deepEqual(read(r), bare.map(([, ...rest]) => [file, ...rest]), file);
+  }
+  console.log("  ok   babel's heading names a file on a drive, or with a colon in it, whole");
+  pass++;
+} catch (e) { console.log(`  FAIL babel heading paths\n       ${e.message}`); fail++; }
 for (const result of [runCases(CASES), agreeAcrossFormats([
   ["markdownlint", ["markdownlint_aliases_fail.txt", "markdownlint_json_fail.txt"]],
   // Unicode or ASCII, sass draws the same diagnostic.

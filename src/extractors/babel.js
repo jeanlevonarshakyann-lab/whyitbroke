@@ -16,7 +16,10 @@ import { joinSources, withSource } from "../ownership.js";
 // The message ends where the whitespace before `(line:col)` starts - see pinnedMessage in util.js.
 // It could end anywhere in a long stretch of spaces, and the whitespace on both sides of it could
 // be divided every way as well: 8,000 spaces at the end of one line took three and a half minutes.
-export const HEAD_RE = pinnedMessage(String.raw`^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):`,
+// The file ends at the first colon a space follows, which is where babel ends it. Ended at the
+// first colon, `C:\work\bad.js` was the file `C` - no path, by the check below, so the error was
+// not read at all - and `/work/src/foo:bar.js`, a name POSIX allows, was `/work/src/foo`.
+export const HEAD_RE = pinnedMessage(String.raw`^(\w*(?:Error|Exception)):[^\S\n]*(\S(?:[^:\n]|:(?![^\S\n]))*?):(?=[^\S\n])`,
   { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\((\d+):(\d+)\)[^\S\n]*$` });
 // "> 1 | const x = ;" - the marked line of the code frame.
 const MARKED_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
