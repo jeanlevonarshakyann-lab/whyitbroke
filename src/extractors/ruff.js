@@ -1,7 +1,11 @@
 import { elements, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
+// A rule as ruff names it in its text: by its code, `F401`, or - with preview's
+// output-prefer-rule-codes off - by its name, `unused-import`, which none of the text
+// formats read.
+const RULE = String.raw`[A-Z]+\d+|[a-z]+(?:-[a-z0-9]+)+`;
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
-const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
+const HEAD_RE = new RegExp(String.raw`^(${RULE})(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$`);
 // Not everything ruff reports has a rule code. A file it cannot parse is reported as
 // `invalid-syntax: unexpected EOF while parsing`, and requiring a code meant a run that
 // said "Found 1 error." came back with none at all - which is the ordinary case of
@@ -31,10 +35,10 @@ const RUFF_SAYS_SO = /^\[\*\][^\S\n]+\d+[^\S\n]+fixable|title=ruff[^\S\n]*\(/m;
 // looked at the "4" and was satisfied.
 // A line that opens a workflow command is never a concise finding, however the text
 // after its `::` is shaped.
-const CONCISE_RE = /^(?!::)(.+?):(\d+):(\d+):[^\S\n]+([A-Z]+\d+|invalid-syntax)(?![\w:])[^\S\n]*(?:\[[*x]\][^\S\n]*)?(.*)$/;
+const CONCISE_RE = new RegExp(String.raw`^(?!::)(.+?):(\d+):(\d+):[^\S\n]+(${RULE})(?![\w:])[^\S\n]*(?:\[[*x]\][^\S\n]*)?(.*)$`);
 // --output-format=grouped puts the file on its own line and indents the rest.
 const GROUP_FILE_RE = /^(\S.*?):[^\S\n]*$/;
-const GROUP_ENTRY_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+([A-Z]+\d+|invalid-syntax)(?![\w:])[^\S\n]*(?:\[[*x]\][^\S\n]*)?(.*)$/;
+const GROUP_ENTRY_RE = new RegExp(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(${RULE})(?![\w:])[^\S\n]*(?:\[[*x]\][^\S\n]*)?(.*)$`);
 // --output-format=github, the one a GitHub Actions job uses so the findings annotate the
 // diff. The message is percent-encoded because a workflow command may not span lines.
 // A workflow annotation may carry a column only when it stays on one line, so for a
@@ -45,6 +49,8 @@ const GROUP_ENTRY_RE = /^[^\S\n]+(\d+):(\d+)[^\S\n]+([A-Z]+\d+|invalid-syntax)(?
 // the percent-encoded advice left in the message. The column is still in the message
 // ruff repeats after the `::`, and is read from there.
 const GITHUB_RE = /^::(?:error|warning)[^\S\n]+title=ruff[^\S\n]*\(([^)]+)\),file=(.+?),line=(\d+)(?:,col=(\d+))?[^:]*::(.*)$/;
+// ...and the message repeats where it is, and the rule, in front of itself.
+const GITHUB_HEAD_RE = new RegExp(String.raw`^.*?:\d+:\d+:[^\S\n]+(?:${RULE})[^\S\n]*`);
 
 // --output-format=json and json-lines write the same record, an array of them or one a
 // line.
@@ -175,7 +181,7 @@ function oneLinePerFinding(lines) {
     if (gh) {
       // "%0A  help: Remove unused import" - the fix advice, on its own line once decoded.
       const text = gh[5].replace(/%0A/g, "\n").replace(/%25/g, "%").split("\n");
-      const head = text[0].replace(/^.*?:\d+:\d+:[^\S\n]+[A-Z]+\d+[^\S\n]*/, "").trim();
+      const head = text[0].replace(GITHUB_HEAD_RE, "").trim();
       const help = text.slice(1).map((l) => l.replace(/^[^\S\n]*help:[^\S\n]*/, "").trim()).filter(Boolean);
       const col = gh[4] ? +gh[4] : +(text[0].match(/^.*?:\d+:(\d+):/)?.[1] ?? 0) || undefined;
       failures.push(withSource({

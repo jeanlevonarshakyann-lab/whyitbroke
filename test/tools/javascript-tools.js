@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
 import markdownlint from "../../src/extractors/markdownlint.js";
 import { createReport } from "../../src/report.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsRenamed, renamingRules, runCases } from "./harness.js";
 
 const CASES = [
   { file: "deno_check_fail.txt", tool: "deno check", n: 1, check: (r) => {
@@ -779,6 +779,26 @@ try {
   console.log("  ok   a markdownlint record missing what names it is not reported half-read");
   pass++;
 } catch (e) { console.log(`  FAIL markdownlint damaged record\n       ${e.message}`); fail++; }
+
+// A plugin's rules are named after it, however it is named itself: `@stylistic/indentation`,
+// `local.plugin/no-foo`, `my-plugin/no-foo`, `@pandacss(no-physical-properties)`. Each reader
+// allowed names of its own making, and dropped the finding, or its rule, for any other.
+try {
+  for (const file of ["stylelint_fail.txt", "stylelint_string_fail.txt", "stylelint_verbose_fail.txt", "stylelint_compact_fail.txt",
+    "stylelint_unix_fail.txt", "stylelint_tap_fail.txt", "stylelint_json_fail.txt"]) {
+    readsRenamed(file, renamingRules(file, (rule) => `@stylistic/${rule}`), (rule) => rule && `@stylistic/${rule}`);
+  }
+  readsRenamed("eslint_fail.txt", renamingRules("eslint_fail.txt", (rule) => `local.plugin/${rule}`), (rule) => rule && `local.plugin/${rule}`);
+  for (const file of ["denolint_pretty_fail.txt", "denolint_compact_fail.txt", "denolint_json_fail.txt"]) {
+    readsRenamed(file, renamingRules(file, (rule) => `my-plugin/${rule}`), (rule) => rule && `my-plugin/${rule}`);
+  }
+  // oxlint names the plugin and puts the rule in brackets after it, and the rule is the code.
+  for (const file of readdirSync(join(here, "fixtures")).filter((n) => n.startsWith("oxlint_") && /\beslint\(/.test(fx(n)))) {
+    readsRenamed(file, (text) => text.replace(/\beslint\(/g, "@pandacss("));
+  }
+  console.log("  ok   a lint plugin's findings are read whatever the plugin is called");
+  pass++;
+} catch (e) { console.log(`  FAIL plugin rule names\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

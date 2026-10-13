@@ -1,9 +1,11 @@
-import { counted, lineAt, pinnedMessage, uniqueFailures } from "../util.js";
+import { counted, lineAt, pinnedMessage, RULE_NAME, uniqueFailures } from "../util.js";
 import { withSource } from "../ownership.js";
 
 // Its message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
+// The rule is any plugin's: one whose namespace holds a dot, `local.plugin/rule`, was a
+// finding the table dropped.
 export const PROB_RE = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+(error|warning)`,
-  { separator: String.raw`\s{2,}`, least: 2, tail: String.raw`([\w@/-]+)[^\S\n]*$` });
+  { separator: String.raw`\s{2,}`, least: 2, tail: String.raw`(${RULE_NAME})[^\S\n]*$` });
 // A file eslint could not parse is a problem with no rule, because no rule ran:
 //
 //   syn.js

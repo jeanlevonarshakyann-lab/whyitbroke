@@ -1,4 +1,4 @@
-import { colonPlaces, findJsonDocument, jsonDocumentsAt, pinnedMessage, tailFirst } from "../util.js";
+import { colonPlaces, findJsonDocument, jsonDocumentsAt, pinnedMessage, RULE_NAME, tailFirst } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // stylelint reports like eslint - the file on its own line, the problems indented under
 // it - but marks severity with a glyph rather than a word:
@@ -10,9 +10,11 @@ import { joinSources, withSource } from "../ownership.js";
 //   ✖ 4 problems (3 errors, 1 warning)
 //
 // The rule name is the last field and is what you would disable or search for, so it is
-// the code; the message is what is left once it is taken off the end.
+// the code; the message is what is left once it is taken off the end. It is any plugin's:
+// the rules of @stylistic/stylelint-plugin are all named `@stylistic/...`, and every
+// format below dropped them.
 export const PROBLEM_RE = pinnedMessage(String.raw`^[^\S\n]+(\d+):(\d+)[^\S\n]+([✖⚠ⓘ])`,
-  { separator: String.raw`[^\S\n]{2,}`, least: 2, tail: String.raw`([\w-]+(?:\/[\w-]+)?)[^\S\n]*$` });
+  { separator: String.raw`[^\S\n]{2,}`, least: 2, tail: String.raw`(${RULE_NAME})[^\S\n]*$` });
 const SUMMARY_RE = /^[^\S\n]*[✖⚠][^\S\n]+(\d+ problems? \(.+?\))[^\S\n]*$/m;
 // A file is named on its own line, unindented, with no colon or glyph of its own.
 // Read to its last character that is not a space, at once: read lazily, it stopped at each space of
@@ -23,10 +25,11 @@ const NOISE_RE = /potentially fixable|^\s*$/;
 // and the severity after it. The fallback scraped these and left the rule inside the
 // message, with no code to group on and no tool name.
 // `file:line:col: message (rule) [severity]` - the pattern
-//   /^(\S.*?):(\d+):(\d+):[^\S\n]+(.+?)[^\S\n]*\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*\[(error|warning)\][^\S\n]*$/
+//   /^(\S.*?):(\d+):(\d+):[^\S\n]+(.+?)[^\S\n]*\((@?[\w.-]+(?:\/[\w.-]+)*)\)[^\S\n]*\[(error|warning)\][^\S\n]*$/
 // matched without reading a long line again from every colon in it.
+const UNIX_TAIL = new RegExp(String.raw`\((${RULE_NAME})\)[^\S\n]*\[(error|warning)\][^\S\n]*$`);
 export const unixLine = (line) => tailFirst(line, {
-  tail: /\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*\[(error|warning)\][^\S\n]*$/, spaceBefore: 0, emptyMessage: false,
+  tail: UNIX_TAIL, spaceBefore: 0, emptyMessage: false,
   heads: (l, c, clear) => /^\S/.test(l) ? colonPlaces(l, 0, c, /:(\d+):(\d+):/y, (p) => clear(0, p)) : [],
 });
 // --formatter compact: `/app/style.css: line 1, col 13, error - Expected ... (color-hex-length)`.
@@ -34,7 +37,7 @@ export const unixLine = (line) => tailFirst(line, {
 // severity at all; stylelint's word is lower case.
 // Each message ends where the whitespace before the rule starts - see pinnedMessage in util.js.
 export const COMPACT_RE = pinnedMessage(String.raw`^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),[^\S\n]+(error|warning)[^\S\n]+-`,
-  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*$` });
+  { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\((${RULE_NAME})\)[^\S\n]*$` });
 // --formatter tap: a `not ok` per file with a YAML block under it, keyed by rule, each
 // problem a list item carrying its message, severity, line and column.
 //
@@ -48,13 +51,13 @@ export const COMPACT_RE = pinnedMessage(String.raw`^(\S.*?):[^\S\n]+line[^\S\n]+
 // Read to its last character that is not a space, at once: read lazily, it stopped at each space of
 // a long stretch and read the rest of the stretch again from there.
 export const TAP_FILE_RE = /^not ok[^\S\n]+\d+[^\S\n]+-[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
-const TAP_RULE_RE = /^[^\S\n]{2}([\w-]+(?:\/[\w-]+)?):[^\S\n]*$/;
+const TAP_RULE_RE = new RegExp(String.raw`^[^\S\n]{2}(${RULE_NAME}):[^\S\n]*$`);
 const TAP_MESSAGE_RE = /^[^\S\n]{4}-[^\S\n]+message:[^\S\n]+("(?:\\.|[^"\\])*")[^\S\n]*$/;
 const TAP_FIELD_RE = /^[^\S\n]{6}(severity|line|column):[^\S\n]+(\S+)[^\S\n]*$/;
 const TAP_END_RE = /^[^\S\n]{2}\.\.\.[^\S\n]*$/;
 // It starts where the whitespace in front of it starts. From each place inside a long stretch the
 // pattern read the rest of the stretch again, and the match never started anywhere but its start.
-export const TRAILING_RULE_RE = /(?<![^\S\n])[^\S\n]*\([\w-]+(?:\/[\w-]+)?\)[^\S\n]*$/;
+export const TRAILING_RULE_RE = new RegExp(String.raw`(?<![^\S\n])[^\S\n]*\(${RULE_NAME}\)[^\S\n]*$`);
 
 /** The problems of a --formatter tap report. */
 function tap(lines) {
