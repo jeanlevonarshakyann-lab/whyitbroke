@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- git's list of the files a checkout would overwrite goes on past a gap in a capture. A
+  long list in a long log is cut by the cap - its start kept with the error, its end in
+  the tail - and the list stopped at the marker, so the files after it went unread. Rows
+  past the marker are now read as part of the list when they are indented as its rows are.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began

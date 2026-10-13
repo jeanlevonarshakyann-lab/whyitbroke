@@ -195,6 +195,9 @@ function trimStartToLine(buf, before) {
  *  that never happened. This line says what is missing and matches no extractor. */
 export const elision = (bytes) =>
   `\n~~~ whyitbroke: ${bytes} bytes of output elided here (raise --max-bytes to keep them) ~~~\n`;
+/** The marker's own line, for a reader that reads a block of lines: what is on the far side
+ *  of it may be the rest of the block, or something else altogether. */
+export const ELIDED = /^~~~ whyitbroke: \d+ bytes of output elided here /;
 
 /** Accumulate bounded output, keeping the head, probable diagnostic windows and tail.
  *
