@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- On Windows, a path written with forward slashes is shown relative to the working
+  directory too. Go writes its frames there as `D:/a/app/t/shop_test.go`, and the working
+  directory is `D:\a\app`: the two were compared before their separators were, so the
+  location was shown in full.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
