@@ -157,7 +157,10 @@ function reported(s, lines) {
     lines.forEach((line, i) => {
       const m = line.match(AZURE_RE);
       if (!m) return;
-      const props = Object.fromEntries(m[1].split(";").map((p) => p.trim().split("=")).filter(([k, v]) => k && v !== undefined));
+      // A property is its name up to the first `=`, and the rest is its value - which a file can
+      // hold an `=` in, as Azure reads it.
+      const props = Object.fromEntries(m[1].split(";").map((p) => p.trim()).filter((p) => p.indexOf("=") > 0)
+        .map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]));
       if (!CODE.test(props.code ?? "") || !PYTHON.test(props.sourcepath ?? "")) return;
       out.push(withSource(finding(props.sourcepath, +props.linenumber || undefined, +props.columnnumber || undefined, props.code, m[2].trim()), i, i + 1));
     });
