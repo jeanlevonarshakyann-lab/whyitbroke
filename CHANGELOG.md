@@ -20,6 +20,13 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
+- A name is read to the delimiter its tool writes after it. Python writes a frame's file raw
+  between quotes, so the file can hold `", line 900, in ` itself, and the traceback, unittest
+  and pytest readers took the first such text for the frame's own: a file named
+  `boom", line 900, in fake.py` was the file `boom` at line 900. The function after it is an
+  identifier, which cannot hold that text, so the file now runs to the last of them. And
+  terraform fmt's diff header for a root-level file named ` main.tf`, `--- old/ main.tf`, is
+  read: the path starts straight after `old/`, whatever it starts with.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,

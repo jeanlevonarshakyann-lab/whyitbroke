@@ -115,7 +115,7 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   "^diff [^\\s]+\\.orig [^\\s]+[^\\S\\n]*$",
   // `terraform fmt -check -diff` is the same problem a third time. Its header is the pair
   // `--- old/<path>` / `+++ new/<path>`, and the file is named nowhere else in the diff.
-  "^--- old/[^\\s][^\\n]*$",
+  "^--- old/[^\\n]*\\S",
   // go's module loader writes no failure word at all. "go: <module>@<version>: <reason>"
   // and the "go: <package> imports" chain are the whole log of a failed `go mod tidy`,
   // and the chain's own lines are indented, so nothing in it anchors either.
