@@ -1,6 +1,6 @@
 import { isNoise, pinnedStart } from "../util.js";
 import { withSource } from "../ownership.js";
-import { v8Frame } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 // mocha numbers its failures under a tally, and splits each one over two lines: the
 // suite on the numbered line, the test indented under it with a trailing colon.
@@ -26,7 +26,11 @@ const NAME_RE = /^[^\S\n]+(\S.*):[^\S\n]*$/;
 // so the class name cannot require a prefix.
 const ERROR_RE = /^[^\S\n]*(\w*(?:Error|Exception)(?:[^\S\n]+\[[\w_]+\])?):[^\S\n]*(.*)$/;
 // A frame under the error, as V8 writes it - see v8Frame.
-const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
+// An ES module's frames are URLs, `file:///repo/test.mjs:4:7`, and a URL is the path it names.
+const frameAt = (line) => {
+  const frame = v8Frame(line, { indented: true, unclosed: "split" });
+  return frame && { ...frame, file: fileReference(frame.file) };
+};
 // A file mocha could not even load never reaches the tally. Deliberately not anchored:
 // such a log is almost entirely stack frames, so a runner prefix and the frames' own
 // indentation share a prefix, and stripping it takes the indentation with it. "Exception

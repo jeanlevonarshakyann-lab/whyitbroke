@@ -1,5 +1,6 @@
 import { isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
+import { fileReference } from "../location.js";
 
 // `deno run` and `deno check`, as opposed to `deno test` - which has its own parser and
 // its own shape. Deno writes the word in lower case and puts its frames on file:// URLs:
@@ -28,7 +29,7 @@ const CARET_RE = /^[^\S\n]*\^+[^\S\n]*$/;
 // "Type checking failed." is the tally, not the diagnosis - the TS lines above it are.
 const TALLY_RE = /^error: (?:Type checking failed\.|Build failed\.)$/;
 
-const unfile = (p) => (p.startsWith("file://") ? decodeURIComponent(p.slice(7)) : p);
+const unfile = fileReference;
 
 export default {
   name: "deno",
@@ -111,7 +112,7 @@ export default {
       if (!check && !frames.some((f) => f.url)) continue;
 
       // A module it could not resolve names the missing file as a URL inside the message.
-      const message = (check ? check[2] : err[2]).replace(/"file:\/\/(\S+?)"/g, (_, p) => `"${decodeURIComponent(p)}"`);
+      const message = (check ? check[2] : err[2]).replace(/"(file:\/\/\S+?)"/g, (_, url) => `"${fileReference(url)}"`);
 
       failures.push(withSource({
         file: at?.file, line: at?.line, col: at?.col,

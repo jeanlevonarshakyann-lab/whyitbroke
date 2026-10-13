@@ -1,5 +1,6 @@
 import { elements, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
+import { fileReference } from "../location.js";
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
 const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
 // Not everything ruff reports has a rule code. A file it cannot parse is reported as
@@ -83,7 +84,9 @@ const GITLAB_MARK = (v) => Array.isArray(v) && v.length > 0 && v.every((d) =>
   CODE.test(d?.check_name ?? "") && PYTHON.test(d.location?.path ?? "") &&
   String(d.description ?? "").startsWith(`${d.check_name}: `));
 const AZURE_RE = /^##vso\[task\.logissue\b([^\]]*)\](.*)$/;
-const unfile = (uri) => (String(uri).startsWith("file://") ? decodeURIComponent(String(uri).slice(7)) : String(uri));
+// ruff's SARIF names each file by a URL - `file:///C:/work/a.py` on Windows - and a URL is the
+// path it names: see fileReference in location.js.
+const unfile = (uri) => fileReference(String(uri));
 const placed = (failure, { start, end }) => withSource(failure, start, end);
 const finding = (file, line, col, code, message) => ({
   file, line, ...(col ? { col } : {}), title: code ?? "ruff", ...(code ? { code } : { label: "ruff" }),
