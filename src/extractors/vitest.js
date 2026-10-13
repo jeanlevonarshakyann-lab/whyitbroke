@@ -45,15 +45,29 @@ export const LOC_RE = pinnedStart(String.raw`^[^\S\n]*[❯>]`, { tail: String.ra
 // no function, would be read as a function called after it; a frame inside a named
 // function is the far commoner of the two. The frame in vitest's own bundler, or in a
 // dependency, is not where the failure is: the first frame in your code is.
+/** The part of a frame's text that names `expected`: all of it, or what follows a space in it -
+ *  the function in front - and either the file itself or the end of its whole path. */
+function namedIn(text, expected) {
+  for (let at = 0; ; ) {
+    const said = text.slice(at);
+    if (said === expected || expected.endsWith(`/${said}`) || expected.endsWith(`\\${said}`)) return said;
+    const space = text.indexOf(" ", at);
+    if (space < 0) return null;
+    at = space + 1;
+  }
+}
+
 function frameOf(line, expectedFile) {
   const m = line.match(LOC_RE);
   if (!m) return null;
   let file = m[1];
-  // The FAIL heading gives the exact file for this block. It resolves the otherwise
-  // ambiguous root-level path with spaces; without it, the first word looks exactly
-  // like the function in a named frame such as "lookup cart.js".
-  if (expectedFile && (file === expectedFile || file.endsWith(` ${expectedFile}`))) {
-    file = expectedFile;
+  // The file this block is about - the FAIL heading's, a JUnit case's classname, an
+  // annotation's whole path - resolves the otherwise ambiguous root-level path with spaces;
+  // without it, the first word looks exactly like the function in a named frame such as
+  // "lookup cart.js".
+  const named = expectedFile && namedIn(file, expectedFile);
+  if (named) {
+    file = named;
   } else {
     const space = file.indexOf(" ");
     if (space > 0 && !/[\\/]/.test(file.slice(0, space)) && file.slice(space + 1).trim()) file = file.slice(space + 1).trim();
@@ -208,7 +222,7 @@ function vitestJunit(s) {
     if (!outcome) continue;
     const body = xmlText(outcome[3] ?? "").split("\n");
     let file = a.classname, line, col;
-    const frame = ownFrame(body, 0, body.length);
+    const frame = ownFrame(body, 0, body.length, a.classname);
     if (frame) ({ file, line, col } = frame);
     // The first line of the body is the message with its class in front of it, which is
     // what the pretty reporter prints; the attribute holds the same text without it.
@@ -235,7 +249,7 @@ function vitestAnnotations(s) {
     if (parts.length < 2 || base(parts[0]) !== base(a.props.file)) continue;
     const body = a.message.split("\n");
     let file = a.props.file, line = +a.props.line || undefined, col = +(a.props.column ?? a.props.col) || undefined;
-    const frame = ownFrame(body, 0, body.length);
+    const frame = ownFrame(body, 0, body.length, a.props.file);
     if (frame) ({ file, line, col } = frame);
     const name = parts.slice(1).join(" > ");
     out.push(withSource({
