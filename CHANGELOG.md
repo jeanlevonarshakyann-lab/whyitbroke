@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A file URL is read as the path it names by every reader of one. Clang's and ruff's SARIF,
+  deno's frames and messages, node's test reporters and the last resort took `file://` off
+  and decoded the rest, so a drive's `file:///C:/work/a.py` was the file `/C:/work/a.py`
+  and a host's `file://server/share/a.py` was `server/share/a.py`; and mocha's text, JSON
+  and xUnit readers kept an ES module's frame, `file:///repo/test.mjs:4:7`, as a URL, which
+  no file is. Each now reads it as location.js's fileReference does.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,

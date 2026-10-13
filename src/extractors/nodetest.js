@@ -15,6 +15,7 @@
 // block scalar, so its content is the following lines indented one level deeper.
 import { isNoise, pinnedMessage, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
+import { fileReference } from "../location.js";
 
 // It ends where the trailing whitespace starts - see pinnedMessage in util.js.
 export const NOT_OK_RE = pinnedMessage(String.raw`^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
@@ -38,9 +39,7 @@ export const ALT_FAILURE_RE = pinnedMessage("^✖", { separator: "", least: 0,
 // Where it starts is held - see pinnedStart in util.js.
 export const ALT_LOCATION_RE = pinnedStart(String.raw`^(?:test|suite)[^\S\n]+at`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 
-const unfile = (path) => path?.startsWith("file://")
-  ? decodeURIComponent(path.slice(7))
-  : path;
+const unfile = (path) => path && fileReference(path);
 
 /** Node writes YAML single quotes normally and switches to double quotes when the path
  * itself contains an apostrophe. Decode that scalar first, then take coordinates from

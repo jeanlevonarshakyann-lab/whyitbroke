@@ -577,5 +577,44 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL printing flags\n       ${e.message}`); fail++; }
 
+// A file URL names a path, and every reader of one reads it as that path - a drive's,
+// `file:///C:/work/a.py`, as `C:/work/a.py`, and a host's, `file://server/share/a.py`, as
+// `//server/share/a.py` - as location.js's fileReference does. Five readers took `file://` off
+// and decoded the rest, which made a drive's `/C:/work/a.py` and a host's `server/share/a.py`,
+// and mocha's three readers kept an ES module's frame, `file:///repo/test.mjs:4:7`, as a URL.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const urls = [["file:///C:/work/", "C:/work/"], ["file://server/share/", "//server/share/"]];
+  const moved = (rows, path, as) => rows.map(([file, line, message]) =>
+    [file?.startsWith(path) ? as + file.slice(path.length) : file, line, message?.replaceAll(`"${path}`, `"${as}`)]);
+  for (const [name, url, path] of [
+    ["clang_sarif_fail.txt", "file:///home/dev/clang-sarif/", "/home/dev/clang-sarif/"],
+    ["ruff_sarif_fail.txt", "file:///home/dev/ruff/", "/home/dev/ruff/"],
+    ["denorun_crash_fail.txt", "file:///home/dev/app/", "/home/dev/app/"],
+    ["deno_import_fail.txt", "file:///home/dev/app/", "/home/dev/app/"],
+    ["nodetest_reporter_junit_fail.txt", "file:///home/dev/", "/home/dev/"],
+  ]) {
+    const text = fx(name);
+    assert.ok(text.includes(url), `${name} names no ${url}`);
+    for (const [to, as] of urls) assert.deepEqual(read(text.replaceAll(url, to)), moved(read(text), path, as), `${name} at ${to}`);
+  }
+  // An ES module's frames are URLs, where a CommonJS module's are paths.
+  for (const [name, frame] of [["mocha_fail.txt", "(test/sum.test.js:"], ["mocha_json_same_fail.txt", "(test/cart.test.js:"], ["mocha_xunit_fail.txt", "(test_shop.cjs:"]]) {
+    const text = fx(name), file = frame.slice(1, -1);
+    assert.ok(text.includes(frame), `${name} has no frame ${frame}`);
+    for (const [to, as] of [["file:///repo/", "/repo/"], ...urls]) {
+      const rows = read(text.replaceAll(frame, `(${to}${frame.slice(1)}`));
+      assert.deepEqual(rows, read(text).map(([f, line, message]) => [f === file ? as + file : f, line, message]), `${name} at ${to}`);
+    }
+  }
+  // ...and the last resort, which reads the frame under what it took for the failure.
+  for (const [to, as] of urls) {
+    const rows = read(`FATAL: deploy aborted\n    at ${to}app/deploy.mjs:12:5\n`);
+    assert.deepEqual(rows?.map(([file, line]) => [file, line]), [[`${as}app/deploy.mjs`, 12]], `the last resort at ${to}`);
+  }
+  console.log("  ok   a file URL is read as the path it names, by every reader of one");
+  pass++;
+} catch (e) { console.log(`  FAIL file urls\n       ${e.message}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

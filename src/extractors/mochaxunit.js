@@ -7,10 +7,14 @@
 // what tells this apart from every other tool that writes a JUnit-shaped report.
 import { xmlText, xmlAttributes, isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
-import { v8Frame } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 const ROOT_RE = /<testsuite\b[^>]*\bname="Mocha Tests"/;
-const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
+// An ES module's frames are URLs, `file:///repo/test.mjs:4:7`, and a URL is the path it names.
+const frameAt = (line) => {
+  const frame = v8Frame(line, { indented: true, unclosed: "split" });
+  return frame && { ...frame, file: fileReference(frame.file) };
+};
 const MAX_MESSAGE_LINES = 3;
 
 export default {
