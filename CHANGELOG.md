@@ -20,6 +20,12 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
+- A JSON report written on one line survives the cap however long it grows. rubocop and
+  jest write theirs on one line that grows with what they found, and a line still unended
+  after 64KiB of it was skipped to its end, so that a minified blob could not hold the
+  capture: past the cap, a report in the middle of a log, or across the start of its tail,
+  came back as the marker alone. A line that opens a JSON document whose start reads like a
+  diagnostic is now read on, for as long as the diagnostic budget could still keep it.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,

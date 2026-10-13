@@ -305,6 +305,48 @@ test("a clipped structured record cannot invent a diagnosis", () => {
   }
 });
 
+// rubocop and jest write their JSON reports on one line, and the line grows with what they
+// found. A line still unended after 64KiB of it is skipped to its end, so that a minified
+// blob cannot hold the scan - and a report that outgrew it in the middle of a log past the
+// cap came back as the marker alone. So did one across the start of the tail, which the
+// tail does not keep a part of.
+test("a one-line report longer than the scan survives the cap", () => {
+  const report = (name, grow) => JSON.stringify(grow(JSON.parse(fx(name))));
+  const rubocop = report("rubocop_json_fail.txt", (r) => {
+    r.files = Array.from({ length: 120 }, (_, k) => ({ ...r.files[k % r.files.length], path: `app/models/m${k}.rb` }));
+    r.summary = { ...r.summary, offense_count: r.files.reduce((n, f) => n + f.offenses.length, 0),
+      target_file_count: r.files.length, inspected_file_count: r.files.length };
+    return r;
+  });
+  const jest = report("jest_json_assertions_fail.txt", (r) => {
+    r.testResults = Array.from({ length: 30 }, (_, k) => ({ ...r.testResults[0], name: `/home/dev/app/src/m${k}.test.js` }));
+    return r;
+  });
+  const MiB = 1024 * 1024, filler = (bytes) => "info: compiling module of the build graph\n".repeat(Math.ceil(bytes / 42));
+  for (const [tool, line] of [["rubocop", rubocop], ["jest", jest]]) {
+    assert.ok(line.length > 64 * 1024 && line.length < MiB / 4, `${tool}: a report of ${line.length} bytes`);
+    const alone = analyse(line);
+    assert.equal(alone?.tool, tool);
+    // In the middle, and across the start of the tail: 3/4MiB of a 1MiB cap.
+    for (const after of [MiB, MiB * 3 / 4 - 1000]) {
+      const text = filler(MiB / 2) + filler(MiB) + line + "\n" + filler(after);
+      for (const chunk of [16 * 1024, 65536]) {
+        const kept = capture(text, MiB, chunk);
+        assert.equal(kept.truncated, true);
+        assert.ok(kept.text.includes("\n" + line + "\n"), `${tool}, ${after} bytes after it, in chunks of ${chunk}: the report was not kept`);
+        const read = analyse(kept.text);
+        assert.equal(read?.tool, tool);
+        assert.deepEqual(read.failures.map((f) => [f.file, f.line, f.message]), alone.failures.map((f) => [f.file, f.line, f.message]));
+      }
+    }
+  }
+  // A long line that is no document is still skipped to its end: a minified bundle that
+  // says "Error" is not a diagnosis.
+  const bundle = "!function(){" + "var a=new Error(\"x\");".repeat(8000) + "}();";
+  const kept = capture(filler(MiB / 2) + filler(MiB) + bundle + "\n" + filler(MiB), MiB, 16 * 1024);
+  assert.ok(!kept.text.includes(bundle.slice(0, 1000)), "a minified bundle was kept");
+});
+
 test("output that is not UTF-8 stays within the cap", () => {
   // A byte that is not UTF-8 reads as U+FFFD, three bytes of text. Output under the cap
   // came back whole, so 1024 such bytes handed back 3072 under a cap of 1024.
