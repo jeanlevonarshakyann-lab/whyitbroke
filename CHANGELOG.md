@@ -29,6 +29,10 @@
   beside the lines around it, in one buffer. The same captures hold 5MiB and 13MiB, and
   9MiB that fits is captured in 19ms instead of 314ms. What comes back is the same, byte
   for byte.
+- A sass error under a deep trace is read to the trace's end. sass ends every trace with
+  `root stylesheet`, and in its ASCII drawing that frame is all that says the error is
+  sass's; a diagnostic was read only forty lines past its heading, so a mixin sixty calls
+  deep left the error unread. The trace is now read to its end, however deep.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began
