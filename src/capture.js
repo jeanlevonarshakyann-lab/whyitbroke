@@ -252,8 +252,10 @@ export function createCapture(maxBytes) {
   const parts = [];
   let partsBytes = 0;
   let lineStart = 0;
-  // A line that outgrows the scan is skipped to its end, and none of it is kept.
+  // A line that outgrows the scan is skipped to its end, and none of it is kept...
   let skipping = false;
+  // ...unless it opens a report, which is read on whole: see read().
+  let outgrown = false;
   // A carriage return at the end of a chunk ends its line unless a newline comes next.
   let endsOnCr = false;
   // How many newlines have ended lines so far, which is the line a record starts on: a
@@ -296,7 +298,15 @@ export function createCapture(maxBytes) {
     diagnosticBytes += record.buf.length;
   };
 
-  const considerLine = (view, start) => {
+  // The lines read so far are as far as context reaches: a line skipped between two leaves
+  // neither one beside the other.
+  const breakContext = () => {
+    for (const record of recent) storeLine(record);
+    recent = [];
+    after = 0;
+  };
+
+  const considerLine = (view, start, long = false) => {
     // The line is not copied here, only a line that is saved, into the store, once it is no
     // longer one of the last few read: a view into a large stream chunk keeps the whole
     // chunk alive, which for a few lines costs little, and for every saved line would
@@ -312,8 +322,16 @@ export function createCapture(maxBytes) {
     // Colour codes destroy the word boundaries above too: deno writes
     // "\x1b[31merror\x1b[0m:", where the "m" ending the escape sits against the "e" and
     // \berror never matches. Only pay for that strip when there is an escape to strip.
-    const raw = view.toString("utf8");
-    const interesting = PROBABLE_DIAGNOSTIC.test(raw.includes("\u001b") ? stripAnsi(raw) : raw);
+    //
+    // A line read on past the scan was read as a diagnostic by what the scan held of it, and
+    // is kept as one or not at all, as every line that outgrows the scan was: not as context,
+    // and not to wait among the last few read.
+    const raw = long ? "" : view.toString("utf8");
+    const interesting = long || PROBABLE_DIAGNOSTIC.test(raw.includes("\u001b") ? stripAnsi(raw) : raw);
+    if (long) {
+      saveDiagnostic(record);
+      if (!record.saved) { breakContext(); return; }
+    }
     if (interesting) {
       saveDiagnostic(record);                 // the diagnostic itself outranks context
       for (let i = recent.length - 1; i >= 0; i--) saveDiagnostic(recent[i]);
@@ -331,13 +349,30 @@ export function createCapture(maxBytes) {
   const endLine = (buf, from, end, start) => {
     if (!skipping) {
       parts.push(buf.subarray(from, end));
-      considerLine(parts.length === 1 ? parts[0] : Buffer.concat(parts, partsBytes + end - from), lineStart);
+      considerLine(parts.length === 1 ? parts[0] : Buffer.concat(parts, partsBytes + end - from), lineStart, outgrown);
     }
     if (end > from && buf[end - 1] === NL) linesEnded++;
     parts.length = 0;
     partsBytes = 0;
     skipping = false;
+    outgrown = false;
     lineStart = start + end;
+  };
+
+  // Whether the line being read opens a report: a JSON document - `{` or `[`, after any
+  // indentation - whose part the scan holds reads like a diagnostic.
+  const opensReport = () => {
+    let opens = false;
+    found: for (const part of parts) {
+      for (let i = 0; i < part.length; i++) {
+        if (part[i] !== 0x20 && part[i] !== 0x09) { opens = part[i] === 0x7b || part[i] === 0x5b; break found; }
+      }
+    }
+    if (!opens) return false;
+    const first = [];
+    for (let k = 0, n = 0; k < parts.length && n < scanLineMax; n += parts[k++].length) first.push(parts[k]);
+    const head = Buffer.concat(first).subarray(0, scanLineMax).toString("utf8");
+    return PROBABLE_DIAGNOSTIC.test(head.includes("\u001b") ? stripAnsi(head) : head);
   };
 
   // Lines end at a newline, at a carriage return and newline together, and at a carriage
@@ -377,13 +412,23 @@ export function createCapture(maxBytes) {
     // An unbroken minified blob must not become an unbounded scanner buffer. Such a
     // partial line is not useful context, so it is skipped to its end without holding
     // any of it - holding its last 64KiB copied them again for every chunk that arrived.
+    //
+    // A report is the exception. rubocop and jest write their JSON reports on one line that
+    // grows with what they found, and past the scan the report in the middle of a log was
+    // the marker alone. A line that opens a report is read on, for as long as what is left
+    // of the diagnostic budget could still save it - which is what it holds at most - and
+    // then it is skipped like any other. Whether it does is read once, from what the scan
+    // holds: a document of a megabyte that is no report costs no more than before.
     if (ends && partsBytes > scanLineMax) {
-      parts.length = 0;
-      partsBytes = 0;
-      skipping = true;
-      for (const record of recent) storeLine(record);
-      recent = [];
-      after = 0;
+      if (partsBytes <= diagnosticMax - diagnosticBytes && (outgrown || opensReport())) {
+        outgrown = true;
+      } else {
+        parts.length = 0;
+        partsBytes = 0;
+        skipping = true;
+        outgrown = false;
+        breakContext();
+      }
     }
   };
 
@@ -461,7 +506,7 @@ export function createCapture(maxBytes) {
         allRead = true;
         readHead();
         for (let i = tailFrom, at = totalBytes - tailBytes; i < tail.length; at += tail[i++].length) read(tail[i], at, true);
-        if (partsBytes && !skipping) considerLine(Buffer.concat(parts, partsBytes), lineStart);
+        if (partsBytes && !skipping) considerLine(Buffer.concat(parts, partsBytes), lineStart, outgrown);
         for (const record of recent) storeLine(record);
         recent = [];
       }
