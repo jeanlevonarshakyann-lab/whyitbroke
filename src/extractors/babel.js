@@ -39,8 +39,11 @@ export default {
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(HEAD_RE);
       if (!m) continue;
-      // A path is a path; anything else in that position is part of the message.
-      if (!/[/\\]|\.\w+$/.test(m[2])) continue;
+      // A path is a path; anything else in that position is part of the message - but for
+      // `unknown`, which is what babel names code it read from stdin with no filename given:
+      // that error is babel's all the same, in no file.
+      const stdin = m[2] === "unknown";
+      if (!stdin && !/[/\\]|\.\w+$/.test(m[2])) continue;
       if (isNoise(m[2])) continue;
       const key = `${m[2]}:${m[4]}:${m[5]}`;
 
@@ -53,7 +56,7 @@ export default {
       // column in its header from 0 - `const x = ;` fails at `(1:10)`, with the caret under
       // the semicolon, the eleventh character - and a column here counts from 1.
       const failure = withSource({
-        file: m[2], line: +m[4], col: +m[5] + 1,
+        file: stdin ? undefined : m[2], line: +m[4], col: +m[5] + 1,
         title: m[1], code: m[1], severity: "error",
         message: m[3].trim(), stmt,
       }, i, end);
