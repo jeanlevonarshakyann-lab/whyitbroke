@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A line of `go test -json` output longer than a kilobyte comes back whole. test2json
+  writes such a line as several output events and ends only the last with a newline, and
+  each was read as a line of its own: a long failure message was cut at its first
+  kilobyte. The pieces - output that filled test2json's buffer - are joined again.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began
