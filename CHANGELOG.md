@@ -11,6 +11,15 @@
   beside the lines around it, in one buffer. The same captures hold 5MiB and 13MiB, and
   9MiB that fits is captured in 19ms instead of 314ms. What comes back is the same, byte
   for byte.
+- A lint plugin's findings are read whatever the plugin is called. Each reader allowed rule
+  names of its own making, and a finding whose rule was named any other way was dropped
+  from the row that reported it, or lost its rule: stylelint's `@stylistic/indentation`,
+  eslint's `local.plugin/no-foo`, a deno lint plugin's `my-plugin/no-foo`, oxlint's
+  `@pandacss(no-physical-properties)` in every format, and ruff's rule names -
+  `unused-import`, written in place of `F401` when preview's `output-prefer-rule-codes`
+  is off. A rule is now named as these tools name one: parts joined by `/`, each of word
+  characters, `-` and `.`, the first led by `@` for a scope - and for ruff, its code or
+  its name.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began

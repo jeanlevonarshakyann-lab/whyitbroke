@@ -1,4 +1,4 @@
-import { findJsonDocument, jsonDocumentsAt, pinnedMessage, pinnedStart } from "../util.js";
+import { findJsonDocument, jsonDocumentsAt, pinnedMessage, pinnedStart, RULE_NAME } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 // `deno lint` and `deno fmt --check` - deno's linter and formatter, as opposed to
@@ -17,8 +17,9 @@ import { fileReference } from "../location.js";
 //
 // What tells the two apart is on the lines themselves. rustc's code is E and four digits
 // and its file ends in .rs; a deno lint rule is a lowercase kebab-case name and its file
-// is JavaScript or TypeScript. Both are required, on each finding.
-const RULE = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
+// is JavaScript or TypeScript. Both are required, on each finding. A rule from a lint
+// plugin is named after the plugin, `my-plugin/no-foo`, and was a finding no format read.
+const RULE = `(?:${RULE_NAME}\\/)?[a-z][a-z0-9]*(?:-[a-z0-9]+)*`;
 const SCRIPT = /\.(?:[cm]?[jt]sx?)$/;
 // It ends where the trailing whitespace starts - see pinnedMessage in util.js.
 export const HEAD_RE = pinnedMessage(`^error\\[(${RULE})\\]:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });

@@ -31,6 +31,25 @@ export function runCases(CASES) {
   return { pass, fail };
 }
 
+/** `file` read once `rename` has renamed the rules it names, held to `file` read as it is: the
+ *  same failures, each with its rule as `renamed` says it is now. A reader that reads a
+ *  plugin's findings has to read them whatever the plugin calls its rules. */
+export function readsRenamed(file, rename, renamed = (code) => code) {
+  const text = fx(file), changed = rename(text);
+  assert.notEqual(changed, text, `${file}: names nothing to rename`);
+  const before = analyse(text), after = analyse(changed);
+  assert.equal(after?.tool, before.tool, `${file}: read as ${after?.tool} once its rules were renamed`);
+  const read = (r, code, message) => r.failures.map((f) => [f.file, f.line, f.col, code(f.code), message(f.message)]);
+  assert.deepEqual(read(after, (c) => c, (m) => m), read(before, renamed, (m) => (m === undefined ? m : rename(m))),
+    `${file}: read otherwise once its rules were renamed`);
+}
+
+/** Renames every rule `file` is read as naming, wherever it is named in it, to `to(rule)`. */
+export function renamingRules(file, to) {
+  const rules = [...new Set(analyse(fx(file)).failures.map((f) => f.code).filter(Boolean))];
+  return (text) => rules.reduce((t, rule) => t.replace(new RegExp(String.raw`(?<![\w@./-])${rule}(?![\w./-])`, "g"), to(rule)), text);
+}
+
 // A tool's --format flag changes how a run is printed, not what happened in it. So two
 // captures of ONE run, taken in two formats, have to arrive at the same failures - and
 // the way these parsers broke was always the same shape: one format was read, the others

@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
 import { poetry as poetryParser } from "../../src/extractors/pyresolve.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsRenamed, renamingRules, runCases } from "./harness.js";
 
 const CASES = [
   // Captured with pyright 1.x. It puts the column after the line with a dash between
@@ -750,6 +750,17 @@ try {
   console.log("  ok   a poetry chain with no closing line is not read to the end of the log");
   pass++;
 } catch (e) { console.log(`  FAIL unclosed poetry chain\n       ${e.message}`); fail++; }
+
+// With preview's output-prefer-rule-codes off, ruff names each rule instead of giving its
+// code - `unused-import` for F401 - and no text format read a finding named that way.
+try {
+  const NAMES = { F401: "unused-import", F841: "unused-variable" };
+  for (const file of ["ruff_fail.txt", "ruff_concise_fail.txt", "ruff_grouped_fail.txt", "ruff_github_fail.txt"]) {
+    readsRenamed(file, renamingRules(file, (code) => NAMES[code] ?? code), (code) => NAMES[code] ?? code);
+  }
+  console.log("  ok   ruff's findings are read by the rule's name as by its code");
+  pass++;
+} catch (e) { console.log(`  FAIL ruff rule names\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
