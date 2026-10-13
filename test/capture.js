@@ -409,5 +409,40 @@ test("a buried failure survives the cap, whatever tool wrote it", () => {
   console.log(`       ${checked} fixtures buried in 3MB of chatter and capped to 120KB`);
 });
 
+// Some tools name what failed in rows with no failure word in them, under a footer with
+// one: the footer's eight lines of context kept the last rows of a long list, and nothing
+// kept the rest. Others write nothing an English failure word can find at all.
+test("rows that name a failure without a failure word survive the cap", () => {
+  const line = "  vite:build transforming src/components/Widget.tsx +2ms\n";
+  const chatter = line.repeat(Math.ceil(1_500_000 / line.length));
+  const files = Array.from({ length: 40 }, (_, k) => `src/module${k}.js`);
+  const logs = [
+    // A merge that conflicted in forty files...
+    ["git", files.map((f) => `Auto-merging ${f}\nCONFLICT (content): Merge conflict in ${f}\n`).join("") +
+      "Automatic merge failed; fix conflicts and then commit the result.\n"],
+    // ...and a push that had thirty refs refused.
+    ["git", "To github.com:acme/app.git\n" +
+      Array.from({ length: 30 }, (_, k) => ` ! [rejected]        release/${k} -> release/${k} (non-fast-forward)\n`).join("") +
+      "error: failed to push some refs to 'github.com:acme/app.git'\n"],
+    // Testing Platform in German, failing on an exception that names nothing in English.
+    ["dotnet test", ["fehlerhaft AppliesDiscount (7ms)", "  ShopTests.RabattFehlt: Rabatt fehlt",
+      "  von /home/dev/shop/ShopTests/bin/Debug/net10.0/ShopTests.dll (net10.0|arm64)", "  ShopTests.RabattFehlt: Rabatt fehlt",
+      "    um ShopTests.CartTests.AppliesDiscount() in /home/dev/shop/ShopTests/Test1.cs:15",
+      "    um System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)", ""].join("\n")],
+    // A recursive pnpm run with its prefixes hidden prints a package's failure as a bare row.
+    ["pnpm", ' ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND  No package.json (or package.yaml, or package.json5) was found in "/home/dev/app/packages/web".\n'],
+  ];
+  for (const [tool, log] of logs) {
+    const plain = analyse(log);
+    assert.equal(plain?.tool, tool);
+    const c = createCapture(120_000);
+    for (const part of [chatter, log, chatter]) c.push(Buffer.from(part));
+    const got = analyse(c.finish().text);
+    const read = (r) => r?.failures.map((f) => f.file ?? f.message);
+    assert.equal(got?.tool, tool, `buried, a ${tool} log was read as ${got?.tool}`);
+    assert.deepEqual(read(got), read(plain), `buried, a ${tool} log lost failures`);
+  }
+});
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
