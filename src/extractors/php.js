@@ -13,6 +13,7 @@
 // collapses them - which is why nothing here counts blocks.
 import { withSource } from "../ownership.js";
 import { lazyIn, pinnedMessage, tailFirst } from "../util.js";
+import { lastPathIn } from "../location.js";
 
 // Each header is matched as its pattern matches it, without trying the rest of a long line
 // again from every ` in ` in it. "PHP " may come first, and then `word`: where it ends, or -1.
@@ -113,14 +114,19 @@ export default {
         if (frames.length) trace = frames.slice(0, 4);
       }
 
+      // Each was read at the first " in ", and a message can say "in" itself: "the name is
+      // already in use in /a.php" came back as the message "...already" in the file
+      // "use in /a.php". The file is the path after the last " in " - see lastPathIn.
+      const at = (m, message, file) => lastPathIn(m[message], m[file]);
+      const thrown = uncaught && at(uncaught, 2, 3);
       failures.push(withSource(uncaught
-        ? { file: uncaught[3], line: +uncaught[4], title: uncaught[1], code: uncaught[1],
-            severity: "error", message: uncaught[2].replace(INCLUDE_PATH, ""), trace }
+        ? { file: thrown.file, line: +uncaught[4], title: uncaught[1], code: uncaught[1],
+            severity: "error", message: thrown.message.replace(INCLUDE_PATH, ""), trace }
         : fatal
-          ? { file: fatal[2], line: +fatal[3], title: "fatal error", label: "fatal error",
-              severity: "error", message: fatal[1], trace }
-          : { file: parse[2], line: +parse[3], title: "parse error", label: "parse error",
-              severity: "error", message: parse[1] }, i, end));
+          ? { ...at(fatal, 1, 2), line: +fatal[3], title: "fatal error", label: "fatal error",
+              severity: "error", trace }
+          : { ...at(parse, 1, 2), line: +parse[3], title: "parse error", label: "parse error",
+              severity: "error" }, i, end));
     }
 
     if (!failures.length) return null;

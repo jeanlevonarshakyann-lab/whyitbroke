@@ -29,6 +29,13 @@
   beside the lines around it, in one buffer. The same captures hold 5MiB and 13MiB, and
   9MiB that fits is captured in 19ms instead of 314ms. What comes back is the same, byte
   for byte.
+- A PHP or Less error whose message says "in" names the file after its last " in ". Both
+  name the file after an " in ", and both were read at the first: PHP's "the name is
+  already in use in /var/www/app/Foo.php" came back as the message "...already" in the
+  file "use in /var/www/app/Foo.php", "previously declared in /app/a.php:3) in
+  /app/b.php" as the wrong file, and a missing Less import named `theme in progress.less`
+  as a file made of the rest of the sentence. The file is now the path written whole after
+  the last " in "; a path with " in " in it is still read whole.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began
