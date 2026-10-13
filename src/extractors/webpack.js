@@ -18,6 +18,9 @@ export const HEAD_RE = /^(ERROR|WARNING) in ([^\S\n\r\u2028\u2029](?=(?:[^\S\n]+
 // The column in that heading counts from 0: `const x = ;` fails `1:10`, with the caret
 // webpack draws under the semicolon, the eleventh character. A column here counts from 1.
 const TALLY_RE = /^webpack [\d.]+ compiled with (\d+) errors?(?:[^\S\n]+and[^\S\n]+(\d+) warnings?)?/m;
+// "Module not found: Error: ..." and webpack 4's "Entry module not found: Error: ..." each say
+// the same thing twice.
+const NOT_FOUND = /^((?:Entry )?[Mm]odule not found):[^\S\n]*Error:[^\S\n]*/;
 // Where the explanation stops and the resolver's diary begins.
 const TRACE_RE = /^(?:resolve[ds]?[^\S\n]|[^\S\n]+(?:using description file|Field '|aliased from|Failed to alias|doesn't exist|as directory|no extension))/;
 // webpack echoes the offending line with a > marker, like a compiler.
@@ -48,25 +51,34 @@ export default {
       if (!head) continue;
       if (head[1] !== "ERROR") { warnings++; continue; }
 
-      const msg = [];
+      // webpack 4 writes an error that belongs to no module on its heading line, as a sentence:
+      // "ERROR in Entry module not found: Error: Can't resolve './src' in '/project'". A module
+      // is not named with a colon and a space in it, so that is the message, and no file - read
+      // as the file, the error had no explanation at all.
+      const said = !head[3] && /:[^\S\n]/.test(head[2]);
+      const msg = said ? [head[2].trim().replace(NOT_FOUND, "$1: ")] : [];
       // The heading, down to the last line of explanation or drawn source under it - not
       // the resolver's search, which is how webpack looked rather than what it found.
       let stmt, end = i + 1;
       for (let j = i + 1; j < lines.length && j <= i + 20; j++) {
         if (HEAD_RE.test(lines[j]) || TALLY_RE.test(lines[j])) break;
+        // A heading that is the sentence goes on only where the lines under it are indented
+        // into it, as html-webpack-plugin's are. webpack 4's entry error is the whole of it,
+        // and the line after it is whatever ran next.
+        if (said && !/^[^\S\n]+\S/.test(lines[j])) break;
         if (TRACE_RE.test(lines[j]) || ADVICE_RE.test(lines[j])) continue;
         const src = lines[j].match(SOURCE_RE);
         if (src) { stmt ??= src[2].trim(); end = j + 1; continue; }
         if (GUTTER_RE.test(lines[j])) { end = j + 1; continue; }
         if (lines[j].trim() && msg.length < MAX_MESSAGE_LINES) {
           // "Module not found: Error: Can't resolve ..." says the same thing twice
-          msg.push(lines[j].trim().replace(/^Module not found:[^\S\n]*Error:[^\S\n]*/, "Module not found: "));
+          msg.push(lines[j].trim().replace(NOT_FOUND, "$1: "));
           end = j + 1;
         }
       }
 
       failures.push(withSource({
-        file: head[2], line: head[3] ? +head[3] : undefined, col: head[4] ? +head[4] + 1 : undefined,
+        file: said ? undefined : head[2], line: head[3] ? +head[3] : undefined, col: head[4] ? +head[4] + 1 : undefined,
         title: "build error", label: "build error", severity: "error",
         message: msg.join("\n") || "webpack reported an error with no explanation", stmt,
       }, i, end));
