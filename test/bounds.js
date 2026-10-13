@@ -13,6 +13,7 @@
 // read on the same machine a moment earlier. The budget that caps locating ranges is
 // tested without a clock at all.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -318,6 +319,26 @@ test("a log of a million empty lines that names format_version once", () => {
     return process.memoryUsage().arrayBuffers - before;
   }));
   assert.ok(grew < log.length, `deciding a ${(log.length / 1e6).toFixed(0)}MB log took ${(grew / 1e6).toFixed(0)}MB of arrays`);
+});
+
+test("a log of 600,000 short JSON lines, read by every reader of JSON", () => {
+  // The one pass that finds where each line-opening JSON document starts and ends, which every
+  // reader of JSON shares, kept an object and a pair for each: 35MB for this log of 10MB,
+  // held for as long as the log was the last one read. It keeps two numbers for each now.
+  // What a reading holds is measured in a process of its own, collected before and after.
+  const r = spawnSync(process.execPath, ["--expose-gc", "--input-type=module", "-e", `
+    const { analyse } = await import(${JSON.stringify(new URL("../src/index.js", import.meta.url).href)});
+    const log = Buffer.from('{"severity":"x"}\\n'.repeat(616809)).toString();
+    const used = () => { const m = process.memoryUsage(); return m.heapUsed + m.arrayBuffers; };
+    const settle = async () => { gc(); gc(); await new Promise((r) => setTimeout(r, 100)); gc(); gc(); };
+    await settle();
+    const before = used();
+    analyse(log);
+    await settle();
+    console.log((used() - before) / log.length);`], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const held = Number(r.stdout);
+  assert.ok(held < 1, `reading a log of short JSON lines held ${held.toFixed(1)} times the log`);
 });
 
 test("two tools whose findings share no text", () => {

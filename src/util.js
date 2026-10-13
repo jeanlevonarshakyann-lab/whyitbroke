@@ -566,7 +566,8 @@ const spaceOtherThanNewline = (code) => code === 0x09 || code === 0x0d || code =
 // here is 5, Playwright's.
 const MAX_NESTING = 32;
 
-let lastScan = { text: null, spans: [] };
+const NO_SPANS = { count: 0, starts: null, ends: null, foreign: null };
+let lastScan = { text: null, spans: NO_SPANS };
 
 /** Where every JSON document that opens a line begins and ends, in one pass over `text`.
  *
@@ -577,15 +578,25 @@ let lastScan = { text: null, spans: [] };
  *  a line: JSON has no raw newline in a string. So every line that a surviving document
  *  continues onto begins outside a string, the brackets on it mean the same thing to
  *  every document that reaches it, and a document still inside a string at a line's end
- *  is one JSON.parse would have refused anyway. */
+ *  is one JSON.parse would have refused anyway.
+ *
+ *  The documents come back in order of where they start: document k is text[starts[k],
+ *  ends[k]], with the foreign whitespace in it, if any, at foreign.get(k). They are kept as
+ *  numbers in two arrays rather than an object each: a log of 600,000 short JSON lines held
+ *  45MB of objects for its 10MB. */
 function documentSpans(text) {
   if (lastScan.text === text) return lastScan.spans;
   // Most logs hold no bracket at the start of any line, and those need no pass at all.
   // A log that does is read from the line holding the first: a bracket above it is
   // deeper in the stack than any document below it, so it cannot change what they match.
   const first = /^[^\S\n]*[[{]/m.exec(text);
-  if (!first) { lastScan = { text, spans: [] }; return lastScan.spans; }
-  const found = [];              // [start, end] of each line-opening document, as each closes
+  if (!first) { lastScan = { text, spans: NO_SPANS }; return NO_SPANS; }
+  // Each bracket that opens a line, in the order they open: where it is, how many line
+  // ends a string was still open at by then, and where it closes - if it closes as a
+  // document - or -1. The stacks hold, for each bracket still open, which of these it is,
+  // or -1 for one that does not open a line.
+  let opened = 0;
+  let at = new Int32Array(1024), broke = new Int32Array(1024), closed = new Int32Array(1024);
   const stacks = { 0x7b: [], 0x5b: [] };
   const closes = { 0x7d: 0x7b, 0x5d: 0x5b };
   const foreign = [];            // foreign whitespace outside strings, in order
@@ -606,7 +617,17 @@ function documentSpans(text) {
     }
     if (code === 0x22) { inString = true; lineOpen = false; continue; }
     if (code === 0x7b || code === 0x5b) {
-      stacks[code].push({ at: i, opensLine: lineOpen, broken });
+      if (!lineOpen) stacks[code].push(-1);
+      else {
+        if (opened === at.length) {
+          const grow = (old) => { const a = new Int32Array(2 * old.length); a.set(old); return a; };
+          at = grow(at); broke = grow(broke); closed = grow(closed);
+        }
+        at[opened] = i;
+        broke[opened] = broken;
+        closed[opened] = -1;
+        stacks[code].push(opened++);
+      }
       lineOpen = false;
       continue;
     }
@@ -614,34 +635,47 @@ function documentSpans(text) {
       const open = stacks[closes[code]].pop();
       // A string left open at a line end in between means the scan from that bracket
       // would have run on inside it: not a document.
-      if (open?.opensLine && open.broken === broken) found.push([open.at, i]);
+      if (open >= 0 && broke[open] === broken) closed[open] = i;
       lineOpen = false;
       continue;
     }
     if (foreignSpace(code)) foreign.push(i);
     if (!spaceOtherThanNewline(code)) lineOpen = false;
   }
-  found.sort((a, b) => a[0] - b[0]);
+  // The documents, in order of where they start, and where they end, in order of that.
+  let found = 0;
+  for (let k = 0; k < opened; k++) if (closed[k] >= 0) found++;
+  const ends = new Int32Array(found);
+  for (let k = 0, n = 0; k < opened; k++) if (closed[k] >= 0) ends[n++] = closed[k];
+  ends.sort();
   // How many documents contain each start: those opened before it, less those closed
   // before it. Both lists are sorted, so each count is two binary searches.
-  const ends = found.map(([, end]) => end).sort((a, b) => a - b);
   const below = (sorted, value) => {
     let lo = 0, hi = sorted.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] < value) lo = mid + 1; else hi = mid; }
     return lo;
   };
-  const spans = [];
-  found.forEach(([start, end], index) => {
-    if (index - below(ends, start) >= MAX_NESTING) return;
-    const first = below(foreign, start), last = below(foreign, end);
-    spans.push({ start, end, foreign: first < last ? foreign.slice(first, last) : null });
-  });
+  const spans = { count: 0, starts: new Int32Array(found), ends: new Int32Array(found), foreign: null };
+  for (let k = 0, index = 0; k < opened; k++) {
+    if (closed[k] < 0) continue;
+    const start = at[k], end = closed[k];
+    if (index++ - below(ends, start) >= MAX_NESTING) continue;
+    if (foreign.length) {
+      const from = below(foreign, start), to = below(foreign, end);
+      if (from < to) (spans.foreign ??= new Map()).set(spans.count, foreign.slice(from, to));
+    }
+    spans.starts[spans.count] = start;
+    spans.ends[spans.count++] = end;
+  }
   lastScan = { text, spans };
   return spans;
 }
 
-function spanSource(text, { start, end, foreign }) {
-  let source = text.slice(start, end + 1);
+/** Document k of `spans`, as JSON.parse should read it. */
+function spanSource(text, spans, k) {
+  const start = spans.starts[k];
+  let source = text.slice(start, spans.ends[k] + 1);
+  const foreign = spans.foreign?.get(k);
   if (foreign) {
     const chars = source.split("");
     for (const at of foreign) chars[at - start] = " ";
@@ -650,8 +684,8 @@ function spanSource(text, { start, end, foreign }) {
   return source;
 }
 
-function parseSpan(text, span) {
-  try { return JSON.parse(spanSource(text, span)); } catch { return null; }
+function parseSpan(text, spans, k) {
+  try { return JSON.parse(spanSource(text, spans, k)); } catch { return null; }
 }
 
 /** `JSON.parse(source)` for a source it has already accepted, keeping where every object
@@ -793,9 +827,10 @@ export function jsonPlaces(text, at, source) {
 /** `jsonDocuments`, and where each document put each of its parts: { value, where }, as
  *  `jsonPlaces` gives them. */
 export function* jsonDocumentsAt(text, accept) {
-  for (const span of documentSpans(text)) {
-    const accepted = parseSpan(text, span);
-    if (accepted !== null && accept(accepted)) yield jsonPlaces(text, span.start, spanSource(text, span));
+  const spans = documentSpans(text);
+  for (let k = 0; k < spans.count; k++) {
+    const accepted = parseSpan(text, spans, k);
+    if (accepted !== null && accept(accepted)) yield jsonPlaces(text, spans.starts[k], spanSource(text, spans, k));
   }
 }
 
@@ -806,8 +841,9 @@ export function* jsonDocumentsAt(text, accept) {
  *  one package and silently drops the rest. Each caller gets values of its own, parsed
  *  for it, so no parser can change what another one reads. */
 export function* jsonDocuments(text, accept) {
-  for (const span of documentSpans(text)) {
-    const value = parseSpan(text, span);
+  const spans = documentSpans(text);
+  for (let k = 0; k < spans.count; k++) {
+    const value = parseSpan(text, spans, k);
     if (value !== null && accept(value)) yield value;
   }
 }
