@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
 import { elision } from "../../src/capture.js";
 import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { readsMoved } from "./harness.js";
 
 const CASES = [
   // Captured with Terraform 1.16. Terraform draws each diagnostic in a box, and the
@@ -395,6 +396,19 @@ try {
   console.log("  ok   terraform validate -json says what its text report says");
   pass++;
 } catch (e) { console.log(`  FAIL terraform json vs text\n       ${e.message}`); fail++; }
+
+// A path is named as the tool was given it, spaces and all. terraform's box lost its file and
+// line for one, BuildKit its Dockerfile's, and kubectl the manifest it could not parse.
+try {
+  readsMoved("terraform_validate_fail.txt", (t) => t.replace("on main.tf line 1", "on My Project/main.tf line 1"),
+    (file) => (file === "main.tf" ? "My Project/main.tf" : file));
+  readsMoved("docker_dockerfile_fail.txt", (t) => t.replace("Dockerfile.syntax:2", "My Project/Dockerfile.syntax:2"),
+    (file) => (file === "Dockerfile.syntax" ? "My Project/Dockerfile.syntax" : file));
+  readsMoved("kubectl_yaml_fail.txt", (t) => t.replace("bad.yaml", "/work/My Project/bad.yaml"),
+    (file) => (file === "bad.yaml" ? "/work/My Project/bad.yaml" : file));
+  console.log("  ok   terraform, docker and kubectl read a path with a space in it");
+  pass++;
+} catch (e) { console.log(`  FAIL infra spaced paths\n       ${e.message}`); fail++; }
 
 // terraform spells its diff's halves `old/<path>` and `new/<path>`, and the path is the
 // same in both. That pair is the whole defence against every other diff a build prints:

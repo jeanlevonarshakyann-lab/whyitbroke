@@ -757,6 +757,19 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL eslint refusal range\n       ${e.message}`); fail++; }
 
+// prettier names a file it could not parse as it was given it: with spaces under `My Project`,
+// and from its drive on when it is on another drive than the one prettier ran from. Read up to
+// the first colon, the first was not a file at all and the second was the file `D`.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("prettier_parse_fail.txt", (t) => t.replace("syn.js: SyntaxError", "/work/My Project/syn.js: SyntaxError"),
+    (file) => (file === "syn.js" ? "/work/My Project/syn.js" : file));
+  readsMoved("prettier_parse_fail.txt", (t) => t.replace("syn.js: SyntaxError", "D:/work/syn.js: SyntaxError"),
+    (file) => (file === "syn.js" ? "D:/work/syn.js" : file));
+  console.log("  ok   prettier reads a file it could not parse wherever it is");
+  pass++;
+} catch (e) { console.log(`  FAIL prettier spaced paths\n       ${e.message}`); fail++; }
+
 // A cut markdownlint document hands back records with fields missing, and what a
 // document must carry to be recognised as markdownlint's at all does not include these.
 // The parser is asked directly: analyse() would drop a malformed failure of its own
