@@ -34,8 +34,10 @@ const OUTCOME_RE = /<(failure|error)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/;
 const CASE = { open: /<testcase\b/, close: () => "</testcase>", selfClosing: true };
 const OUTCOME = { open: /<(failure|error)\b/, close: (name) => `</${name}>`, selfClosing: true };
 // `at shop.CartTest.totalsAnInvoice(CartTest.java:9)`, with the classloader prefix
-// Gradle's console adds - `app//` - allowed for.
-const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\s]+\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
+// Gradle's console adds - `app//` - allowed for. The file is what the brackets hold up to
+// its line: a class's source can be named with a space in it, `Cart Test.java`, and the
+// stack names it as javac had it.
+const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\n]+?\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
 // The Surefire schema, which only Surefire references.
 const SUREFIRE_SCHEMA = /surefire-test-report\.xsd|maven-surefire-plugin/;
 // `shop.CartTest.totalsAnInvoice -- Time elapsed: 0.002 s <<< FAILURE!`, and the older

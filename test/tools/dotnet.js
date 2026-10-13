@@ -311,5 +311,17 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL digitless dotnet codes\n       ${e.message}`); fail++; }
 
+// A test project on a share is named by its UNC path, `\\fileserver\shop\...`. In another
+// language than English a frame is known only by its shape, and the shape took a path only
+// from a separator or a drive: the failure lost its place, and a run of nothing else in that
+// language was not read at all.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("dotnettest_mtp_locale_de_fail.txt", (t) => t.replaceAll("/home/dev/shop/ShopTests/Test1.cs", "\\\\fileserver\\shop\\ShopTests\\Test1.cs"),
+    (file) => (file === "/home/dev/shop/ShopTests/Test1.cs" ? "\\\\fileserver\\shop\\ShopTests\\Test1.cs" : file));
+  console.log("  ok   a localized test run on a share reads its frames");
+  pass++;
+} catch (e) { console.log(`  FAIL mtp unc frames\n       ${e.message}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
