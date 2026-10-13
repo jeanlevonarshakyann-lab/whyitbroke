@@ -484,7 +484,7 @@ const anything = (hit) => !!hit && hit.result.failures.length > 0;
  *  either nothing parsed before, or a different tool owns the log once it is gone.
  *  A strip that leaves the same tool reporting the same failures changed nothing except
  *  the paths inside them, which is data being mangled rather than a wrapper removed. */
-function better(candidate, cand, current) {
+function better(candidate, cand, current, text) {
   if (!anything(cand)) return false;
   // A vetted shape is its own evidence: hand-written, and proven against the whole
   // corpus to match nothing that is not a wrapper. It wins outright when it lets a real
@@ -532,7 +532,7 @@ function better(candidate, cand, current) {
   if (cand.result.failures.length > current.result.failures.length) return true;
   // ...unless the count stayed where it was because the parser read the prefix as the start
   // of every path. See absorbedIntoFiles.
-  if (absorbedIntoFiles(candidate.wrapper, current.result.failures, cand.result.failures)) return true;
+  if (absorbedIntoFiles(candidate.wrapper, current.result.failures, cand.result.failures, text, candidate.text)) return true;
   // The mirror of that, and the reason it is not enough on its own: a parser can also
   // match through a wrapper and report MORE than it should, because the prefix defeats
   // the de-duplication that would have joined two lines into one diagnosis. Perl's
@@ -577,12 +577,19 @@ function better(candidate, cand, current) {
  *  the tool's own indentation, decode a `file://` URL it no longer has text in front of,
  *  choose another frame of a stack, or find there was no file at all - pyright, deno lint,
  *  Ruby and `dotnet` each did one of these. */
-function absorbedIntoFiles(wrapper, before, after) {
+function absorbedIntoFiles(wrapper, before, after, text, stripped) {
   // A label a runner closes in brackets is no directory either: Task writes
   // `[api backend integration test shard] `, and only a path that opened with a bracketed
   // name and a space could look the same.
   const label = /^\[[^\]\n]*\][^\S\n]+$/.test(wrapper);
-  if (!/[^\S\n]$/.test(wrapper) || (portablePath(wrapper) && !label) || before.length !== after.length) return false;
+  if (!/[^\S\n]$/.test(wrapper) || before.length !== after.length) return false;
+  if (portablePath(wrapper) && !label) {
+    if (!leadsUnreadLines(wrapper, before, text, after.map((f) => f.file))) return false;
+    // ...and all of it. A runner's prefix can be words, pnpm's `packages/api test$ `, and its
+    // first word taken off leaves the rest in front of every file and every other line alike.
+    const rest = sharedWord(after.map((f) => f.file));
+    if (rest && leadsUnreadLines(rest, after, stripped)) return false;
+  }
   let absorbed = false;
   for (let i = 0; i < before.length; i++) {
     const was = before[i].file, is = after[i].file;
@@ -595,6 +602,38 @@ function absorbedIntoFiles(wrapper, before, after) {
     absorbed = true;
   }
   return absorbed;
+}
+
+/** The word all of `files` start with and a space after it, or "". */
+function sharedWord(files) {
+  if (!files.length || files.some((f) => typeof f !== "string")) return "";
+  const word = files[0].match(/^\S+[^\S\n]/)?.[0] ?? "";
+  return files.every((f) => f.startsWith(word)) ? word : "";
+}
+
+/** Whether `wrapper` also opens a line of `text` that none of `failures` was read from, and
+ *  goes on there into something other than a path such as `files` start with.
+ *
+ *  A prefix that could be a directory - kubectl's pod, `pod/api-7d9 `, pnpm's package and
+ *  script, `packages/api test$ ` - reads like the start of every path a parser took with it
+ *  on. What it is shows on the other lines: a directory is in front of the files a tool
+ *  names and nothing else, while a runner puts its prefix in front of every line it relays -
+ *  the tool's heading, its tally, the command it ran. A line that goes on into a file is
+ *  not one of those: oxlint names a file again for each warning it holds back behind an
+ *  error, and a directory with a space in its name, `my project/`, is in front of those too. */
+function leadsUnreadLines(wrapper, failures, text, files = []) {
+  if (typeof text !== "string") return false;
+  const lines = text.split("\n");
+  const read = new Uint8Array(lines.length);
+  for (const failure of failures) {
+    const range = sourceRange(failure);
+    if (!range) return false;
+    for (const { start, end } of range.also ? [range, ...range.also] : [range]) read.fill(1, start, end);
+  }
+  // Each file's first step, with the separator after it: where a line going on into one starts.
+  const heads = files.filter((f) => typeof f === "string" && f).map((f) => f.match(/^[^\\/]*[\\/]?/)[0]);
+  return lines.some((line, k) => !read[k] && line.startsWith(wrapper) && line.length > wrapper.length &&
+    !heads.some((head) => line.startsWith(head, wrapper.length)));
 }
 
 const MAX_WRAPPER_LAYERS = 3;   // CI stamps a monorepo runner that stamps a container
@@ -628,7 +667,7 @@ function unwrap(s, command, extractors) {
     for (const c of wrapperCandidates(text)) {
       if (c.kind === "literal" && literalsTaken) continue;
       const candidate = parse(c.text, command, extractors);
-      if (better(c, candidate, hit)) {
+      if (better(c, candidate, hit, text)) {
         if (real(candidate)) { found = { ...c, hit: candidate }; break; }
         guess ??= { ...c, hit: candidate };
       }
@@ -640,7 +679,7 @@ function unwrap(s, command, extractors) {
       for (const inner of wrapperCandidates(c.text)) {
         if (inner.kind === "literal" && (literalsTaken || c.kind === "literal")) continue;
         const deeper = parse(inner.text, command, extractors);
-        if (better(inner, deeper, hit)) {
+        if (better(inner, deeper, hit, text)) {
           const both = { ...c, text: inner.text, wrapper: c.wrapper, hit: deeper, then: inner.wrapper, origin: through(c.origin, inner.origin), source: !!(c.source || inner.source) };
           if (real(deeper)) { found = both; break; }
           guess ??= both;
