@@ -440,6 +440,11 @@ try {
     // A sibling directory that merely starts with the same letters is not inside it.
     assert.equal(relPath("C:\\Users\\dev\\appendix\\x.ts"), "C:\\Users\\dev\\appendix\\x.ts");
     assert.equal(relPath("D:\\other\\x.ts"), "D:\\other\\x.ts");
+    // ...nor of which separator they are written with: Go writes a frame there with forward
+    // slashes, `C:/Users/dev/app/src/index.ts`, under a working directory written with back ones.
+    assert.equal(relPath("C:/Users/dev/app/src/index.ts"), "src/index.ts");
+    assert.equal(relPath("c:/users/dev/app\\src\\index.ts"), "src\\index.ts");
+    assert.equal(relPath("C:/Users/dev/appendix/x.ts"), "C:/Users/dev/appendix/x.ts");
   });
   as("linux", "/home/dev/app", () => {
     assert.equal(relPath("/home/dev/app/src/index.ts"), "src/index.ts");

@@ -79,9 +79,12 @@ export const counted = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 export function relPath(p) {
   if (!p) return p;
   const cwd = process.cwd();
-  // Windows matches paths without regard to case; nothing else does.
+  // Windows matches paths without regard to case, or to which separator they are written with -
+  // Go writes a frame there as `D:/a/app/t/shop_test.go` under a working directory of `D:\a\app`;
+  // nothing else does.
+  const same = (path) => path.replace(/\\/g, "/").toLowerCase();
   const under = process.platform === "win32"
-    ? p.slice(0, cwd.length).toLowerCase() === cwd.toLowerCase()
+    ? same(p.slice(0, cwd.length)) === same(cwd)
     : p.startsWith(cwd);
   if (!under) return p;
   const next = p[cwd.length];
