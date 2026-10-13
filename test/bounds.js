@@ -13,6 +13,7 @@
 // read on the same machine a moment earlier. The budget that caps locating ranges is
 // tested without a clock at all.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -816,6 +817,32 @@ test("a capture of output with no line end, arriving a few bytes at a time", () 
   const lines = best(pieces("info: compiled module 0000042\n".repeat(4 * 1024 * 1024 / 30)));
   assert.ok(unbroken < lines * 2,
     `${ms(unbroken)}ms for 4MiB with no line end, ${ms(lines)}ms for 4MiB of lines - x${(unbroken / lines).toFixed(1)}`);
+});
+
+test("a capture of thousands of lines that look like diagnostics holds what it keeps", () => {
+  // Every line that looked like a diagnostic was copied as it arrived, with a record, an array
+  // slot and an index entry around it, and charged only its own bytes: 2.5MiB of five-byte FAIL
+  // lines held 96MiB for output that came back whole under the 10MiB cap, and 101MiB past it.
+  // Output is now read only once it leaves the tail, and a line it saves is stored once, in one
+  // buffer. What a capture holds is measured in a process of its own, collected before and after.
+  const held = (more) => {
+    const r = spawnSync(process.execPath, ["--expose-gc", "--input-type=module", "-e", `
+      const { createCapture } = await import(${JSON.stringify(new URL("../src/capture.js", import.meta.url).href)});
+      const MiB = 1024 * 1024, line = "ordinary build output line\\n";
+      const parts = [Buffer.alloc(2.5 * MiB, line), Buffer.alloc(2.5 * MiB, "FAIL\\n"), Buffer.alloc(${more} * MiB, line)];
+      const used = () => { const m = process.memoryUsage(); return m.heapUsed + m.arrayBuffers; };
+      gc(); gc();
+      const before = used();
+      const c = createCapture(10 * MiB);
+      for (const part of parts) for (let at = 0; at < part.length; at += 65536) c.push(Buffer.from(part.subarray(at, at + 65536)));
+      gc(); gc();
+      console.log((used() - before) / MiB);`], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    return Number(r.stdout);
+  };
+  const under = held(0), over = held(20);
+  assert.ok(under < 6, `5MiB of output under a 10MiB cap held ${under.toFixed(1)}MiB`);
+  assert.ok(over < 15, `25MiB of output past a 10MiB cap held ${over.toFixed(1)}MiB`);
 });
 
 test("a large log that nothing wraps, asked what wraps it", () => {
