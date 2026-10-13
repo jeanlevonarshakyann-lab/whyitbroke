@@ -1037,7 +1037,7 @@ const PINNED = [
   ["yamllint file", /^(\S.*?)[^\S\n]*$/, YAMLLINT_FILE, () => gap() + words() + gap() + words() + gap()],
   ["deno gutter", /^[^\S\n]*\d*[^\S\n]*\|/, DENO_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["generic annotation", /^[^\S\n]*\d*[^\S\n]*\|/, ANNOTATION, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
-  ["swift gutter", /^[^\S\n]*\d*[^\S\n]*\|/, SWIFT_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["swift gutter", /^[^\S\n]*(?:\d+[^\S\n]+)?\|/, SWIFT_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["swift group", /[^\S\n]+\[#([\w-]+)\]$/, GROUP_RE, () => words() + gap() + pick(["[#Group]", "[#a-b]", "[#]", "[#x] y"]) + pick(["", " "])],
   ["webpack gutter", /^[^\S\n]*\d*[^\S\n]*\|/, WEBPACK_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["vitest separator", /^[\u23af\u2500-\u257f\s]*(?:\[\d+\/\d+\])?[\u23af\u2500-\u257f\s]*$/, SEP_RE,
