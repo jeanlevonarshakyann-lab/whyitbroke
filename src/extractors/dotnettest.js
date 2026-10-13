@@ -43,8 +43,9 @@ const MTP_FAILED_RE = /^failed[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\
 const MTP_ANY_HEAD_RE = /^([^\s/\\()]+(?:[^\S\n]+[^\s/\\()]+){0,2})[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\)[^\S\n]*$/;
 const MTP_FROM_RE = /^[^\S\n]{2}\S[^\n]*\.dll[^\S\n]+\([^()|\n]+\|[^()\n]+\)[^\S\n]*$/;
 // A frame in any language: four spaces, a word or two, the method and its arguments, a
-// word or two, and the absolute path and line.
-const MTP_FRAME_RE = /^[^\S\n]{4}(?:[^\s(]+[^\S\n]+){1,2}([^\s(]+)\([^\n]*\)[^\S\n]+(?:[^\s(]+[^\S\n]+){1,2}((?:\/|[A-Za-z]:[\\/])[^\n]*?):(\d+)[^\S\n]*$/;
+// word or two, and the absolute path and line - from a separator, a drive, or a share's
+// `\\server\share`, which is how a project on one is named.
+const MTP_FRAME_RE = /^[^\S\n]{4}(?:[^\s(]+[^\S\n]+){1,2}([^\s(]+)\([^\n]*\)[^\S\n]+(?:[^\s(]+[^\S\n]+){1,2}((?:[\\/]|[A-Za-z]:[\\/])[^\n]*?):(\d+)[^\S\n]*$/;
 // "Test run summary: Failed!", then the counts one to a line - total, failed, succeeded,
 // skipped - in that order in every language.
 const MTP_TALLY_RE = /^\S[^\n]*[:\uFF1A][^\S\n]*\S[^\n]*![^\S\n]*\n((?:[^\S\n]{2}\S[^\n]*?[:\uFF1A][^\S\n]*\d+[^\S\n]*\n){4})/m;
