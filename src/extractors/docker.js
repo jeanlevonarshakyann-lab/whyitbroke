@@ -27,7 +27,8 @@
 import { alsoFrom, withSource } from "../ownership.js";
 import { pinnedMessage } from "../util.js";
 
-const LOC = /^(\S+):(\d+)[^\S\n]*$/;
+// `Dockerfile:12`, or any file given to -f - with spaces, under `My Project`.
+const LOC = /^(\S(?:.*\S)?):(\d+)[^\S\n]*$/;
 const FENCE = /^-{5,}[^\S\n]*$/;
 // `   2 | >>> COPY missing-file.txt /tmp/` - BuildKit marks the offending line itself.
 // The instruction is read to its last character that is not a space at once: read lazily, it stopped

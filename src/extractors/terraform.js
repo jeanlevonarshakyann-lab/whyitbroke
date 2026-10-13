@@ -20,7 +20,8 @@ const HEAD_RE = /^[^\S\n]*[│|][^\S\n]*(Error|Warning):[^\S\n]*(.*)$/;
 // The whitespace in front of the block's name is taken whole; the name starts inside it only on the
 // last of it, right before the colon, as it did. From each place in a long stretch the pattern read
 // the rest of the line again.
-export const AT_RE = /^[^\S\n]*on[^\S\n]+(\S+)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:[^\S\n]*$))(.+?))?:[^\S\n]*$/;
+// The file is named as terraform was given it, spaces and all: it is what comes before ` line N`.
+export const AT_RE = /^[^\S\n]*on[^\S\n]+(\S(?:[^\n]*?\S)?)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029]:[^\S\n]*$))(.+?))?:[^\S\n]*$/;
 const SRC_RE = /^[^\S\n]*\d+:[^\S\n]?(.*)$/;
 const CLOSE_RE = /^[^\S\n]*[╵╷][^\S\n]*$/;
 const MAX_MESSAGE = 4;
@@ -160,7 +161,8 @@ export default {
   detect: (s) =>
     jsonReports(s).length > 0 || jsonEvents(s).length > 0 ||
     (HEAD_RE.test(s.split("\n").find((l) => HEAD_RE.test(l)) ?? "") &&
-      (/^[^\S\n]*╷[^\S\n]*$/m.test(s) || /[^\S\n]on[^\S\n]+\S+[^\S\n]+line[^\S\n]+\d+/.test(s))) ||
+      (/^[^\S\n]*╷[^\S\n]*$/m.test(s) || /[^\S\n]on[^\S\n]+\S+[^\S\n]+line[^\S\n]+\d+/.test(s) ||
+        /^[^\S\n]*(?:[│|][^\S\n]*)?on[^\S\n]+\S(?:[^\n]*?\S)?[^\S\n]+line[^\S\n]+\d+/m.test(s))) ||
     flatValidateDiagnostics(s).failures.length > 0 ||
     (INIT_BANNER_RE.test(s) && s.split("\n").some((l) => FLAT_HEAD_RE.test(l))) ||
     NO_COMMAND_RE.test(s),

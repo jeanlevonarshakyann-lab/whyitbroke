@@ -8,7 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 
 const CASES = [
   // Build tools fail in ways that have nothing to do with a compiler, and none of these
@@ -253,6 +253,16 @@ try {
   console.log("  ok   .NET diagnostics need no restore banner and do not claim TypeScript");
   pass++;
 } catch (e) { console.log(`  FAIL banner-free .NET detection\n       ${e.message}`); fail++; }
+
+// A project can compile a source file whose extension is in capitals, and Roslyn names it
+// as it is: `Program.CS(5,20): error CS0029`. Read only in lower case, the build's errors
+// were no diagnosis at all.
+try {
+  readsMoved("dotnet_fail.txt", (t) => t.replaceAll("Program.cs(", "Program.CS("),
+    (file) => file?.replace(/Program\.cs$/, "Program.CS"));
+  console.log("  ok   a C# file with its extension in capitals is read like any other");
+  pass++;
+} catch (e) { console.log(`  FAIL .NET uppercase extensions\n       ${e.message}`); fail++; }
 
 // A presentation mode is not a different failure. Terminal Logger is what `dotnet` uses
 // by default on a terminal in .NET 10, so this is the ordinary way a restore fails now.
