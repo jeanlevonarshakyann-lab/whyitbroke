@@ -267,45 +267,50 @@ export const bunRuntime = {
     // crash is made of matters - cargo ends a build with "error: could not compile ...",
     // and with that line directly above bun's block the walk went straight past bun's
     // own message and took cargo's.
-    const foot = lines.findIndex((l) => /^Bun v[\d.]+[^\S\n]+\(/.test(l));
-    if (foot < 0) return null;
+    //
+    // Each footer closes a crash of its own: a log holding two `bun` runs holds two, and
+    // reading the first footer only lost the second crash whole.
+    const failures = [];
+    for (let foot = 0; foot < lines.length; foot++) {
+      if (!/^Bun v[\d.]+[^\S\n]+\(/.test(lines[foot])) continue;
 
-    let at = foot - 1;
-    while (at >= 0 && (!lines[at].trim() || runtimeFrame(lines[at]))) at--;
-    const m = at >= 0 ? lines[at].match(RUNTIME_ERR_RE) : null;
-    if (!m) return null;
+      let at = foot - 1;
+      while (at >= 0 && (!lines[at].trim() || runtimeFrame(lines[at]))) at--;
+      const m = at >= 0 ? lines[at].match(RUNTIME_ERR_RE) : null;
+      if (!m) continue;
 
-    const frames = [];
-    for (let j = at + 1; j < foot; j++) {
-      const f = runtimeFrame(lines[j]);
-      if (!f) { if (frames.length) break; else continue; }
-      frames.push({ fn: f.fn ?? "<anonymous>", file: unfile(f.file), line: f.line, col: f.col });
-    }
-    const user = frames.filter((f) => !isNoise(f.file));
-    const where = user[0] ?? frames[0];
-
-    // The echoed source sits directly above the message, numbered, with a caret under
-    // the column. Only those two shapes, so the walk cannot reach into another tool.
-    let stmt, top = at;
-    if (where) {
-      for (let j = at - 1; j >= 0 && j >= at - 8; j--) {
-        if (!RUNTIME_SRC_RE.test(lines[j]) && !CARET_RE.test(lines[j])) break;
-        const src = lines[j].match(RUNTIME_SRC_RE);
-        if (src && +src[1] === where.line) { stmt = src[2].trim(); top = j; break; }
+      const frames = [];
+      for (let j = at + 1; j < foot; j++) {
+        const f = runtimeFrame(lines[j]);
+        if (!f) { if (frames.length) break; else continue; }
+        frames.push({ fn: f.fn ?? "<anonymous>", file: unfile(f.file), line: f.line, col: f.col });
       }
-    }
+      const user = frames.filter((f) => !isNoise(f.file));
+      const where = user[0] ?? frames[0];
 
-    // The quoted source when there is one, the message, its frames and bun's footer.
-    const failures = [withSource({
-      file: where?.file, line: where?.line, col: where?.col,
-      // A thrown builtin names its class, which is the searchable handle. bun's own
-      // diagnostics write a bare "error:" - a constant it prints for a whole class of
-      // failure, which is what `label` is for, and the two are alternatives.
-      title: m[1] ?? "error", code: m[1], label: m[1] ? undefined : "error",
-      severity: "error", message: m[2], stmt,
-      trace: user.slice(0, 4).map((f) => `${f.fn} (${f.file}:${f.line}:${f.col})`),
-      hiddenFrames: frames.length - user.length,
-    }, top, foot + 1)];
+      // The echoed source sits directly above the message, numbered, with a caret under
+      // the column. Only those two shapes, so the walk cannot reach into another tool.
+      let stmt, top = at;
+      if (where) {
+        for (let j = at - 1; j >= 0 && j >= at - 8; j--) {
+          if (!RUNTIME_SRC_RE.test(lines[j]) && !CARET_RE.test(lines[j])) break;
+          const src = lines[j].match(RUNTIME_SRC_RE);
+          if (src && +src[1] === where.line) { stmt = src[2].trim(); top = j; break; }
+        }
+      }
+
+      // The quoted source when there is one, the message, its frames and bun's footer.
+      failures.push(withSource({
+        file: where?.file, line: where?.line, col: where?.col,
+        // A thrown builtin names its class, which is the searchable handle. bun's own
+        // diagnostics write a bare "error:" - a constant it prints for a whole class of
+        // failure, which is what `label` is for, and the two are alternatives.
+        title: m[1] ?? "error", code: m[1], label: m[1] ? undefined : "error",
+        severity: "error", message: m[2], stmt,
+        trace: user.slice(0, 4).map((f) => `${f.fn} (${f.file}:${f.line}:${f.col})`),
+        hiddenFrames: frames.length - user.length,
+      }, top, foot + 1));
+    }
     if (!failures.length) return null;
     return { tool: "bun", failures };
   },

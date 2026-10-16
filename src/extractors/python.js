@@ -135,8 +135,10 @@ const COMPILE_AT_RE = /^[^\S\n]*File "(.+?)", line (\d+)[^\S\n]*$/;
 const COMPILE_ERR_RE = /^(\w*(?:SyntaxError|IndentationError|TabError)):[^\S\n]*(.*)$/;
 const CARET_RE = /^[^\S\n]*\^+[^\S\n]*$/;
 
-/** The compile error in this log, if it holds one and no traceback. */
-function compileError(lines) {
+/** Each compile error in this log. `python -m compileall` goes on past the first file that
+ *  will not compile and reports every one, and a log can hold more than one run besides:
+ *  reading the first lost the rest. */
+function* compileErrors(lines) {
   for (let i = 0; i < lines.length; i++) {
     const at = lines[i].match(COMPILE_AT_RE);
     if (!at) continue;
@@ -145,16 +147,16 @@ function compileError(lines) {
       const err = lines[j].match(COMPILE_ERR_RE);
       if (err) {
         // The location, the source and caret under it, and the error.
-        return withSource({
+        yield withSource({
           file: at[1], line: +at[2],
           title: err[1], code: err[1], severity: "error",
           message: err[2].trim() || err[1], stmt,
         }, i, j + 1);
+        break;
       }
       if (lines[j].trim() && !CARET_RE.test(lines[j]) && !stmt) stmt = lines[j].trim();
     }
   }
-  return null;
 }
 
 export const traceback = {
@@ -164,7 +166,7 @@ export const traceback = {
   category: "runtime",
   commands: ["python", "python3"],
   detect: (s) => /^Traceback \(most recent call last\):$/m.test(s) ||
-    NO_MODULE_RE.test(s) || !!compileError(s.split("\n")),
+    NO_MODULE_RE.test(s) || !compileErrors(s.split("\n")).next().done,
   extract(s) {
     const lines = s.split("\n");
     const failures = [];
@@ -191,9 +193,10 @@ export const traceback = {
     // A compile error stands beside any tracebacks rather than instead of them. As a
     // fallback it went missing the moment a log held both - a CI job that ran one suite
     // to a traceback and another to a syntax error reported only the first.
-    const compiled = compileError(lines);
-    if (compiled && !failures.some((f) => f.file === compiled.file && f.line === compiled.line)) {
-      failures.push(compiled);
+    const seen = new Set(failures.map((f) => `${f.file}\u0000${f.line}`));
+    for (const compiled of compileErrors(lines)) {
+      const key = `${compiled.file}\u0000${compiled.line}`;
+      if (!seen.has(key)) { seen.add(key); failures.push(compiled); }
     }
     // The interpreter refusing to start is a failure with no location at all, and stands
     // beside anything else in the log rather than instead of it.

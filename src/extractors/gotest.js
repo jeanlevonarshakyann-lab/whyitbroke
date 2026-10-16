@@ -215,23 +215,34 @@ function verboseBlocks(lines, packageOf) {
 // Go's own runtime/testing frames are never your bug
 const STDLIB = /\/(libexec\/)?src\/(runtime|testing|internal)\//;
 
-/** A panic with no test around it: the goroutine dump carries the location, and the
- *  first frame that is not the runtime is the one in your code. */
-function standalonePanic(lines) {
+/** Each panic with no test around it: the goroutine dump carries the location, and the
+ *  first frame that is not the runtime is the one in your code. A panic that one of `read`
+ *  was read from is that test's own.
+ *
+ *  `go run` panics once, but a log can hold more than one program, and a test run beside
+ *  them: the first panic was the only one read, and none was where a test had failed too. */
+function standalonePanics(lines, read) {
+  const taken = new Uint8Array(lines.length);
+  for (const failure of read) {
+    const range = sourceRange(failure);
+    if (range) for (const { start, end } of range.also ? [range, ...range.also] : [range]) taken.fill(1, start, end);
+  }
+  const panics = [];
   for (let i = 0; i < lines.length; i++) {
-    const message = panicMessage(lines[i]);
+    const message = taken[i] ? null : panicMessage(lines[i]);
     if (message === null) continue;
     let file, line, frame = -1;
-    for (let k = i + 1; k < lines.length; k++) {
+    // ...down to the next panic, whose frames are its own.
+    for (let k = i + 1; k < lines.length && panicMessage(lines[k]) === null; k++) {
       const fm = lines[k].match(/^\t(.+?):(\d+)(?:[^\S\n]|$)/);
       if (fm && !STDLIB.test(fm[1])) { file = fm[1]; line = +fm[2]; frame = k; break; }
     }
     // The panic, and the frame in your code that the dump names.
     const panic = withSource({ file, line, title: "panic", label: "panic", category: "runtime",
       severity: "error", message }, i, i + 1);
-    return frame >= 0 ? alsoFrom(panic, frame, frame + 1) : panic;
+    panics.push(frame >= 0 ? alsoFrom(panic, frame, frame + 1) : panic);
   }
-  return null;
+  return panics;
 }
 
 export default {
@@ -313,7 +324,9 @@ export default {
         const ahead = [], at = [];
         // ...and never into another package's lines, which `go test -json` interleaves.
         const mine = (j) => !packageOf || packageOf(j) === packageOf(i);
-        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]) && mine(j); j++) { ahead.push(lines[j]); at.push(j); }
+        // ...nor past the package's closing lines, after which whatever ran next printed its own:
+        // a later program's panic was this test's, frame and all.
+        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]) && !TRAILER_RE.test(lines[j]) && mine(j); j++) { ahead.push(lines[j]); at.push(j); }
         found = details(ahead, at);
       }
       const { file, line, msg, used } = found;
@@ -329,11 +342,11 @@ export default {
     failures.length = 0;
     append(failures, distinct);
     const builds = failures.filter((f) => f.title === "compile error").length;
+    // Every panic no test was read from, whatever else the log holds.
+    const panics = PANIC_LINE.test(s) ? standalonePanics(lines, failures) : [];
+    const panicked = panics.length === 1 ? "a panic" : `${panics.length} panics`;
 
-    if (!failures.length) {
-      const panic = standalonePanic(lines);
-      if (panic) return { tool: "go", summary: "panic", failures: [panic] };
-    }
+    if (!failures.length && panics.length) return { tool: "go", summary: panics.length === 1 ? "panic" : panicked, failures: panics };
 
     // count what we actually report: a parent of subtests prints its own
     // "--- FAIL" line but carries no failure of its own
@@ -345,9 +358,8 @@ export default {
       // panic in the same stream, and golangci-lint prints go's own diagnostics above
       // its tally. Returning early dropped the panic without a word - it is the later and
       // usually the more interesting of the two, so it is kept rather than lost.
-      const panic = standalonePanic(lines);
-      if (panic) failures.push(panic);
-      const andPanic = panic ? " and a panic" : "";
+      append(failures, panics);
+      const andPanic = panics.length ? ` and ${panicked}` : "";
       // Vet's own findings are written exactly like a compile error, so a piped log gives
       // no way to tell them apart. The prefix is the one time it does say.
       return vetted
@@ -364,10 +376,12 @@ export default {
       }, refused.at, refused.at + 1));
       return { tool: "go", summary: "the command was refused", failures };
     }
+    append(failures, panics);
     const bits = [];
     if (builds) bits.push(`${builds} ${vetted ? "vet" : "compile"} error${builds > 1 ? "s" : ""}`);
     if (tests) bits.push(`${tests} test${tests > 1 ? "s" : ""} failed`);
     if (races) bits.push(`${races} data race${races > 1 ? "s" : ""}`);
+    if (panics.length) bits.push(panicked);
     const summary = bits.length ? bits.join(", ") : undefined;
     if (!failures.length) return null;
     return { tool: "go test", summary, failures };

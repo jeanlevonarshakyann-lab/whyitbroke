@@ -301,6 +301,35 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL multi-tool log\n       ${e.message}`); fail++; }
 
+// Every crash in a log is read, not only the first - and beside whatever else failed.
+//
+// A log holds more than one run: a job that tests each package in turn, a script that runs two
+// programs. These readers took the first crash they found - bun's first footer, the first file
+// Python would not compile, the first file mocha, PHPUnit or AVA would not load, go's first
+// panic - and mocha, AVA and go read one only where nothing else had failed. Each crash here is
+// followed by the same crash in another file, then put after a run that failed some other way.
+try {
+  const crashes = {
+    "bunrun_crash_fail.txt": "crash.ts", "bun_syntax_fail.txt": "bsyn.ts", "py_syntax_fail.txt": "syn.py",
+    "py_indent_fail.txt": "ind.py", "mocha_load_fail.txt": "syn.test.js", "phpunit_load_fail.txt": "CrashTest.php",
+    "ava_load_fail.txt": "syn.test.js", "gopanic_fail.txt": "main.go",
+  };
+  const read = (text) => [...new Set((analyse(text)?.failures ?? [])
+    .map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.message}`))].sort();
+  const union = (...texts) => [...new Set(texts.flatMap(read))].sort();
+  for (const [name, word] of Object.entries(crashes)) {
+    const first = fx(name), second = first.split(word).join(`other-${word}`);
+    assert.notEqual(second, first, `${name} has no ${word} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), union(first, second), `${name}: the second crash was not read`);
+  }
+  for (const [failed, crash] of [["mocha_fail.txt", "mocha_load_fail.txt"], ["ava_fail.txt", "ava_load_fail.txt"],
+    ["gotest_verbose_fail.txt", "gopanic_fail.txt"], ["gotest_fail.txt", "gopanic_fail.txt"]]) {
+    assert.deepEqual(read(`${fx(failed)}\n${fx(crash)}`), union(fx(failed), fx(crash)), `${crash} after ${failed}`);
+  }
+  console.log("  ok   every crash in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every crash in a log\n       ${e.message}`); fail++; }
+
 // When two parsers both claim a fixture, only their order in the list decides the
 // answer - which is how bun test came back as cargo errors. Pin the known cases so
 // a new parser cannot quietly introduce another.
