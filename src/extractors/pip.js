@@ -58,6 +58,10 @@ function fromOutputBlock(lines, at) {
 const requirementOf = (s) => s.match(/^Processing (\S+)/m)?.[1]
   ?? s.match(/^[^\S\n]*Building wheel for (\S+)/m)?.[1]
   ?? s.match(/^Collecting (\S+)/m)?.[1];
+// pip announcing the package it is about to work on. A block of build output belongs to the
+// last one announced above it: asked of the whole log, every block took the first package's
+// name, and two packages that failed to build were one failure.
+const ANNOUNCED = /^(?:Processing (\S+)|[^\S\n]*Building wheel for (\S+)|Collecting (\S+))/;
 
 export default {
   name: "pip",
@@ -81,8 +85,9 @@ export default {
     const push = (f, start, end) => {
       // Keyed on the requirement and the kind of problem, not the wording: pip says
       // "Could not find a version that satisfies X" and then "No matching distribution
-      // found for X", which is one failure described twice - read in both places.
-      const key = f.subject ? `${f.subject}|${f.title ?? ""}` : String(f.message ?? "").slice(0, 200);
+      // found for X", which is one failure described twice - read in both places. Where it
+      // was written is part of it: the same bad requirement in two files is two failures.
+      const key = f.subject ? `${f.subject}|${f.title ?? ""}|${f.file ?? ""}|${f.line ?? ""}` : String(f.message ?? "").slice(0, 200);
       if (said.has(key)) { failures[said.get(key)] = joinSources(failures[said.get(key)], withSource({}, start, end)); return; }
       said.set(key, failures.length);
       // The traceback parser echoes the failing source line, and for a bare raise that
@@ -91,9 +96,12 @@ export default {
       failures.push(withSource({ severity: "error", ...f, stmt }, start, end));
     };
 
+    let announced;
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
       if (NOTICE.test(l) || SUBPROCESS_NOTE.test(l) || IGNORED.test(l)) continue;
+      const which = l.match(ANNOUNCED);
+      if (which) announced = which[1] ?? which[2] ?? which[3];
 
       if (OUTPUT_START.test(l)) {
         const inner = fromOutputBlock(lines, i);
@@ -101,7 +109,7 @@ export default {
           // Keep the traceback's file, line and message - that is the actual cause -
           // but not its title, which is the enclosing function name and here is
           // "<module>". What failed is the package pip was building.
-          push({ ...inner.failure, subject: requirementOf(s), label: undefined, title: "build failed" }, i, inner.end);
+          push({ ...inner.failure, subject: announced ?? requirementOf(s), label: undefined, title: "build failed" }, i, inner.end);
         }
         continue;
       }

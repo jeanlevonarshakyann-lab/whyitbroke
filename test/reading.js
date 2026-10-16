@@ -456,6 +456,39 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL duplicate diagnostics\n       ${e.message}`); fail++; }
 
+// Every package manager run in a log is read, not only the first.
+//
+// A workspace installs, and runs scripts, one package at a time, and each run that fails says so
+// in its own block: pnpm's box, yarn's banner, poetry's resolver chain, pip's error and build
+// output, npm's error block. Each reader took the first block it found, or read every block as
+// one: two npm runs became one failure under the first run's code, and every package pip failed
+// to build was named after the first one in the log. Each failure here is followed by the same
+// failure about something else - another package that failed in its own way - and both have to
+// come back.
+try {
+  const runs = {
+    "pnpm_boxed_fail.txt": [["9x7", "9x8"]], "yarn_fail.txt": [["exit code 3.", "exit code 4."]],
+    "poetry_toml_syntax_fail.txt": [["pyproject.toml", "other-pyproject.toml"]],
+    "poetry_conflict_fail.txt": [["urllib3 (1.0)", "urllib3 (1.1)"]],
+    "poetry_missing_package_fail.txt": [["xyzzy", "plugh"]], "pip_badreq_fail.txt": [["bad.txt", "other-bad.txt"]],
+    "pip_build_fail.txt": [["brokenpkg", "otherpkg"], ["deliberate failure", "another failure"]],
+    "npm_fail.txt": [["nonexistent-script", "other-script"]], "npm_404_text_same_fail.txt": [["9x7", "9x8"]],
+  };
+  const read = (text) => [...new Set((analyse(text)?.failures ?? [])
+    .map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.subject ?? ""} ${f.message}`))].sort();
+  for (const [name, renames] of Object.entries(runs)) {
+    const first = fx(name), second = renames.reduce((text, [from, to]) => text.split(from).join(to), first);
+    for (const [from] of renames) assert.ok(first.includes(from), `${name} has no ${from} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), [...new Set([...read(first), ...read(second)])].sort(), `${name}: the second run was not read`);
+  }
+  // npm's ERESOLVE block says what it found and what could not be resolved, and the second is
+  // the conflict itself: it was past the end of the three lines a message is given.
+  const eresolve = analyse(fx("npm_eresolve_fail.txt")).failures[0].message;
+  assert.match(eresolve, /Could not resolve dependency: peer react@"\^18\.2\.0" from react-dom@18\.2\.0/);
+  console.log("  ok   every package manager run in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every package manager run\n       ${e.message}`); fail++; }
+
 try {
   // CI systems retry and concatenate a failed step. The visible diagnostics are
   // de-duplicated, so the headline must describe that same visible set rather than the
