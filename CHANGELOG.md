@@ -20,6 +20,13 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
+- Every crash a log holds is read, beside whatever else failed. A log holds more than one
+  run - a job that tests each package in turn, a script that runs two programs - and bun
+  read the crash at its first footer only, Python the first file that would not compile
+  (`python -m compileall` reports every one), mocha, PHPUnit and AVA the first file that
+  would not load, and go the first panic; mocha, AVA and go read one only where nothing else
+  had failed. A plain `go test` failure followed by another program's panic also took that
+  panic, and its file and line, for the test's own.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,

@@ -131,35 +131,38 @@ export default {
     }
     }
 
-    if (!failures.length) {
-      // A file that will not load never reaches the tally, so there is no numbered
-      // block to read - just mocha's own line and node's stack under it.
-      const at = lines.findIndex((l) => LOAD_RE.test(l));
-      const load = at >= 0 ? lines[at].match(LOAD_RE) : null;
-      if (load) {
-        // mocha writes the class on the line straight under its own. Searching the whole
-        // log for one meant that with another tool's output above, that tool's message
-        // arrived attached to mocha's file and line - eslint's "Key \"rules\": ..."
-        // reported at syn.test.js:2.
-        // Blank lines do not count toward the distance - mocha puts several between its
-        // own line and node's - so the window is the next few lines that say anything.
-        let why = null, seen = 0, end = at + 1;
-        for (let j = at + 1; j < lines.length && seen < 3; j++) {
-          if (!lines[j].trim()) continue;
-          seen++;
-          const m = lines[j].match(ERROR_RE);
-          if (m) { why = m; end = j + 1; break; }
-        }
-        // mocha's line, and node's error under it when there is one.
-        failures.push(withSource({
-          file: load[1], line: +load[2],
-          title: why ? why[1] : "failed to load",
-          code: why ? why[1] : undefined,
-          label: why ? undefined : "failed to load",
-          severity: "error",
-          message: why ? why[2].trim() : "mocha could not load this file",
-        }, at, end));
+    // A file that will not load never reaches the tally, so there is no numbered block to
+    // read - just mocha's own line and node's stack under it. Each one is read, and beside
+    // whatever the tallies gave: a log holding two runs can hold a failed test from one
+    // and a file the other could not load, and reading a load error only where nothing
+    // else failed, and only the first, lost the rest.
+    const unloaded = new Set();
+    if (s.includes("Exception during run:")) for (let at = 0; at < lines.length; at++) {
+      const load = lines[at].match(LOAD_RE);
+      if (!load) continue;
+      // mocha writes the class on the line straight under its own. Searching the whole
+      // log for one meant that with another tool's output above, that tool's message
+      // arrived attached to mocha's file and line - eslint's "Key \"rules\": ..."
+      // reported at syn.test.js:2.
+      // Blank lines do not count toward the distance - mocha puts several between its
+      // own line and node's - so the window is the next few lines that say anything.
+      let why = null, seen = 0, end = at + 1;
+      for (let j = at + 1; j < lines.length && seen < 3; j++) {
+        if (!lines[j].trim()) continue;
+        seen++;
+        const m = lines[j].match(ERROR_RE);
+        if (m) { why = m; end = j + 1; break; }
       }
+      // mocha's line, and node's error under it when there is one.
+      failures.push(withSource({
+        file: load[1], line: +load[2],
+        title: why ? why[1] : "failed to load",
+        code: why ? why[1] : undefined,
+        label: why ? undefined : "failed to load",
+        severity: "error",
+        message: why ? why[2].trim() : "mocha could not load this file",
+      }, at, end));
+      unloaded.add(`${load[1]}:${load[2]}`);
     }
     if (!failures.length) return null;
 
@@ -167,7 +170,8 @@ export default {
     const total = (re) => lines.reduce((n, l) => n + (+(l.match(re)?.[1] ?? 0)), 0);
     const failing = total(FAILING_RE), passing = total(PASSING_RE);
     const summary = tallies.length
-      ? `${failing} failing${passing ? `, ${passing} passing` : ""}`
+      ? `${failing} failing${passing ? `, ${passing} passing` : ""}` +
+        (unloaded.size ? `, ${unloaded.size} file${unloaded.size === 1 ? "" : "s"} failed to load` : "")
       : undefined;
     return { tool: "mocha", summary, failures };
   },
