@@ -210,19 +210,21 @@ function oneLinePerFinding(lines) {
 
 /** --output-format=json: an array of records, pretty-printed across many lines.
  *
- *  Every array that opens a line is a candidate, and the first one whose records carry
- *  ruff's fields wins. Starting from the first `[` in the log was the obvious way and a
- *  wrong one: in a log holding another tool's JSON as well, the scan opened on somebody
- *  else's bracket and swallowed the rest - 148 ordered pairs lost failures that way.
- *  The candidates are the ones every reader of JSON shares, found in one pass - see
- *  documentSpans in util.js. Scanning on from each bracket on its own read the rest of a
- *  log of unclosed ones again from every one of them. */
+ *  Every array that opens a line is a candidate, and each one whose records carry ruff's
+ *  fields is read. Starting from the first `[` in the log was the obvious way and a wrong
+ *  one: in a log holding another tool's JSON as well, the scan opened on somebody else's
+ *  bracket and swallowed the rest - 148 ordered pairs lost failures that way. Stopping at
+ *  the first array was wrong too: a workspace that runs ruff in each package prints one
+ *  per package. The candidates are the ones every reader of JSON shares, found in one
+ *  pass - see documentSpans in util.js. Scanning on from each bracket on its own read the
+ *  rest of a log of unclosed ones again from every one of them. */
 function jsonFindings(text) {
   if (!text.includes('"filename"') || !text.includes('"code"')) return [];
+  const out = [];
   for (const { value, where } of jsonDocumentsAt(text, (v) => Array.isArray(v) && v.some(isRecord))) {
-    return value.filter(isRecord).map((r) => placed(fromRecord(r), where(r)));
+    for (const r of value) if (isRecord(r)) out.push(placed(fromRecord(r), where(r)));
   }
-  return [];
+  return out;
 }
 
 export default {

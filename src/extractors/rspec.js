@@ -27,6 +27,7 @@ const REPORT = (v) => !!v && typeof v === "object" && Array.isArray(v.examples) 
 const report = (s) => s.includes('"full_description"') ? findJsonDocument(s, REPORT) : null;
 // rspec wraps an expectation failure's message in blank lines and indents nothing.
 const EXPECTATION = /^RSpec::Expectations::/;
+const TALLY_RE = /\d+ examples?, \d+ failures?(?:, \d+ pending)?(?:, \d+ errors? occurred outside of examples)?/;
 
 export default {
   name: "rspec",
@@ -101,33 +102,38 @@ export default {
     }
     // ...and the same run as `-f json` wrote it. A log can hold both - rspec can be
     // asked for two formatters at once, one to the console and one to a file - and an
-    // example already read is not read twice.
-    let doc = null, where = () => ({ start: 0, end: 1 });
-    if (s.includes('"full_description"')) for (const found of jsonDocumentsAt(s, REPORT)) { ({ value: doc, where } = found); break; }
+    // example already read is not read twice. Every document is read: a workspace that runs
+    // each gem's specs on its own prints one for each, and only the first was.
+    const docs = s.includes('"full_description"') ? [...jsonDocumentsAt(s, REPORT)] : [];
     const said = new Map();
     failures.forEach((f, index) => { const key = [f.subject, f.file, f.line].join("\u0000"); if (!said.has(key)) said.set(key, index); });
-    let pending = 0;
-    for (const e of doc?.examples ?? []) {
-      if (e.status !== "failed") { if (e.status === "pending") pending++; continue; }
-      // The document says where the example was declared; the text form points at the
-      // line that raised. The backtrace's first frame is that line, and it is the one
-      // both formats agree on.
-      const frame = String(e.exception?.backtrace?.[0] ?? "").match(/^(.+?):(\d+):in\b/);
-      const file = frame ? frame[1] : e.file_path;
-      const line = frame ? +frame[2] : e.line_number;
-      const key = [e.full_description, file, line].join("\u0000");
-      const place = where(e);
-      if (said.has(key)) { failures[said.get(key)] = joinSources(failures[said.get(key)], withSource({}, place.start, place.end)); continue; }
-      said.set(key, failures.length);
-      // An expectation that went unmet is reported by its message alone, exactly as the
-      // text form reports it; anything else is named by its class first, also as the
-      // text form does.
-      const cls = String(e.exception?.class ?? "");
-      const body = String(e.exception?.message ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-      failures.push(withSource({
-        file, line, title: e.full_description, subject: e.full_description, severity: "error",
-        message: (EXPECTATION.test(cls) || !cls ? body : [`${cls}:`, ...body]).join("\n"),
-      }, place.start, place.end));
+    // The examples the documents ran, each counted once: one run printed twice ran them once.
+    const examples = new Set(), pending = new Set();
+    for (const { value: doc, where } of docs) {
+      for (const e of doc.examples) {
+        const example = [e.full_description, e.file_path, e.line_number].join("\u0000");
+        examples.add(example);
+        if (e.status !== "failed") { if (e.status === "pending") pending.add(example); continue; }
+        // The document says where the example was declared; the text form points at the
+        // line that raised. The backtrace's first frame is that line, and it is the one
+        // both formats agree on.
+        const frame = String(e.exception?.backtrace?.[0] ?? "").match(/^(.+?):(\d+):in\b/);
+        const file = frame ? frame[1] : e.file_path;
+        const line = frame ? +frame[2] : e.line_number;
+        const key = [e.full_description, file, line].join("\u0000");
+        const place = where(e);
+        if (said.has(key)) { failures[said.get(key)] = joinSources(failures[said.get(key)], withSource({}, place.start, place.end)); continue; }
+        said.set(key, failures.length);
+        // An expectation that went unmet is reported by its message alone, exactly as the
+        // text form reports it; anything else is named by its class first, also as the
+        // text form does.
+        const cls = String(e.exception?.class ?? "");
+        const body = String(e.exception?.message ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+        failures.push(withSource({
+          file, line, title: e.full_description, subject: e.full_description, severity: "error",
+          message: (EXPECTATION.test(cls) || !cls ? body : [`${cls}:`, ...body]).join("\n"),
+        }, place.start, place.end));
+      }
     }
 
     if (!failures.length) return null;
@@ -136,12 +142,20 @@ export default {
     // "0 examples, 0 failures" is what rspec's tally starts with when a spec file failed
     // to load, and stopping there turns a real failure into a headline that reads like
     // success. The clause that says what happened comes after it.
-    const summaryMatch = s.match(/\d+ examples?, \d+ failures?(?:, \d+ pending)?(?:, \d+ errors? occurred outside of examples)?/);
+    // A document writes the sentence too, but for itself alone: where a log holds several,
+    // the first one's sentence was the whole run's headline. Theirs are not read then, and
+    // what they counted is put together instead - once for a document printed twice.
+    const inDocument = new Uint8Array(lines.length);
+    if (docs.length > 1) for (const { value, where } of docs) { const { start, end } = where(value); inDocument.fill(1, start, end); }
+    const summaryMatch = lines.find((l, i) => !inDocument[i] && TALLY_RE.test(l))?.match(TALLY_RE);
+    const outside = [...new Map(docs.map(({ value }) => [JSON.stringify(value), Number(value.summary?.errors_outside_of_examples_count) || 0])).values()]
+      .reduce((sum, n) => sum + n, 0);
     // The document has no sentence of its own, so one is written from what it counted.
-    const counted = doc && !summaryMatch
-      ? `${doc.examples.length} example${doc.examples.length === 1 ? "" : "s"}, ` +
+    const counted = docs.length && !summaryMatch
+      ? `${examples.size} example${examples.size === 1 ? "" : "s"}, ` +
         `${failures.length} failure${failures.length === 1 ? "" : "s"}` +
-        (pending ? `, ${pending} pending` : "")
+        (pending.size ? `, ${pending.size} pending` : "") +
+        (outside ? `, ${outside} error${outside === 1 ? "" : "s"} occurred outside of examples` : "")
       : null;
     return {
       tool: "rspec",

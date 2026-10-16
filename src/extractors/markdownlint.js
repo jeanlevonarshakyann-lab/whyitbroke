@@ -71,7 +71,8 @@ export default {
     }
     // --json: the same violations as records. Read whatever the text form gave, since a
     // log can hold both, and a violation already reported is not added twice - it keeps
-    // the place it was reported in as well.
+    // the place it was reported in as well. Every document is read: a workspace that lints
+    // each package on its own prints one for each, and only the first was.
     for (const { value: records, where } of jsonDocumentsAt(s, JSON_MARK)) {
       for (const r of records) {
         // A cut document hands back records with fields missing, and what the document
@@ -102,7 +103,6 @@ export default {
         remember(failure, failures.length);
         failures.push(failure);
       }
-      break;
     }
     if (!failures.length) return null;
     const n = failures.length;
