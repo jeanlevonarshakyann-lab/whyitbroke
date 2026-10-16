@@ -84,22 +84,21 @@ export default {
     }
 
     // The document says the same thing, so it is only read when the block is not there.
-    // Where both are, the block is what npm showed the person running it.
+    // Where both are, the block is what npm showed the person running it. Each document is
+    // a run of its own - a workspace installing package by package prints one per package -
+    // and only the first was read.
     if (!said.length) {
-      let doc = null, where = null;
-      if (s.includes('"summary"')) for (const found of jsonDocumentsAt(s, REPORT)) { ({ value: doc, where } = found); break; }
-      if (!doc) return null;
-      const detail = doc.error.detail.split("\n").map((l) => l.trim())
-        .filter((l) => l && !CHATTER.some((re) => re.test(l)));
-      const { start, end } = where(doc.error);
-      return {
-        tool: "npm",
-        summary: undefined,
-        failures: [withSource({
+      const failures = [];
+      for (const { value: doc, where } of s.includes('"summary"') ? jsonDocumentsAt(s, REPORT) : []) {
+        const detail = doc.error.detail.split("\n").map((l) => l.trim())
+          .filter((l) => l && !CHATTER.some((re) => re.test(l)));
+        const { start, end } = where(doc.error);
+        failures.push(withSource({
           title: doc.error.code, code: doc.error.code, severity: "error",
           message: [doc.error.summary.trim(), ...detail].slice(0, MAX_MESSAGE_LINES).join("\n"),
-        }, start, end)],
-      };
+        }, start, end));
+      }
+      return failures.length ? { tool: "npm", summary: undefined, failures } : null;
     }
     // The lines of npm's block the message was read from, and the one that named the code.
     let failure = withSource({

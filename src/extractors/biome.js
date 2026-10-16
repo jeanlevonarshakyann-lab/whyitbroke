@@ -1,4 +1,4 @@
-import { elements, findJsonDocument, firstElement, githubAnnotations, jsonDocumentsAt, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // Biome heads each finding with the location and the rule, then says what is wrong on
 // the line under it, then draws the source and offers fixes:
@@ -130,28 +130,29 @@ const SUMMARY_RULE_ROW = /^[^\S\n]*([\w-]+\/[\w-]+(?:\/[\w-]+)*)[^\S\n]{2,}\d+/;
  *  need and reading a report for them costs. */
 function reported(s, placed = false) {
   const out = [];
-  const firstDocument = (mark) => {
-    if (!placed) { const value = findJsonDocument(s, mark); return value === null ? null : { value, where: () => ({ start: 0, end: 1 }) }; }
-    for (const doc of jsonDocumentsAt(s, mark)) return doc;
-    return null;
-  };
+  // Every report, not the first: a workspace that runs biome in each package prints one
+  // document per package, and only the first was read - the rest came back clean. A run
+  // that found nothing writes a document too, so the first is not even enough to decide.
+  const documents = (mark) => (placed ? [...jsonDocumentsAt(s, mark)]
+    : [...jsonDocuments(s, mark)].map((value) => ({ value, where: () => ({ start: 0, end: 1 }) })));
   const at = (f, { start, end }) => (placed ? withSource(f, start, end) : f);
   // Each scan is skipped unless the log holds the one string that reporter must
   // print, so asking biome about a large log it has nothing to do with stays cheap.
-  const doc = s.includes('"diagnostics"') ? firstDocument(JSON_MARK) : null;
-  for (const d of doc?.value.diagnostics ?? []) {
-    const start = d.location.span?.[0] ?? d.location.start ?? {};
-    out.push(at({
-      file: d.location.path?.file ?? d.location.path ?? undefined,
-      // A whole-file notice is padded out to a position biome does not really mean -
-      // line 0 in this reporter, line 1 in the next. Line 0 does not exist, so it is
-      // the one padding that can be recognised, and it is dropped rather than shown.
-      line: start.line > 0 ? start.line : undefined,
-      col: start.line > 0 && start.column > 0 ? start.column : undefined,
-      title: d.category, code: d.category,
-      severity: d.severity === "error" || d.severity === "fatal" ? "error" : "warning",
-      message: String(d.message ?? "").trim(),
-    }, doc.where(d)));
+  for (const doc of s.includes('"diagnostics"') ? documents(JSON_MARK) : []) {
+    for (const d of doc.value.diagnostics) {
+      const start = d.location.span?.[0] ?? d.location.start ?? {};
+      out.push(at({
+        file: d.location.path?.file ?? d.location.path ?? undefined,
+        // A whole-file notice is padded out to a position biome does not really mean -
+        // line 0 in this reporter, line 1 in the next. Line 0 does not exist, so it is
+        // the one padding that can be recognised, and it is dropped rather than shown.
+        line: start.line > 0 ? start.line : undefined,
+        col: start.line > 0 && start.column > 0 ? start.column : undefined,
+        title: d.category, code: d.category,
+        severity: d.severity === "error" || d.severity === "fatal" ? "error" : "warning",
+        message: String(d.message ?? "").trim(),
+      }, doc.where(d)));
+    }
   }
 
   // --reporter=github. Every tool's annotations look alike, so what marks these as
@@ -172,16 +173,17 @@ function reported(s, placed = false) {
     }, { start: a.line, end: a.line + 1 }));
   }
 
-  const gitlab = s.includes('"check_name"') ? firstDocument(GITLAB_MARK) : null;
-  for (const d of gitlab?.value ?? []) {
-    out.push(at({
-      file: d.location.path,
-      line: d.location.lines?.begin > 0 ? d.location.lines.begin : undefined,
-      title: d.check_name, code: d.check_name,
-      // GitLab's own scale. Biome writes error as critical and warning as major.
-      severity: d.severity === "critical" || d.severity === "blocker" ? "error" : "warning",
-      message: String(d.description ?? "").trim(),
-    }, gitlab.where(d)));
+  for (const gitlab of s.includes('"check_name"') ? documents(GITLAB_MARK) : []) {
+    for (const d of gitlab.value) {
+      out.push(at({
+        file: d.location.path,
+        line: d.location.lines?.begin > 0 ? d.location.lines.begin : undefined,
+        title: d.check_name, code: d.check_name,
+        // GitLab's own scale. Biome writes error as critical and warning as major.
+        severity: d.severity === "critical" || d.severity === "blocker" ? "error" : "warning",
+        message: String(d.description ?? "").trim(),
+      }, gitlab.where(d)));
+    }
   }
 
   for (const doc of JUNIT_SUITES.test(s) ? elements(s, JUNIT_DOC_RE, JUNIT_DOC) : []) {
