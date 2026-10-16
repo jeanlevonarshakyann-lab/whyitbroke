@@ -1,5 +1,5 @@
 import { lineAt } from "../util.js";
-import { alsoFrom, joinSources, withSource } from "../ownership.js";
+import { alsoFrom, joinSources, sourceRange, withSource } from "../ownership.js";
 // ` > ` between a test's class and its name, from where the whitespace in front of it starts: from
 // each place inside a long stretch the pattern read the rest of it again.
 export const CHEVRON = /(?<![^\S\n])[^\S\n]+>[^\S\n]+/;
@@ -207,80 +207,99 @@ export default {
       seen.set(key, failures.length);
       failures.push(t);
     }
+    // Surefire lists each failed test once, compactly:
+    //   [ERROR]   ClassTest.methodName:1055 expected:<...> but was:<...>
+    // That single line carries the test, its line, and the assertion. Reporting
+    // only "Tests run: 164, Failures: 1" back is a counter, not a diagnosis. These are
+    // read whatever else is in the log, like Gradle's: `mvn --fail-at-end` goes on past a
+    // module that will not compile, and the next module's failed tests were lost behind it.
+    lines.forEach((l, i) => {
+      const m = l.trim().match(SUREFIRE_RE);
+      if (!m) return;
+      failures.push(withSource({
+        file: `${m[1]}.java`, line: +m[3],
+        title: `${m[1]}.${m[2]}`, subject: `${m[1]}.${m[2]}`, category: "test", severity: "error",
+        message: m[4].trim(),
+      }, i, i + 1));
+    });
+    // What the build said went wrong is read beside all of that, and every time it says it:
+    // Gradle reports each failure of a build, a log can hold more than one build, and Maven
+    // fails a goal in each module it gives up on. Only where nothing had been found before,
+    // and only the first, lost the rest. What says again what was read is not another
+    // failure - a section or a goal that covers lines already read, or that says no more than
+    // that the code would not compile or that tests failed, beside the errors and the tests.
+    const read = new Uint8Array(lines.length);
+    for (const f of failures) {
+      const range = sourceRange(f);
+      if (range) for (const { start, end } of range.also ? [range, ...range.also] : [range]) read.fill(1, start, end);
+    }
+    const compiled = failures.some((f) => f.title === "compile error");
+    const tested = failures.some((f) => f.category === "test");
+    const restates = (from, to, said) => read.subarray(from, to).some(Boolean) ||
+      (compiled && /Compilation fail|maven-compiler-plugin|Execution failed for task '[^'\n]*:compile\w*'/.test(said)) ||
+      (tested && /There (?:were|are|was) (?:failing tests|test failures)|maven-(?:surefire|failsafe)-plugin|Execution failed for task '[^'\n]*:\w*[tT]est\w*'/.test(said));
+
+    // A build script that fails to evaluate - wrong Gradle version, bad plugin - names its
+    // file, its line, and the cause under "* What went wrong:". Without this the whole run
+    // produced no output at all. Its place is the one Gradle named above it, under the
+    // section before it.
+    if (s.includes("* What went wrong:")) {
+      const places = [...s.matchAll(/^(?:Build file|Script|Settings file)[^\S\n]+'(.+?)'[^\S\n]+line:[^\S\n]*(\d+)/gm)];
+      let after = 0;
+      for (const wrong of s.matchAll(/^\* What went wrong:\s*\n([\s\S]*?)(?=\n\* |\n\s*BUILD FAILED|(?![\s\S]))/gm)) {
+        const where = places.filter((p) => p.index >= after && p.index < wrong.index).at(-1);
+        after = wrong.index + wrong[0].length;
+        // The "What went wrong" section, and the line naming the script when there is one.
+        const said = { start: lineAt(s, wrong.index), end: lineAt(s, wrong.index + wrong[0].length - 1) + 1 };
+        if (restates(said.start, said.end, wrong[1])) continue;
+        const detail = wrong[1].split("\n").map((l) => l.trim())
+          .filter(Boolean).map((l) => l.replace(/^>[^\S\n]*/, "")).slice(0, 3);
+        // Under -q Gradle prints no test names at all - only its tally and "There were
+        // failing tests" under the consequence. That is a test failure whose tests are
+        // not in the log, not a build script that would not evaluate.
+        const tests = /There were failing tests/.test(wrong[1]);
+        const tally = s.match(/^[^\S\n]*(\d+ tests? completed, \d+ failed.*?)[^\S\n]*$/m);
+        let failure = withSource({
+          file: where?.[1], line: where ? +where[2] : undefined,
+          title: tests ? "tests failed" : "build script", label: tests ? "tests failed" : "build script",
+          category: tests ? "test" : "build", severity: "error",
+          message: (tests && tally ? [tally[1], ...detail] : detail).join("\n"),
+        }, said.start, said.end);
+        if (where) failure = alsoFrom(failure, lineAt(s, where.index), lineAt(s, where.index) + 1);
+        if (tests && tally) failure = alsoFrom(failure, lineAt(s, tally.index), lineAt(s, tally.index) + 1);
+        failures.push(failure);
+      }
+    }
+    // Maven reports everything that is not a compiler diagnostic the same way: the
+    // goal that failed, then the reason on the lines below it. Dependency resolution,
+    // a plugin that blew up, a missing profile - none of them has a file or a line,
+    // and without this branch a build that could not resolve a dependency produced no
+    // diagnosis at all.
+    if (s.includes("Failed to execute goal")) for (let at = 0; at < lines.length; at++) {
+      if (!/^\[ERROR\][^\S\n]+Failed to execute goal/.test(lines[at])) continue;
+      const head = lines[at].replace(/^\[ERROR\][^\S\n]+/, "");
+      const detail = [];
+      let end = at + 1;
+      for (let j = at + 1; j < lines.length && detail.length < 3; j++) {
+        if (!/^\[ERROR\]/.test(lines[j])) break;
+        const t = lines[j].replace(/^\[ERROR\][^\S\n]*/, "").trim();
+        // everything from "-> [Help 1]" down is Maven telling you how to get more
+        // output, not telling you what went wrong
+        if (!t || /^->[^\S\n]*\[Help/.test(t) || /^(?:To see the full stack trace|Re-run Maven)/.test(t)) break;
+        detail.push(t);
+        end = j + 1;
+      }
+      if (restates(at, end, head)) continue;
+      failures.push(withSource({
+        title: "goal failed", label: "goal failed", category: "build", severity: "error",
+        message: [head, ...detail].join("\n"),
+      }, at, end));
+    }
     if (!failures.length) {
-      // Surefire lists each failed test once, compactly:
-      //   [ERROR]   ClassTest.methodName:1055 expected:<...> but was:<...>
-      // That single line carries the test, its line, and the assertion. Reporting
-      // only "Tests run: 164, Failures: 1" back is a counter, not a diagnosis.
-      lines.forEach((l, i) => {
-        const m = l.trim().match(SUREFIRE_RE);
-        if (!m) return;
-        failures.push(withSource({
-          file: `${m[1]}.java`, line: +m[3],
-          title: `${m[1]}.${m[2]}`, subject: `${m[1]}.${m[2]}`, category: "test", severity: "error",
-          message: m[4].trim(),
-        }, i, i + 1));
-      });
-      // A build script that fails to evaluate - wrong Gradle version, bad plugin -
-      // names its file, its line, and the cause under "* What went wrong:". Without
-      // this the whole run produced no output at all.
-      if (!failures.length) {
-        const where = s.match(/^(?:Build file|Script|Settings file)[^\S\n]+'(.+?)'[^\S\n]+line:[^\S\n]*(\d+)/m);
-        const wrong = s.match(/^\* What went wrong:\s*\n([\s\S]*?)(?=\n\* |\n\s*BUILD FAILED|(?![\s\S]))/m);
-        if (wrong) {
-          const detail = wrong[1].split("\n").map((l) => l.trim())
-            .filter(Boolean).map((l) => l.replace(/^>[^\S\n]*/, "")).slice(0, 3);
-          // Under -q Gradle prints no test names at all - only its tally and "There were
-          // failing tests" under the consequence. That is a test failure whose tests are
-          // not in the log, not a build script that would not evaluate.
-          const tests = /There were failing tests/.test(wrong[1]);
-          const tally = s.match(/^[^\S\n]*(\d+ tests? completed, \d+ failed.*?)[^\S\n]*$/m);
-          // The "What went wrong" section, and the line naming the script when there is one.
-          const said = { start: lineAt(s, wrong.index), end: lineAt(s, wrong.index + wrong[0].length - 1) + 1 };
-          let failure = withSource({
-            file: where?.[1], line: where ? +where[2] : undefined,
-            title: tests ? "tests failed" : "build script", label: tests ? "tests failed" : "build script",
-            category: tests ? "test" : "build", severity: "error",
-            message: (tests && tally ? [tally[1], ...detail] : detail).join("\n"),
-          }, said.start, said.end);
-          if (where) failure = alsoFrom(failure, lineAt(s, where.index), lineAt(s, where.index) + 1);
-          if (tests && tally) failure = alsoFrom(failure, lineAt(s, tally.index), lineAt(s, tally.index) + 1);
-          failures.push(failure);
-        }
-      }
-      // Maven reports everything that is not a compiler diagnostic the same way: the
-      // goal that failed, then the reason on the lines below it. Dependency resolution,
-      // a plugin that blew up, a missing profile - none of them has a file or a line,
-      // and without this branch a build that could not resolve a dependency produced no
-      // diagnosis at all.
-      if (!failures.length) {
-        const all = s.split("\n");
-        const at = all.findIndex((l) => /^\[ERROR\][^\S\n]+Failed to execute goal/.test(l));
-        if (at >= 0) {
-          const head = all[at].replace(/^\[ERROR\][^\S\n]+/, "");
-          const detail = [];
-          let end = at + 1;
-          for (let j = at + 1; j < all.length && detail.length < 3; j++) {
-            if (!/^\[ERROR\]/.test(all[j])) break;
-            const t = all[j].replace(/^\[ERROR\][^\S\n]*/, "").trim();
-            // everything from "-> [Help 1]" down is Maven telling you how to get more
-            // output, not telling you what went wrong
-            if (!t || /^->[^\S\n]*\[Help/.test(t) || /^(?:To see the full stack trace|Re-run Maven)/.test(t)) break;
-            detail.push(t);
-            end = j + 1;
-          }
-          failures.push(withSource({
-            title: "goal failed", label: "goal failed", category: "build", severity: "error",
-            message: [head, ...detail].join("\n"),
-          }, at, end));
-        }
-      }
-      if (!failures.length) {
-        const testFailure = s.match(/^\[ERROR\][^\S\n]+Tests run:.*?(?:Failures|Errors):[^\S\n]*(\d+)/m);
-        if (testFailure) {
-          const at = lineAt(s, testFailure.index);
-          failures.push(withSource({ title: "test failure", label: "test failure", category: "test", severity: "error", message: testFailure[0].replace(/^\[ERROR\][^\S\n]+/, "") }, at, at + 1));
-        }
+      const testFailure = s.match(/^\[ERROR\][^\S\n]+Tests run:.*?(?:Failures|Errors):[^\S\n]*(\d+)/m);
+      if (testFailure) {
+        const at = lineAt(s, testFailure.index);
+        failures.push(withSource({ title: "test failure", label: "test failure", category: "test", severity: "error", message: testFailure[0].replace(/^\[ERROR\][^\S\n]+/, "") }, at, at + 1));
       }
     }
     if (!failures.length) return null;

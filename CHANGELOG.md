@@ -20,6 +20,13 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
+- Every failure in a JVM build is read, beside whatever else failed. `mvn --fail-at-end`
+  goes on past a module that will not compile and fails the next one on a dependency, a
+  plugin or its tests, and a log can hold more than one Gradle build. Maven's failed goals,
+  Surefire's failed tests and Gradle's "What went wrong" were each read only where nothing
+  before them had been found, and only the first of each. A goal or a section that says
+  again what was read - the compiler's goal over its errors, Surefire's over the tests,
+  Gradle's compile and test tasks - still adds nothing.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
