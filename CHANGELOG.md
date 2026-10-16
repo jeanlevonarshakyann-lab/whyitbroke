@@ -6,6 +6,15 @@
   long list in a long log is cut by the cap - its start kept with the error, its end in
   the tail - and the list stopped at the marker, so the files after it went unread. Rows
   past the marker are now read as part of the list when they are indented as its rows are.
+- A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
+  arrived, with a record, an array slot and an index entry around it, and only its own
+  bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
+  though it came back whole under the default cap of 10MiB, and made 25MiB hold 101MiB to
+  keep 10MiB of it. Output is now read for diagnostics only once it leaves the part kept at
+  the end, so output that fits is not read at all, and a line it saves is stored once,
+  beside the lines around it, in one buffer. The same captures hold 5MiB and 13MiB, and
+  9MiB that fits is captured in 19ms instead of 314ms. What comes back is the same, byte
+  for byte.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began

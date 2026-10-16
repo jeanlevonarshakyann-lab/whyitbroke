@@ -210,6 +210,8 @@ export function createCapture(maxBytes) {
   const scanLineMax = Math.max(1024, Math.min(64 * 1024, diagnosticMax));
   const head = [];
   let headBytes = 0;
+  // Whether the head's last part is the end of the chunk it came from, or only its start.
+  let headEnds = true;
   // The tail is tail[tailFrom...]: the chunks before it have been shed.
   const tail = [];
   let tailFrom = 0;
@@ -217,12 +219,34 @@ export function createCapture(maxBytes) {
   // The byte in front of the tail's first one, which says whether the tail starts a line.
   let beforeTail = NL;
   let totalBytes = 0;
+  // Whether the last chunk with anything in it ended in a carriage return, and no empty one
+  // has come since: an empty chunk ends that line where it is - see read().
+  let trailingCr = false;
 
-  // Diagnostic lines are stored with their absolute offsets. Complete lines make the
-  // final splice safe for both UTF-8 and multiline parsers; offsets let nearby windows
-  // merge without duplicating bytes or pretending two separated regions were adjacent.
-  const diagnostics = [];
-  const diagnosticOffsets = new Set();
+  // Output is read for diagnostics only once it leaves the tail. Under the cap nothing ever
+  // does, and nothing is read: reading every line as it arrived kept a copy of each one that
+  // looked like a diagnostic, in a record of its own, for output that came back whole. The
+  // head is read before the first byte that leaves the tail, and whatever is left is read
+  // when the capture finishes.
+  let headRead = false;
+  let allRead = false;
+
+  // The lines saved for diagnostics, in the order the output has them: their bytes one after
+  // another, a bit for each byte that ends a line, and for each run of lines that follow one
+  // another, where it starts in the output, which line of the output it starts, and where its
+  // bytes start. Complete lines make the final splice safe for both UTF-8 and multiline
+  // parsers; where each starts lets adjacent lines join into one window without pretending
+  // two separated regions were adjacent. A line is saved while it is one of the last few
+  // read - that is the only time anything can save it - and stored once it is not, so the
+  // store is in order and holds each line once.
+  let store = Buffer.alloc(0);
+  let stored = 0;
+  let lineEnds = new Uint8Array(0);
+  let runStart = new Float64Array(0);
+  let runLine = new Float64Array(0);
+  let runAt = new Float64Array(0);
+  let runs = 0;
+  let storedTo = -1;
   let diagnosticBytes = 0;
   let recent = [];
   let after = 0;
@@ -239,18 +263,48 @@ export function createCapture(maxBytes) {
   // line of the output ends at a newline, and a carriage return only splits it for reading.
   let linesEnded = 0;
 
+  const storeLine = (record) => {
+    if (!record.saved) return;
+    const { start, buf } = record;
+    // What is saved is within the diagnostic budget, so the store never grows past it.
+    if (stored + buf.length > store.length) {
+      const grown = Buffer.allocUnsafe(Math.min(diagnosticMax, Math.max(stored + buf.length, 2 * store.length, 4096)));
+      store.copy(grown, 0, 0, stored);
+      store = grown;
+      const ends = new Uint8Array(Math.ceil(grown.length / 8));
+      ends.set(lineEnds);
+      lineEnds = ends;
+    }
+    if (start !== storedTo) {
+      if (runs === runStart.length) {
+        const more = (old) => { const a = new Float64Array(Math.max(16, 2 * runs)); a.set(old); return a; };
+        runStart = more(runStart);
+        runLine = more(runLine);
+        runAt = more(runAt);
+      }
+      runStart[runs] = start;
+      runLine[runs] = record.line;
+      runAt[runs++] = stored;
+    }
+    buf.copy(store, stored);
+    stored += buf.length;
+    lineEnds[(stored - 1) >> 3] |= 1 << ((stored - 1) & 7);
+    storedTo = start + buf.length;
+  };
+
   const saveDiagnostic = (record) => {
-    if (record.start + record.buf.length <= headMax || diagnosticOffsets.has(record.start)) return;
+    if (record.start + record.buf.length <= headMax || record.saved) return;
     if (record.buf.length > diagnosticMax - diagnosticBytes) return;
-    diagnostics.push(record);
-    diagnosticOffsets.add(record.start);
+    record.saved = true;
     diagnosticBytes += record.buf.length;
   };
 
   const considerLine = (view, start) => {
-    // Copy a line before retaining it: a subarray of a large stream chunk would keep
-    // the entire parent allocation alive and quietly defeat the memory bound.
-    const record = { start, buf: Buffer.from(view), line: linesEnded };
+    // The line is not copied here, only a line that is saved, into the store, once it is no
+    // longer one of the last few read: a view into a large stream chunk keeps the whole
+    // chunk alive, which for a few lines costs little, and for every saved line would
+    // quietly defeat the memory bound.
+    const record = { start, buf: view, line: linesEnded, saved: false };
     // Decoded as UTF-8, not latin1. A bullet is three bytes - jest's "\u25cf" is
     // e2 97 8f - and latin1 turns those into three separate characters, so a pattern
     // written with the bullet in it can never match. The alternatives for jest's and
@@ -273,7 +327,7 @@ export function createCapture(maxBytes) {
       after--;
     }
     recent.push(record);
-    if (recent.length > CONTEXT_LINES) recent.shift();
+    if (recent.length > CONTEXT_LINES) storeLine(recent.shift());
   };
 
   // The line being read ends with buf[from, end), which `start` is the offset of.
@@ -293,7 +347,12 @@ export function createCapture(maxBytes) {
   // return on its own - where a progress bar redraws itself, and where every parser will
   // break the line. A diagnostic printed after a redraw ended no line here, so in the
   // middle of a large log it was read as part of the bar, and never kept.
-  const scanDiagnostics = (buf, start) => {
+  //
+  // `buf` starts at `start` in the output, and `ends` says whether it is the end of the chunk
+  // it arrived in or only part of one: what is read does not depend on when it is read, but
+  // where the chunks the output arrived in end decides which long lines are skipped, and an
+  // empty chunk ends a line at a carriage return before it.
+  const read = (buf, start, ends) => {
     let from = 0;
     if (endsOnCr) {
       endsOnCr = false;
@@ -321,27 +380,42 @@ export function createCapture(maxBytes) {
     // An unbroken minified blob must not become an unbounded scanner buffer. Such a
     // partial line is not useful context, so it is skipped to its end without holding
     // any of it - holding its last 64KiB copied them again for every chunk that arrived.
-    if (partsBytes > scanLineMax) {
+    if (ends && partsBytes > scanLineMax) {
       parts.length = 0;
       partsBytes = 0;
       skipping = true;
+      for (const record of recent) storeLine(record);
       recent = [];
       after = 0;
     }
   };
 
+  const readHead = () => {
+    if (headRead) return;
+    headRead = true;
+    for (let i = 0, at = 0; i < head.length; at += head[i++].length) read(head[i], at, i < head.length - 1 || headEnds);
+  };
+
   return {
     push(chunk) {
       let buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
-      const start = totalBytes;
       totalBytes += buf.length;
-      scanDiagnostics(buf, start);
       if (headBytes < headMax) {
         const take = Math.min(headMax - headBytes, buf.length);
         head.push(buf.subarray(0, take));
         headBytes += take;
+        headEnds = take === buf.length;
         if (take) beforeTail = buf[take - 1];
+        trailingCr = buf.length > 0 && buf[buf.length - 1] === CR;
         buf = buf.subarray(take);
+      } else if (!buf.length) {
+        // Nothing to keep, but an empty chunk still ends a line at the carriage return in
+        // front of it, so it is kept in its place to be read there.
+        if (trailingCr) tail.push(buf);
+        trailingCr = false;
+        return;
+      } else {
+        trailingCr = buf[buf.length - 1] === CR;
       }
       if (!buf.length) return;
       tail.push(buf);
@@ -349,15 +423,20 @@ export function createCapture(maxBytes) {
       // Ring: shed whole chunks from the front, then part of one, counting every
       // discarded byte so the marker can say how much went missing. The front moves by
       // index: shifting the array moved every chunk it held for each chunk that arrived,
-      // and output written a line at a time arrives as a hundred thousand of them.
+      // and output written a line at a time arrives as a hundred thousand of them. What is
+      // shed is read for diagnostics first, after the head.
       while (tailBytes > tailMax) {
         const excess = tailBytes - tailMax;
         const first = tail[tailFrom];
+        const at = totalBytes - tailBytes;
+        readHead();
         if (first.length <= excess) {
-          beforeTail = first[first.length - 1];
+          read(first, at, true);
+          if (first.length) beforeTail = first[first.length - 1];
           tail[tailFrom++] = null;
           tailBytes -= first.length;
         } else {
+          read(first.subarray(0, excess), at, false);
           beforeTail = first[excess - 1];
           tail[tailFrom] = first.subarray(excess);
           tailBytes -= excess;
@@ -370,7 +449,6 @@ export function createCapture(maxBytes) {
     },
 
     finish() {
-      if (partsBytes && !skipping) considerLine(Buffer.concat(parts, partsBytes), lineStart);
       const headBuf = Buffer.concat(head);
       const tailBuf = Buffer.concat(tail.slice(tailFrom));
       if (totalBytes <= maxBytes) {
@@ -381,22 +459,54 @@ export function createCapture(maxBytes) {
         const text = Buffer.concat([headBuf, tailBuf]).toString("utf8");
         if (!text.includes("\uFFFD") || Buffer.byteLength(text) <= maxBytes) return { text, truncated: false, elided: 0 };
       }
+      // Past the cap, what the tail still holds is read now, after the head.
+      if (!allRead) {
+        allRead = true;
+        readHead();
+        for (let i = tailFrom, at = totalBytes - tailBytes; i < tail.length; at += tail[i++].length) read(tail[i], at, true);
+        if (partsBytes && !skipping) considerLine(Buffer.concat(parts, partsBytes), lineStart);
+        for (const record of recent) storeLine(record);
+        recent = [];
+      }
       const keptHead = trimEndToLine(headBuf);
+      // A saved line is store[at, lineEnd(at)), in the run r that holds it, and starts at
+      // runStart[r] + at - runAt[r] in the output.
+      const runEnd = (r) => (r + 1 < runs ? runAt[r + 1] : stored);
+      const outputAt = (r, at) => runStart[r] + at - runAt[r];
+      // Where the saved line starting at `at` in the store ends: past the next byte marked as
+      // ending one.
+      const lineEnd = (at) => {
+        for (let i = at; ; i = (i | 7) + 1) {
+          const bits = lineEnds[i >> 3] >> (i & 7);
+          if (bits) return i + 32 - Math.clz32(bits & -bits);
+        }
+      };
       // Middle diagnostics borrow only the part of the old tail allocation that they
       // need. Candidates already present in the retained tail cost nothing. Moving the
       // tail start can expose another saved line, so find the small monotonic fixed point.
-      const ordered = diagnostics.sort((a, b) => a.start - b.start);
-      // A saved record is a whole line, saved once, so in order of where they start the
-      // records are in order of where they end too, and those between the head and a tail
-      // start are one run of them. The run only grows: more middle leaves less for the
-      // tail, which moves its start later and lets more middle in. So one walk along the
-      // run finds the fixed point - filtering every record again on each pass, and summing
-      // the middle again, was quadratic in a log of dense short diagnostic lines.
-      let from = 0;
-      while (from < ordered.length && ordered[from].start < keptHead.length) from++;
-      let to = from, middleBytes = 0;
+      //
+      // The saved lines are whole lines, in the order the output has them, so in order of
+      // where they start they are in order of where they end too, and those between the head
+      // and a tail start are one run of them: store[fromAt, toAt). The run only grows: more
+      // middle leaves less for the tail, which moves its start later and lets more middle in.
+      // So one walk along the run finds the fixed point - filtering every saved line again on
+      // each pass, and summing the middle again, was quadratic in a log of dense short
+      // diagnostic lines.
+      let fromRun = 0, fromAt = 0;
+      while (fromAt < stored && outputAt(fromRun, fromAt) < keptHead.length) {
+        fromAt = lineEnd(fromAt);
+        if (fromAt === runEnd(fromRun)) fromRun++;
+      }
+      let toRun = fromRun, toAt = fromAt, middleBytes = 0;
       const admit = (limit) => {
-        while (to < ordered.length && ordered[to].start + ordered[to].buf.length <= limit) middleBytes += ordered[to++].buf.length;
+        while (toAt < stored) {
+          const end = runEnd(toRun);
+          if (outputAt(toRun, end) <= limit) { middleBytes += end - toAt; toAt = end; toRun++; continue; }
+          const next = lineEnd(toAt);
+          if (outputAt(toRun, next) > limit) break;
+          middleBytes += next - toAt;
+          toAt = next;
+        }
       };
       admit(totalBytes - tailBuf.length);
       let keptTail = Buffer.alloc(0);
@@ -407,11 +517,20 @@ export function createCapture(maxBytes) {
         const rawTail = tailBuf.subarray(tailOffset);
         keptTail = trimStartToLine(rawTail, tailOffset ? tailBuf[tailOffset - 1] : beforeTail);
         tailStart = totalBytes - tailBuf.length + tailOffset + (rawTail.length - keptTail.length);
-        const before = to;
+        const before = toAt;
         admit(tailStart);
-        if (to === before) break;
+        if (toAt === before) break;
       }
-      let middle = ordered.slice(from, to);
+      // The windows of the middle are the runs of adjacent saved lines in it: runs
+      // [fromRun, lastRun), the first from fromAt and the last to toAt - which ends either
+      // where a run starts or inside the run toRun.
+      const lastRun = toAt === fromAt ? fromRun : toRun < runs && runAt[toRun] < toAt ? toRun + 1 : toRun;
+      const windowAt = (r) => (r === fromRun ? fromAt : runAt[r]);
+      const windowEnd = (r) => Math.min(runEnd(r), toAt);
+      const windowSpan = (r, at, end) => ({
+        start: outputAt(r, at), buf: store.subarray(at, end), at,
+        line: runLine[r] + (at > runAt[r] ? newlines(store.subarray(runAt[r], at)) : 0),
+      });
 
       // --max-bytes counts the log's own bytes. The markers saying where output was left out
       // are not part of the log and come on top of it, and gaps near each other share one so
@@ -422,33 +541,38 @@ export function createCapture(maxBytes) {
       // gap on each side gives way.
       const markerMax = elision(totalBytes).length;
       const allowed = Math.floor(Math.max(4096, Math.floor(maxBytes / 100)) / markerMax);
-      const windows = [];
-      for (const record of middle) {
-        const last = windows.at(-1);
-        if (last && last.end === record.start) { last.records.push(record); last.end += record.buf.length; last.bytes += record.buf.length; }
-        else windows.push({ start: record.start, end: record.start + record.buf.length, bytes: record.buf.length, records: [record] });
-      }
       // How many markers compose() writes for these windows: one wherever a part starts past the
       // end of the one before it, and one more if the last part ends before the output does.
       let markers = 0, cursor = 0;
       const part = (start, end) => { if (start > cursor) markers++; cursor = Math.max(cursor, end); };
       if (keptHead.length) part(0, keptHead.length);
-      for (const w of windows) part(w.start, w.end);
+      for (let r = fromRun; r < lastRun; r++) part(outputAt(r, windowAt(r)), outputAt(r, windowEnd(r)));
       if (keptTail.length) part(tailStart, totalBytes);
       if (cursor < totalBytes) markers++;
+      // The windows kept, which past the marker budget are few: one more than it allows.
+      let middle = [];
       if (markers > allowed) {
-        const apart = windows.filter((w, i) => w.start > (i ? windows[i - 1].end : keptHead.length) &&
-          w.end < (i + 1 < windows.length ? windows[i + 1].start : keptTail.length ? tailStart : totalBytes));
-        const drop = new Set(apart.sort((a, b) => a.bytes - b.bytes || a.start - b.start).slice(0, markers - allowed));
-        const kept = windows.filter((w) => !drop.has(w));
-        middleBytes = kept.reduce((n, w) => n + w.bytes, 0);
+        const apart = [];
+        for (let r = fromRun; r < lastRun; r++) {
+          if (outputAt(r, windowAt(r)) > (r > fromRun ? outputAt(r - 1, windowEnd(r - 1)) : keptHead.length) &&
+            outputAt(r, windowEnd(r)) < (r + 1 < lastRun ? outputAt(r + 1, windowAt(r + 1)) : keptTail.length ? tailStart : totalBytes)) apart.push(r);
+        }
+        const size = (r) => windowEnd(r) - windowAt(r);
+        const drop = new Uint8Array(lastRun - fromRun);
+        for (const r of apart.sort((a, b) => size(a) - size(b) || a - b).slice(0, markers - allowed)) drop[r - fromRun] = 1;
+        middleBytes = 0;
+        for (let r = fromRun; r < lastRun; r++) if (!drop[r - fromRun]) middleBytes += size(r);
         const tailBudget = Math.max(1, maxBytes - keptHead.length - middleBytes);
         const tailOffset = Math.max(0, tailBuf.length - tailBudget);
         const rawTail = tailBuf.subarray(tailOffset);
         keptTail = trimStartToLine(rawTail, tailOffset ? tailBuf[tailOffset - 1] : beforeTail);
         tailStart = totalBytes - tailBuf.length + tailOffset + (rawTail.length - keptTail.length);
         // A window the longer tail now holds is part of it.
-        middle = kept.filter((w) => w.start < tailStart).flatMap((w) => w.records);
+        for (let r = fromRun; r < lastRun; r++) {
+          if (!drop[r - fromRun] && outputAt(r, windowAt(r)) < tailStart) middle.push(windowSpan(r, windowAt(r), windowEnd(r)));
+        }
+      } else {
+        for (let r = fromRun; r < lastRun; r++) middle.push(windowSpan(r, windowAt(r), windowEnd(r)));
       }
 
       let headSpan = keptHead;
@@ -509,28 +633,10 @@ export function createCapture(maxBytes) {
         return { text, kept, segments, markerBytes };
       };
 
-      // The size in bytes of the log's own text compose() hands back with the middle from
-      // `first` on: each part as text, larger than its bytes where they are not UTF-8. The
-      // markers are not counted.
-      const decoded = new Map();
-      const textBytes = (buf) => {
-        let bytes = decoded.get(buf);
-        if (bytes === undefined) decoded.set(buf, (bytes = Buffer.byteLength(buf.toString("utf8"))));
-        return bytes;
-      };
-      const composedBytes = (first) => {
-        let bytes = 0, cursor = 0;
-        const add = (start, buf) => {
-          const overlap = Math.max(0, cursor - start);
-          if (overlap < buf.length) {
-            bytes += overlap ? Buffer.byteLength(buf.subarray(overlap).toString("utf8")) : textBytes(buf);
-            cursor = start + buf.length;
-          }
-        };
-        if (headSpan.length) add(0, headSpan);
-        for (let i = first; i < middleSpans.length; i++) add(middleSpans[i].start, middleSpans[i].buf);
-        if (tailSpan.length) add(tailAt, tailSpan);
-        return bytes;
+      // Where the saved line ending at `end` in the store starts, in a window starting at `from`.
+      const lineStartBefore = (from, end) => {
+        for (let i = end - 2; i >= from; i--) if (lineEnds[i >> 3] & (1 << (i & 7))) return i + 1;
+        return from;
       };
 
       // What was kept above is within the cap in bytes, and the cap holds for it as text as
@@ -548,13 +654,28 @@ export function createCapture(maxBytes) {
           tailSpan = trimStartToLine(tailSpan.subarray(cut), tailSpan[cut - 1]);
           tailAt += before - tailSpan.length;
         } else if (middleSpans.length) {
-          let low = 1, high = middleSpans.length;
-          while (low < high) {
-            const mid = (low + high) >> 1;
-            if (composedBytes(mid) <= maxBytes) high = mid;
-            else low = mid + 1;
+          // The least recent lines of the middle go, as few as the cap needs: from the most
+          // recent back, every line that still fits as text stays - though never the first.
+          const room = maxBytes - Buffer.byteLength(headSpan.toString("utf8"));
+          let i = middleSpans.length - 1, end = middleSpans[i].at + middleSpans[i].buf.length, used = 0, keep = null;
+          for (;;) {
+            const { at } = middleSpans[i];
+            const start = lineStartBefore(at, end);
+            if (i === 0 && start === at) break;
+            used += Buffer.byteLength(store.subarray(start, end).toString("utf8"));
+            if (used > room) break;
+            keep = { i, start };
+            if (start > at) end = start;
+            else { i--; end = middleSpans[i].at + middleSpans[i].buf.length; }
           }
-          middleSpans = middleSpans.slice(low);
+          if (!keep) middleSpans = [];
+          else {
+            const first = middleSpans[keep.i], cut = keep.start - first.at;
+            middleSpans = [cut ? {
+              start: first.start + cut, buf: first.buf.subarray(cut), at: keep.start,
+              line: first.line + newlines(first.buf.subarray(0, cut)),
+            } : first, ...middleSpans.slice(keep.i + 1)];
+          }
         } else if (headSpan.length) {
           headSpan = trimEndToLine(headSpan.subarray(0, Math.max(0, headSpan.length - overflow)));
         } else {
