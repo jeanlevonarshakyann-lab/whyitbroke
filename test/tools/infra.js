@@ -479,5 +479,27 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL git overwrite list cut by the cap\n       ${e.message}`); fail++; }
 
+// Each docker build in a log is read on its own. CI goes on to the next image after one fails,
+// and read as one build, the first build's message took the last build's Dockerfile line - and
+// a later build whose step 5 printed made an earlier silent step 5 look like it had said why it
+// failed, so the earlier build was not docker's at all.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.file}:${f.line} ${f.message}`).sort();
+  for (const name of ["docker_copy_fail.txt", "docker_dockerfile_fail.txt", "docker_pull_fail.txt", "docker_run_silent_fail.txt"]) {
+    const first = fx(name), file = first.match(/^(Dockerfile\S*):\d+$/m)[1];
+    const second = first.split(file).join(`${file}.other`);
+    assert.deepEqual(read(`${first}\n${second}`), [...read(first), ...read(second)].sort(), name);
+  }
+  const silent = fx("docker_run_silent_fail.txt");
+  assert.deepEqual(read(`${silent}\n#5 [2/2] RUN echo ready\n#5 0.211 ready\n#5 DONE 0.2s`), read(silent),
+    "a later build's step 5 spoke for an earlier silent one");
+  // ...and a build whose failing step printed is still the tool's inside it, beside docker's own.
+  const both = analyse(`${fx("docker_buildkit_pytest_fail.txt")}\n${fx("docker_copy_fail.txt")}`);
+  assert.equal(both.tool, "pytest");
+  assert.deepEqual((both.others ?? []).map((o) => [o.tool, o.count]), [["docker", 1]]);
+  console.log("  ok   each docker build in a log is read on its own");
+  pass++;
+} catch (e) { console.log(`  FAIL each docker build\n       ${e.message}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

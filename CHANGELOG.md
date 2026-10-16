@@ -20,6 +20,10 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
+- Each docker build in a log is read on its own. CI goes on to the next image after one
+  fails, and read as one build, the first build's message took the last build's Dockerfile
+  line, and a later build whose step printed made an earlier silent step with the same
+  number look like it had said why it failed - so that build was not read as docker's at all.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
