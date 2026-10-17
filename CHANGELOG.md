@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- git's list of the files a checkout would overwrite goes on past a gap in a capture. A
+  long list in a long log is cut by the cap - its start kept with the error, its end in
+  the tail - and the list stopped at the marker, so the files after it went unread. Rows
+  past the marker are now read as part of the list when they are indented as its rows are.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,

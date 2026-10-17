@@ -8,6 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
+import { elision } from "../../src/capture.js";
 import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
 
 const CASES = [
@@ -458,6 +459,25 @@ try {
   console.log("  ok   a refused subcommand is terraform's only when terraform says so");
   pass++;
 } catch (e) { console.log(`  FAIL terraform refused command\n       ${e.message}`); fail++; }
+
+// git lists the files a checkout would overwrite one per line, and a long list in a long log
+// is cut by a capture's cap: the head of it kept with the error, the end of it in the tail.
+// The list stopped at the marker, and the files after it went unread.
+try {
+  const files = Array.from({ length: 60 }, (_, k) => `src/generated/schema${k}.ts`);
+  const log = "error: Your local changes to the following files would be overwritten by checkout:\n" +
+    files.slice(0, 8).map((f) => `\t${f}\n`).join("") + elision(81234).slice(1) +
+    files.slice(40).map((f) => `\t${f}\n`).join("") +
+    "Please commit your changes or stash them before you switch branches.\nAborting\n";
+  const r = analyse(log);
+  assert.equal(r?.tool, "git");
+  assert.deepEqual(r.failures.map((f) => f.file), [...files.slice(0, 8), ...files.slice(40)]);
+  // What is past the marker has to be indented as the list is to be part of it.
+  const other = analyse(log.replace("\tsrc/generated/schema40.ts", "  at Object.<anonymous> (src/x.js:1:1)"));
+  assert.deepEqual(other.failures.map((f) => f.file), files.slice(0, 8));
+  console.log("  ok   git's list of files it would overwrite goes on past a gap in the capture");
+  pass++;
+} catch (e) { console.log(`  FAIL git overwrite list cut by the cap\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
