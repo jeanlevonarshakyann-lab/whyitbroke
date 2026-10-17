@@ -377,6 +377,28 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL go -json vs plain\n       ${e.message}`); fail++; }
 
+// test2json writes a line longer than its kilobyte of buffer as several output events, and
+// only the last ends in a newline. Each was read as a line of its own, so a long failure
+// message came back cut at its first kilobyte.
+try {
+  const long = "Add(2, 2) = 5, want 4 - " + Array.from({ length: 150 }, (_, k) => `case ${k}: got ${k + 1}, want ${k}`).join("; ");
+  const plain = analyse(fx("gotest_verbose_plain_fail.txt").replace("Add(2, 2) = 5, want 4", long));
+  const line = `    p1_test.go:7: ${long}\n`;
+  const pieces = [];
+  for (let at = 0; at < line.length; at += 1024) pieces.push(line.slice(at, at + 1024));
+  const event = fx("gotest_json_fail.txt").split("\n").find((l) => l.includes("Add(2, 2) = 5, want 4"));
+  const json = analyse(fx("gotest_json_fail.txt").replace(event, pieces.map((p) => event.replace(/"Output":"[^"]*"/, `"Output":${JSON.stringify(p)}`)).join("\n")));
+  const facts = (r) => r.failures.map((f) => [f.file, f.line, f.title, f.message]);
+  assert.ok(pieces.length > 3);
+  assert.equal(plain.failures[0].message, long);
+  assert.deepEqual(facts(json), facts(plain), "-json cut the long line where test2json did");
+  // Output a test printed without a newline is not a piece of the frame that follows it.
+  const bare = fx("gotest_json_fail.txt").replace(/("Output":"    p1_test.go:7: Add\(2, 2\) = 5, want 4)\\n"/, "$1\"");
+  assert.deepEqual(facts(analyse(bare.replace(/,"OutputType":"frame"/g, ""))), facts(analyse(fx("gotest_json_fail.txt"))));
+  console.log("  ok   a line longer than test2json's buffer comes back whole");
+  pass++;
+} catch (e) { console.log(`  FAIL go -json long line\n       ${e.message}`); fail++; }
+
 // The same build-and-test run in three encodings has to report the same failures. The
 // comparison is of the SET: `go test ./...` runs packages in parallel, so the order their
 // output arrives in is not something one run promises another.
