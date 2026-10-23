@@ -149,14 +149,29 @@ const took = (text) => {
 const ms = (t) => (t < 10 ? t.toFixed(1) : Math.round(t));
 const fastest = (text, runs) => Math.min(...Array.from({ length: runs }, () => took(text)));
 
+// A ratio of two times measured one after the other puts whatever the machine did between
+// them into the ratio. Shared CI machines pause for tens of milliseconds, and bundler's
+// 5.1ms log against 43ms for four times as much, x8.5, failed an unchanged main.
+
+/** The fastest times of `small` and of `big`. The smaller input is read twice and the
+ *  larger once; while their ratio is past `bound` they are read again in turn, up to five
+ *  rounds, so a slow stretch of the machine lands on both. A reader that has gone
+ *  quadratic is slow on every round. */
+function alternate(time, small, big, bound) {
+  let fast = Math.min(time(small), time(small));
+  let slow = time(big);
+  for (let round = 1; round < 5 && slow >= fast * bound; round++) {
+    fast = Math.min(fast, time(small));
+    slow = Math.min(slow, time(big));
+  }
+  return [fast, slow];
+}
+
 /** Reading `grow(4n)` costs about four times reading `grow(n)`, not sixteen. The larger
  *  log is read once before it is read again, so a reader that has gone quadratic fails
  *  after one slow read instead of three. */
 function linear(grow, n) {
-  const small = fastest(grow(n), 5);
-  const big = grow(4 * n - 3);
-  let large = took(big);
-  if (large < small * 8) large = Math.min(large, fastest(big, 2));
+  const [small, large] = alternate(took, grow(n), grow(4 * n - 3), 8);
   assert.ok(large < small * 8,
     `${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
 }
@@ -201,10 +216,7 @@ function linearIn(extractor, grow, n) {
     } while (performance.now() - at < FLOOR_MS);
     return best;
   };
-  const small = Math.min(...Array.from({ length: 5 }, () => once(grow(n))));
-  const big = grow(4 * n - 3);
-  let large = once(big);
-  if (large >= small * 8) large = Math.min(large, once(big), once(big));
+  const [small, large] = alternate(once, grow(n), grow(4 * n - 3), 8);
   assert.ok(large < small * 8,
     `${extractor.name}: ${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
 }
@@ -720,10 +732,7 @@ function linearStep(read, grow, n) {
     } while (performance.now() - at < FLOOR_MS);
     return best;
   };
-  const small = Math.min(...Array.from({ length: 3 }, () => once(grow(n))));
-  const big = grow(4 * n - 3);
-  let large = once(big);
-  if (large >= small * 8) large = Math.min(large, once(big), once(big));
+  const [small, large] = alternate(once, grow(n), grow(4 * n - 3), 8);
   assert.ok(large < small * 8,
     `${ms(small)}ms for the log, ${ms(large)}ms for four times as much - x${(large / small).toFixed(1)}`);
 }
@@ -832,9 +841,11 @@ test("a capture of output with no line end, arriving a few bytes at a time", () 
     c.finish();
     return performance.now() - at;
   };
-  const best = (chunks) => Math.min(time(chunks), time(chunks), time(chunks));
-  const unbroken = best(pieces("x".repeat(4 * 1024 * 1024)));
-  const lines = best(pieces("info: compiled module 0000042\n".repeat(4 * 1024 * 1024 / 30)));
+  // Four captures to a timing: one took 8.5ms, and a pause of ten more on a shared machine
+  // was a failure.
+  const four = (chunks) => time(chunks) + time(chunks) + time(chunks) + time(chunks);
+  const [lines, unbroken] = alternate(four,
+    pieces("info: compiled module 0000042\n".repeat(4 * 1024 * 1024 / 30)), pieces("x".repeat(4 * 1024 * 1024)), 2);
   assert.ok(unbroken < lines * 2,
     `${ms(unbroken)}ms for 4MiB with no line end, ${ms(lines)}ms for 4MiB of lines - x${(unbroken / lines).toFixed(1)}`);
 });
