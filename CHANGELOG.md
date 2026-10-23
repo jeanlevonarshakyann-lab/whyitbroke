@@ -29,16 +29,6 @@
   beside the lines around it, in one buffer. The same captures hold 5MiB and 13MiB, and
   9MiB that fits is captured in 19ms instead of 314ms. What comes back is the same, byte
   for byte.
-- babel's heading names its file whole when the file is on a drive or has a colon in its
-  name. The file was taken to end at the first colon: `C:\work\bad.js` was the file `C`,
-  which is no path, so the error was not read at all, and `/work/src/foo:bar.js` was
-  `/work/src/foo`, with the rest of its name read into the message. It now ends at the
-  first colon a space follows, which is where babel ends it.
-- webpack 4's error that belongs to no module is read as what went wrong. webpack 4 writes
-  it on its heading line as a sentence, `ERROR in Entry module not found: Error: Can't
-  resolve './src' in '/project'`, with nothing under it, and the sentence was read as the
-  module the error was in: a file of that name, with "webpack reported an error with no
-  explanation" for its message.
 - jest's config complaints stay out of the failures however they are spaced. The check
   that tells a "● Validation Warning:" or "● Console" block from a failed test was made
   after the whitespace following the bullet, and with two spaces or more the pattern began
