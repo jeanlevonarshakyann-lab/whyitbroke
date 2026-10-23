@@ -20,19 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- A runner's prefix that reads like a directory comes off the paths it was read into.
-  kubectl's pod, `pod/api-7d9 `, and pnpm's package and script, `packages/api test$ `, read
-  like the start of every path - a parser took them for part of each file - and the strip
-  was refused, since mypy's repeated source directory reads the same way and is data. A
-  directory is in front of the files a tool names and nothing else; a runner's prefix is in
-  front of every line it relays, the tool's heading and tally among them, and is now taken
-  off where it is. A line that goes on into a file is not one of those: oxlint names a file
-  again for each warning it holds back, and a directory such as `my project/` is in front of
-  those too, so it stays. Of every fixture under five runners' prefixes, 174 readings that
-  put the prefix in their paths now read as the log does bare; where every line a prefix
-  opens names a file, as in yamllint's parsable output, the two cannot be told apart and the
-  prefix stays in the paths, as before. A Turborepo task or a pnpm script named in mixed
-  case, `api:TypeCheck: ` or `@shop/api TypeCheck: `, is also a runner's prefix.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
