@@ -6,6 +6,10 @@
   long list in a long log is cut by the cap - its start kept with the error, its end in
   the tail - and the list stopped at the marker, so the files after it went unread. Rows
   past the marker are now read as part of the list when they are indented as its rows are.
+- A line of `go test -json` output longer than a kilobyte comes back whole. test2json
+  writes such a line as several output events and ends only the last with a newline, and
+  each was read as a line of its own: a long failure message was cut at its first
+  kilobyte. The pieces - output that filled test2json's buffer - are joined again.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
