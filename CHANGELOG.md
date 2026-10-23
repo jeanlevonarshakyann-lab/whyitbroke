@@ -20,13 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- Every report a log holds is read. A workspace that lints each package on its own prints a
-  report per package, and biome (`json` and `gitlab`), deno lint, markdownlint, npm, pylint,
-  rspec, ruff, shellcheck and stylelint each read the first document they recognised and
-  stopped: every package after the first came back with nothing wrong, and where the first
-  package was clean - biome, rspec and stylelint accept a report with nothing in it - the
-  log read as nothing at all. The same report printed twice still reads as once, and
-  rspec's headline counts every document's examples instead of repeating the first one's.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
