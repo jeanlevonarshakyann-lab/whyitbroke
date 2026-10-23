@@ -20,10 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- Every terraform run in a log is read. An init error was looked for only under the last step
-  of init's narration in the whole log, and only where nothing else had been found, so a
-  second init's error - or one after a failed validate - was lost; a refused subcommand was
-  read once, and only where nothing else failed.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
