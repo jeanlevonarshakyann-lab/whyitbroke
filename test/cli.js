@@ -323,6 +323,34 @@ export async function runCliTests(cli = fileURLToPath(new URL("../bin/whyitbroke
     assert.equal(code, 0, "piped input still exits 0, as the README says it does");
   });
 
+  await check("a reader on a socket that goes away is quiet too", () => {
+    // A reader that started whyitbroke from node, a CI runner or an editor holds a socket,
+    // and on macOS a write to one closed under it is sometimes ENOTCONN, not EPIPE: the test
+    // above exited 1 about one run in two hundred on a busy machine. Each error is raised
+    // here on the report's first write, so the case is met every run. A write error that is
+    // not the reader going away is still left in the exit code.
+    const dir = mkdtempSync(join(tmpdir(), "whyitbroke-socket-"));
+    const preload = join(dir, "write-error.cjs");
+    writeFileSync(preload, `
+      const code = process.env.WRITE_ERROR, write = process.stdout.write;
+      process.stdout.write = function () {
+        process.stdout.write = write;
+        process.nextTick(() => process.stdout.emit("error", Object.assign(new Error(code), { code })));
+        return true;
+      };`);
+    try {
+      for (const [code, status] of [["EPIPE", 0], ["ENOTCONN", 0], ["ECONNRESET", 0], ["EIO", 1]]) {
+        const r = spawnSync(process.execPath, ["--require", preload, cli], {
+          input: "a.py:1: error: thing is wrong\n", encoding: "utf8", timeout: 20000,
+          env: { ...process.env, NO_COLOR: "1", GITHUB_STEP_SUMMARY: "", WRITE_ERROR: code },
+        });
+        assert.ifError(r.error);
+        assert.doesNotMatch(r.stderr, /Unhandled .error.|node:internal/, `${code} reached the terminal: ${r.stderr}`);
+        assert.equal(r.status, status, `${code} on the report's write exited ${r.status}`);
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   await check("unknown and malformed options are rejected before launching commands", () => {
     const invalid = [
       ["--quuet"], ["-z"], ["-qz"], ["--quiet=true"], ["--json=false"],

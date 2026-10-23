@@ -27,10 +27,16 @@ const { version } = createRequire(import.meta.url)("../package.json");
 // tool whose whole job is to keep those off the screen. There is nothing left to say to a
 // closed pipe, so say nothing; anything else that stops a write, a full disk say, cannot
 // be reported either and is left in the exit code.
+//
+// A reader that started us from node, a CI runner or an editor holds the other end of a
+// socket, not a pipe, and a socket closed under a write is not always EPIPE: on macOS it
+// is ENOTCONN about one run in two hundred on a busy machine, and ECONNRESET where the
+// reader's end was reset. Those are the same reader going away, and exited 1.
+const READER_GONE = new Set(["EPIPE", "ENOTCONN", "ECONNRESET", "ERR_STREAM_DESTROYED"]);
 let outputFailed = false;
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (e) => {
-    if (e?.code === "EPIPE" || e?.code === "ERR_STREAM_DESTROYED") return;
+    if (READER_GONE.has(e?.code)) return;
     outputFailed = true;
     process.exitCode ||= 1;
   });
