@@ -20,13 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- Four guards keep out only what they are there for. swiftc's diagnostic for a file named
-  `1|bad.swift` was taken for a line of the source it draws, and skipped; stylelint's
-  heading for a file named `✖.css` was taken for one of its status lines, and its
-  problems named no file; a TAP file's roll-up was skipped as repeating its members'
-  failures even where none had failed - a file that would not load has none, and the
-  roll-up is the only record of it; and babel's error in code read from stdin, which it
-  names `unknown`, was not read at all.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
