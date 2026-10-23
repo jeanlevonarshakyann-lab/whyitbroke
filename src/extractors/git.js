@@ -8,10 +8,13 @@
 
 import { alsoFrom, withSource } from "../ownership.js";
 import { append } from "../util.js";
+import { ELIDED } from "../capture.js";
 
 const CONFLICT = /^CONFLICT \(([^)]+)\): (?:Merge conflict in|.*? in) (.+)$/;
 const REJECTED = /^[^\S\n]*!\s+\[([^\]]+)\][^\S\n]+(\S+)[^\S\n]+->[^\S\n]+(\S+)(?:[^\S\n]+\((.+)\))?$/;
 const OVERWRITE = /^error: Your local changes to the following files would be overwritten by (\w+):$/;
+// ...and under it, one of the files, indented.
+const OVERWRITTEN = /^([^\S\n]+)\S/;
 const DIAGNOSTIC = /^(fatal|error): (.+)$/;
 // Even as a fallback, a bare `fatal:`/`error:` has to say something git would say.
 // Gating the fallback on "git found nothing structural" is not enough on its own: in a
@@ -106,7 +109,19 @@ export default {
       if (o) {
         // the files follow, one per line, indented
         // Each file's own line, and the sentence above them all that says what would happen.
-        for (let j = i + 1; j < lines.length && /^[^\S\n]+\S/.test(lines[j]); j++) {
+        // A capture can leave out the middle of a long list, and the rows on the far side
+        // of its marker are still the list's when they are indented as its rows are: the
+        // list stopped at the marker, and the files the capture kept after it went unread.
+        let indent;
+        for (let j = i + 1; j < lines.length; j++) {
+          const gap = lines[j] === "" && ELIDED.test(lines[j + 1] ?? "") ? j + 2 : ELIDED.test(lines[j]) ? j + 1 : -1;
+          if (gap >= 0 && indent !== undefined && lines[gap]?.match(OVERWRITTEN)?.[1] === indent) {
+            j = gap - 1;
+            continue;
+          }
+          const row = lines[j].match(OVERWRITTEN);
+          if (!row) break;
+          indent ??= row[1];
           failures.push(alsoFrom(withSource({ file: lines[j].trim(), title: "local changes", label: "local changes", severity: "error",
             message: `would be overwritten by ${o[1]}` }, j, j + 1), i, i + 1));
         }
