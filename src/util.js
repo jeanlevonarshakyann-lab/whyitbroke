@@ -371,6 +371,14 @@ export function tailFirst(line, { tail, spaceBefore = 0, emptyMessage, heads, ad
   return null;
 }
 
+// A lint rule's name as the tools that take plugins write it: parts joined by `/`, each made of
+// word characters, `-` and `.`, the first led by `@` when it names a scope - `no-unused-vars`,
+// `react/jsx-key`, `@typescript-eslint/no-explicit-any`, `@stylistic/indentation`,
+// `local.plugin/rule`. A pattern's source, for a reader's own patterns to hold. Each reader
+// allowed a name of its own making, and a finding from a plugin named any other way was
+// dropped from the row that reported it.
+export const RULE_NAME = String.raw`@?[\w.-]+(?:\/[\w.-]+)*`;
+
 // A line pattern of the shape `head[^\S\n]+(.+?)separator tail` - a head, whitespace, a lazy
 // message, a separator of whitespace, and a tail - built to match exactly what that pattern
 // matches, in time that grows with the line rather than its square.
