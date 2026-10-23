@@ -16,6 +16,11 @@ const RECORD = /^[^\S\n]*\{.*\}[^\S\n]*$/;
  *  explanations", "For more information about an error". They carry no span and are
  *  chatter under any format. */
 const NOTE_LEVELS = new Set(["note", "help", "failure-note"]);
+// rustc names a crash of its own by a level of its own, "error: internal compiler error",
+// and prints it as an error that says so: `error: internal compiler error: ...`. Read for
+// the exact level "error", it was passed over as a note is. What follows the colon is said
+// in front of the message, as the text form says it.
+const ERROR_LEVEL = /^error(?::[^\S\n]*(\S.*))?$/;
 
 /** Every diagnostic record, and the line it was written on. */
 function diagnostics(s) {
@@ -64,9 +69,10 @@ export default {
         if (index !== null) failures[index] = joinSources(failures[index], withSource({}, at, at + 1));
         continue;
       }
-      seen.set(identity, m.level === "error" ? failures.length : null);
+      const error = typeof m.level === "string" ? m.level.match(ERROR_LEVEL) : null;
+      seen.set(identity, error ? failures.length : null);
       if (m.level === "warning") { warnings++; continue; }
-      if (m.level !== "error") continue;
+      if (!error) continue;
       // rustc marks exactly one span as primary: the place it wants you to look. The
       // others are context - "expected due to this" - and belong to the same failure.
       const primary = m.spans.find((sp) => sp.is_primary) ?? m.spans[0];
@@ -79,7 +85,7 @@ export default {
         file: primary?.file_name, line: primary?.line_start, col: primary?.column_start,
         title: code ?? "error", ...(code ? { code } : { label: "error" }),
         severity: "error",
-        message: [m.message, label].filter(Boolean).join("\n"),
+        message: [error[1] ? `${error[1]}: ${m.message}` : m.message, label].filter(Boolean).join("\n"),
         ...(stmt ? { stmt } : {}),
       }, at, at + 1));
     }

@@ -236,6 +236,34 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL cargo json vs text\n       ${e.message}`); fail++; }
 
+// rustc names a crash of its own by a level of its own, "error: internal compiler error",
+// and the text form prints it as an error: `error: internal compiler error: ...`. The JSON
+// record of it was passed over as though it were a note, so a compile that crashed came back
+// with nothing found in it.
+try {
+  const ice = "compiler/rustc_hir_typeck/src/lib.rs:285:21: cannot type-check body of DefId(0:3 ~ cj[2c3d]::main)";
+  const record = {
+    reason: "compiler-message", package_id: "path+file:///home/dev/cj#0.1.0", manifest_path: "/home/dev/cj/Cargo.toml",
+    target: { kind: ["bin"], crate_types: ["bin"], name: "cj", src_path: "/home/dev/cj/src/main.rs", edition: "2021", doc: true, doctest: false, test: true },
+    message: {
+      rendered: `error: internal compiler error: ${ice}\n --> src/main.rs:1:1\n  |\n1 | fn main() {\n  | ^^^^^^^^^\n\n`,
+      $message_type: "diagnostic", children: [], level: "error: internal compiler error", message: ice,
+      spans: [{ byte_end: 9, byte_start: 0, column_end: 10, column_start: 1, expansion: null, file_name: "src/main.rs",
+        is_primary: true, label: null, line_end: 1, line_start: 1, suggested_replacement: null, suggestion_applicability: null,
+        text: [{ highlight_end: 10, highlight_start: 1, text: "fn main() {" }] }],
+      code: null,
+    },
+  };
+  const json = analyse(`${JSON.stringify(record)}\n{"reason":"build-finished","success":false}\n`);
+  assert.equal(json?.tool, "cargo", "the crash was not read");
+  const facts = (f) => [f.file, f.line, f.col, f.severity, f.message];
+  assert.deepEqual(json.failures.map(facts), [["src/main.rs", 1, 1, "error", `internal compiler error: ${ice}`]]);
+  // ...which is what the text form of the same record says.
+  assert.deepEqual(analyse(record.message.rendered).failures.map(facts), json.failures.map(facts));
+  console.log("  ok   --message-format=json reads rustc's internal compiler error");
+  pass++;
+} catch (e) { console.log(`  FAIL cargo json internal compiler error\n       ${e.message}`); fail++; }
+
 // How many warnings a cargo run hid is cargo's own number, whichever format printed it.
 // cargo ends each crate with "`shop` (lib) generated 2 warnings (1 duplicate)", and the
 // ones it did not print again are the duplicates - so the warnings shown are the sum of
