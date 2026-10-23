@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A reader that goes away no longer turns a run into exit code 1 when it held a socket
+  rather than a pipe - a node script, a CI runner or an editor that started whyitbroke.
+  On macOS a write to a socket closed under it is sometimes ENOTCONN, not EPIPE, and only
+  EPIPE was taken for the reader leaving: on a busy machine, about one run in two hundred
+  exited 1 where the README promises 0. ENOTCONN and ECONNRESET now end the run quietly too.
 - git's list of the files a checkout would overwrite goes on past a gap in a capture. A
   long list in a long log is cut by the cap - its start kept with the error, its end in
   the tail - and the list stopped at the marker, so the files after it went unread. Rows
