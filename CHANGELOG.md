@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Reading a log of short JSON lines holds half its size, not three and a half times it.
+  Every reader of JSON shares one pass that finds where each document opening a line
+  starts and ends, and it kept an object and a pair for each, for as long as the log was
+  the last one read: 600,000 lines of `{"severity":"x"}` - 10MB - held 35MB. It keeps two
+  numbers for each document now, 5MB for the same log, and finds the same documents.
 - A reader that goes away no longer turns a run into exit code 1 when it held a socket
   rather than a pipe - a node script, a CI runner or an editor that started whyitbroke.
   On macOS a write to a socket closed under it is sometimes ENOTCONN, not EPIPE, and only
