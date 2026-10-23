@@ -20,10 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- vitest's JUnit and GitHub Actions reports read a frame by the file they already name. A
-  frame with no function in front of its path was read as a function and a file when the
-  path's first part had a space in it - `my tests/cart.test.js` was `tests/cart.test.js` -
-  and replaced the file the report had right.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
