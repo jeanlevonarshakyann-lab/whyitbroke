@@ -352,6 +352,25 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL panic beside compile errors\n       ${e.message}`); fail++; }
 
+// go vet writes each analyzer's result on its own, and one that could not run says so in
+// its place - `{"error": "..."}` rather than a list of findings - beside the others' lists.
+// A package holding one was read as no report of go vet's, and the findings of every other
+// analyzer in it were lost: here the first package's printf finding.
+try {
+  const docs = fx("govet_json_fail.txt").split(/^(?=\{)/m);
+  const failed = docs[0].replace('"printf": [', '"copylocks": {\n\t\t\t"error": "analysis skipped due to errors in package"\n\t\t},\n\t\t"printf": [');
+  assert.notEqual(failed, docs[0]);
+  const r = analyse([failed, ...docs.slice(1)].join(""));
+  assert.equal(r.tool, "go vet");
+  assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.code]), [
+    ["/home/dev/shop/shop/cart.go", 7, "printf"], ["/home/dev/shop/ship/box.go", 7, "printf"],
+  ]);
+  // ...and an analyzer's error alone is not a finding.
+  assert.equal(analyse(`{\n\t"example.com/shop/shop": {\n\t\t"copylocks": {"error": "analysis skipped due to errors in package"}\n\t}\n}\n`)?.tool === "go vet", false);
+  console.log("  ok   go vet -json reads the findings beside an analyzer that could not run");
+  pass++;
+} catch (e) { console.log(`  FAIL go vet -json beside an analyzer error\n       ${e.message}`); fail++; }
+
 // The same Go run captured plainly and with -v has to say the same thing - file, line,
 // test and message for every failure. Verbose mode is where a test's output sits above
 // its result line, and it is also what every `go test -json` stream runs underneath, so

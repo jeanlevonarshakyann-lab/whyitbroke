@@ -24,6 +24,12 @@ import { joinSources, withSource } from "../ownership.js";
 // nothing in the line says a vet analyzer produced it. Here the analyzer names itself,
 // so the finding carries `printf` or `copylocks` as its code.
 const POSN_RE = /^(.*):(\d+):(\d+)$/;
+// go vet writes each analyzer's result on its own, and one that could not run - a package
+// that did not type-check, say - writes `{"error": "..."}` in its place, beside the other
+// analyzers' lists. That is no finding, and it does not make the rest of the package any
+// less go vet's: read as a list, it lost the findings of every other analyzer in it.
+const analyzerError = (result) =>
+  !!result && typeof result === "object" && !Array.isArray(result) && typeof result.error === "string";
 
 /** Every finding in the document, grouped by package and then by analyzer - each where
  *  its own object was written. */
@@ -31,6 +37,7 @@ function findings({ value: doc, where }) {
   const out = [];
   for (const byAnalyzer of Object.values(doc)) {
     for (const [analyzer, list] of Object.entries(byAnalyzer)) {
+      if (analyzerError(list)) continue;
       for (const d of list) {
         const at = d.posn.match(POSN_RE);
         const { start, end } = where(d);
@@ -46,15 +53,17 @@ function findings({ value: doc, where }) {
 }
 
 // A package path maps to a map of analyzer names, each holding a list of findings that
-// carry a position and a message. An empty document is a package go vet had nothing to
-// say about, and says nothing about whether this is go vet's output - so at least one
-// finding has to be there before the shape is claimed.
+// carry a position and a message, or the error that kept it from running. An empty
+// document is a package go vet had nothing to say about, and says nothing about whether
+// this is go vet's output - so at least one finding has to be there before the shape is
+// claimed.
 const REPORT = (v) => {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   let found = 0;
   for (const byAnalyzer of Object.values(v)) {
     if (!byAnalyzer || typeof byAnalyzer !== "object" || Array.isArray(byAnalyzer)) return false;
     for (const list of Object.values(byAnalyzer)) {
+      if (analyzerError(list)) continue;
       if (!Array.isArray(list)) return false;
       for (const d of list) {
         if (!d || typeof d.posn !== "string" || typeof d.message !== "string") return false;
