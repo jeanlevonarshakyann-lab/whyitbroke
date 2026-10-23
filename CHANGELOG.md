@@ -20,14 +20,6 @@
   writes such a line as several output events and ends only the last with a newline, and
   each was read as a line of its own: a long failure message was cut at its first
   kilobyte. The pieces - output that filled test2json's buffer - are joined again.
-- Every package manager run in a log is read. A workspace installs and runs scripts one
-  package at a time, and each failed run says so in its own block: pnpm read the first boxed
-  error, yarn stopped at the first run's closing advice line, poetry read the first invalid
-  file and the first resolver chain, and npm read every run's lines as one failure under the
-  first run's code. pip named every package that failed to build after the first package in
-  the log, so a second package's failure was folded into the first, and it read the same bad
-  requirement in two files as one. npm's ERESOLVE message also keeps the requirement it could
-  not resolve - the conflict itself - which was past the end of the lines a message was given.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
