@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A line of `go test -json` output longer than a kilobyte comes back whole. test2json
+  writes such a line as several output events and ends only the last with a newline, and
+  each was read as a line of its own: a long failure message was cut at its first
+  kilobyte. The pieces - output that filled test2json's buffer - are joined again.
 - A capture holds what it keeps. Every line that looked like a diagnostic was copied as it
   arrived, with a record, an array slot and an index entry around it, and only its own
   bytes were counted: 2.5MiB of five-byte `FAIL` lines made 5MiB of output hold 96MiB,
