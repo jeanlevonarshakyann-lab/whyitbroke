@@ -111,31 +111,36 @@ export const poetry = {
     const lines = s.split("\n");
     const failures = [];
 
-    const invalid = lines.findIndex((l) => PO_INVALID.test(l));
-    if (invalid >= 0) {
-      const m = lines[invalid].match(PO_INVALID);
+    // Every one of each: a log can hold more than one poetry run, and the first of each kind
+    // was the only one read.
+    lines.forEach((l, invalid) => {
+      const m = l.match(PO_INVALID);
+      if (!m) return;
       const place = m[3].match(AT_LINE_COL);
       failures.push(withSource({
         file: m[2], line: place ? +place[1] : undefined, col: place ? +place[2] : undefined,
         title: `invalid ${m[1]} file`, label: `invalid ${m[1]} file`,
         severity: "error", message: m[3],
       }, invalid, invalid + 1));
-    }
+    });
 
     // The chain, read from its first "Because" to the sentence that closes it and no
     // further. Without the closing line there is nothing to read: a resolver's prose run
-    // to the end of a buffer would take whatever the CI job printed next with it.
-    const closes = lines.findIndex((l) => PO_CLOSES.test(l));
-    if (closes >= 0) {
+    // to the end of a buffer would take whatever the CI job printed next with it. Each
+    // chain opens below the one before it closed.
+    let closed = -1;
+    lines.forEach((l, closes) => {
+      if (!PO_CLOSES.test(l)) return;
       let opens = closes;
-      while (opens > 0 && !PO_OPENS.test(lines[opens])) opens--;
-      if (PO_OPENS.test(lines[opens])) {
-        failures.push(withSource({
-          title: "version solving failed", label: "version solving failed", severity: "error",
-          message: lines.slice(opens, closes + 1).map((l) => l.trim()).filter(Boolean).join(" "),
-        }, opens, closes + 1));
-      }
-    }
+      while (opens > closed + 1 && !PO_OPENS.test(lines[opens])) opens--;
+      const after = closed;
+      closed = closes;
+      if (opens <= after || !PO_OPENS.test(lines[opens])) return;
+      failures.push(withSource({
+        title: "version solving failed", label: "version solving failed", severity: "error",
+        message: lines.slice(opens, closes + 1).map((line) => line.trim()).filter(Boolean).join(" "),
+      }, opens, closes + 1));
+    });
 
     return failures.length ? { tool: "poetry", failures } : null;
   },

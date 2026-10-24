@@ -36,6 +36,7 @@ const PNPM_WARN = /^(?:WARN|WARNING|INFO|DEBUG|NOTICE)$/;
 // is what to do next. All three are hard-wrapped, and the wrap lands mid-token often
 // enough to matter: joining the continuation with a space turns a package name into two.
 const PNPM_HEAD = /^Error:[^\S\n]+(ERR_PNPM_[A-Z0-9_]+|E[A-Z]{3,})[^\S\n]*$/;
+const PNPM_HEAD_ANY = new RegExp(PNPM_HEAD.source, "m");
 const PNPM_BOX = /^[^\S\n]*(?:×|╰─▶|help:)[^\S\n]*(.*)$/;
 const PNPM_CAUSE = /^[^\S\n]*╰─▶[^\S\n]*(.*)$/;
 
@@ -57,31 +58,35 @@ function unwrap(lines, at, indent) {
   return { text, end: i };
 }
 
-/** The failure a boxed pnpm error describes, or null. */
-function boxed(s) {
+/** The failure each boxed pnpm error describes. A log holding two pnpm runs holds two
+ *  boxes, and only the first was read. */
+function boxes(s) {
   const lines = s.split("\n");
-  const at = lines.findIndex((l) => PNPM_HEAD.test(l));
-  if (at < 0) return null;
-  const code = lines[at].match(PNPM_HEAD)[1];
-  const said = [];
-  let end = at + 1;
-  for (let i = at + 1; i < lines.length; i++) {
-    if (PNPM_HEAD.test(lines[i])) break;
-    if (!PNPM_BOX.test(lines[i])) continue;
-    const indent = lines[i].length - lines[i].trimStart().length;
-    const wrapped = unwrap(lines, i, indent);
-    said.push({ cause: PNPM_CAUSE.test(lines[i]), text: wrapped.text });
-    end = wrapped.end;
+  const out = [];
+  for (let at = 0; at < lines.length; at++) {
+    if (!PNPM_HEAD.test(lines[at])) continue;
+    const code = lines[at].match(PNPM_HEAD)[1];
+    const said = [];
+    let end = at + 1;
+    for (let i = at + 1; i < lines.length; i++) {
+      if (PNPM_HEAD.test(lines[i])) break;
+      if (!PNPM_BOX.test(lines[i])) continue;
+      const indent = lines[i].length - lines[i].trimStart().length;
+      const wrapped = unwrap(lines, i, indent);
+      said.push({ cause: PNPM_CAUSE.test(lines[i]), text: wrapped.text });
+      end = wrapped.end;
+    }
+    if (!said.length) continue;
+    // The arrow says what went wrong; the cross only says what pnpm was in the middle of.
+    const cause = said.find((p) => p.cause) ?? said[0];
+    const rest = said.filter((p) => p !== cause && !p.cause).map((p) => p.text);
+    // The heading and the box drawn under it.
+    out.push(withSource({
+      title: code, code, severity: "error",
+      message: [cause.text, ...rest].filter(Boolean).slice(0, 3).join("\n"),
+    }, at, end));
   }
-  if (!said.length) return null;
-  // The arrow says what went wrong; the cross only says what pnpm was in the middle of.
-  const cause = said.find((p) => p.cause) ?? said[0];
-  const rest = said.filter((p) => p !== cause && !p.cause).map((p) => p.text);
-  // The heading and the box drawn under it.
-  return withSource({
-    title: code, code, severity: "error",
-    message: [cause.text, ...rest].filter(Boolean).slice(0, 3).join("\n"),
-  }, at, end);
+  return out;
 }
 
 export const pnpm = {
@@ -105,11 +110,14 @@ export const pnpm = {
       if (!m || PNPM_WARN.test(m[1])) return;
       failures.push(withSource({ title: m[1], code: m[1], severity: "error", message: m[2] }, i, i + 1));
     });
-    const box = boxed(s);
-    // A code already read from its column keeps the box it was drawn in as well.
-    const same = box ? failures.findIndex((f) => f.code === box.code) : -1;
-    if (same >= 0) failures[same] = joinSources(failures[same], box);
-    else if (box) failures.push(box);
+    // A code already read from its column keeps the box it was drawn in as well - one box:
+    // the next box with the same code is another run's.
+    const columns = failures.length, joined = new Set();
+    for (const box of PNPM_HEAD_ANY.test(s) ? boxes(s) : []) {
+      const same = failures.findIndex((f, k) => k < columns && !joined.has(k) && f.code === box.code);
+      if (same >= 0) { joined.add(same); failures[same] = joinSources(failures[same], box); }
+      else failures.push(box);
+    }
     if (!failures.length) return null;
     // ELIFECYCLE only says the script exited non-zero; a more specific code above it
     // says why, and that is the one worth leading with.
@@ -150,18 +158,23 @@ export const yarn = {
     // yarn's output is a block: the banner opens it, the advice line closes it. Scanning
     // from the top of the log instead meant anything above the banner was read as yarn's,
     // and vite opens a failed build with "error during build:" - which is exactly the
-    // shape. When there is no banner the whole log is the block, as before.
-    const banner = lines.findIndex((l) => /^yarn run v\d/.test(l));
-    for (let i = banner < 0 ? 0 : banner; i < lines.length; i++) {
-      const l = lines[i];
-      if (YARN_ADVICE.test(l)) break;
-      const m = l.match(YARN_LINE);
-      if (!m || m[1] !== "error") continue;
-      // TypeScript's location-free diagnostics also start with "error ". Its code
-      // identifies the owner even when a yarn banner is elsewhere in the same log.
-      if (/^TS\d+: /.test(m[2])) continue;
-      failures.push(withSource({ title: "error", label: "error", severity: "error", message: m[2] }, i, i + 1));
-    }
+    // shape. When there is no banner the whole log is the block, as before. Each banner
+    // opens a block of its own: a log holding two yarn runs holds two, and the first
+    // advice line ended the read for both.
+    const banners = [];
+    lines.forEach((l, i) => { if (/^yarn run v\d/.test(l)) banners.push(i); });
+    (banners.length ? banners : [0]).forEach((start, n) => {
+      for (let i = start; i < (banners[n + 1] ?? lines.length); i++) {
+        const l = lines[i];
+        if (YARN_ADVICE.test(l)) break;
+        const m = l.match(YARN_LINE);
+        if (!m || m[1] !== "error") continue;
+        // TypeScript's location-free diagnostics also start with "error ". Its code
+        // identifies the owner even when a yarn banner is elsewhere in the same log.
+        if (/^TS\d+: /.test(m[2])) continue;
+        failures.push(withSource({ title: "error", label: "error", severity: "error", message: m[2] }, i, i + 1));
+      }
+    });
     if (!failures.length) return null;
     return { tool: "yarn", summary: failures[0].message, failures };
   },
