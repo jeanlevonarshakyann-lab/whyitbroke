@@ -478,6 +478,20 @@ try {
   console.log("  ok   pytest -q summary is found without the === decoration");
   pass++;
 } catch (e) { console.log(`  FAIL pytest -q summary\n       ${e.message}`); fail++; }
+// A value can hold the character that ends the one before it. Azure's logging command splits
+// its properties at `;` and each at its first `=`, and ruff writes the file as it has it: a file
+// named `pkg/bad=name.py` was `pkg/bad`, which is no Python file, and its findings were dropped.
+// Poetry writes the file it could not read, `: `, and why - which says `: ` again: a project
+// under `/work/project: scratch` was the file `/work/project`, and the rest was the message.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const moved = (text, from, to) => [read(text.replaceAll(from, to)), read(text).map(([file, ...rest]) => [file?.replace(from, to), ...rest])];
+  assert.deepEqual(...moved(fx("ruff_azure_fail.txt"), "/home/dev/ruff/lint_me.py", "/home/dev/ruff/bad=name.py"));
+  assert.deepEqual(...moved(fx("poetry_toml_syntax_fail.txt"), "/home/dev/shop/pyproject.toml", "/work/project: scratch/pyproject.toml"));
+  console.log("  ok   a file named with the character that ends it is read whole");
+  pass++;
+} catch (e) { console.log(`  FAIL delimiters inside values\n       ${e.message}`); fail++; }
+
 // Five traceback styles, one run. The style changes how much is printed, never which
 // tests failed or what they raised.
 try {

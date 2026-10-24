@@ -93,7 +93,9 @@ const PO_CLOSES = /\bversion solving failed\.[^\S\n]*$/;
 // Poetry says a broken file in one line, with the path and the place in it.
 //   Invalid TOML file /home/dev/shop/pyproject.toml: Unexpected character: ... at line 1 col 8
 // The reason is read to its last character that is not a space at once, like uv's lines above.
-export const PO_INVALID = /^Invalid (\w+) file[^\S\n]+(\S.*?):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+// The file ends at the first `: ` after its extension - pyproject.toml, poetry.lock - and not at
+// the first: Poetry writes the path as it has it, and why it could not read it says `: ` too.
+export const PO_INVALID = /^Invalid (\w+) file[^\S\n]+(\S.*?\.\w+):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
 const AT_LINE_COL = /\bat[^\S\n]+line[^\S\n]+(\d+)[^\S\n]+col[^\S\n]+(\d+)/;
 
 export const poetry = {
