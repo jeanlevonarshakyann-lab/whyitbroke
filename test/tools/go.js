@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
 import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 import golangci from "../../src/extractors/golangci.js";
+import { scopeOf } from "../../src/ownership.js";
 
 const CASES = [
   // One real golangci-lint 2.13 run - five issues from four linters over two files - in
@@ -411,6 +412,67 @@ try {
   console.log("  ok   a package that will not build does not hide the tests that failed, in any encoding");
   pass++;
 } catch (e) { console.log(`  FAIL build and tests\n       ${e.message}`); fail++; }
+
+// Two modules tested at once, into one pipe: one streams its verbose run, the other prints
+// each package whole once it is done. A test's package was the first closing line after the
+// first line it printed, and the other module's closing line came before this run's own: a
+// parallel test pauses, and reports once the rest of its package is done. TestTable/zero
+// failed in example.com/gtv/p1 and was reported in example.com/svc/config, which passed, and
+// TestParallelA was not read at all: the other module's closing line ended its frames, and
+// with them the output it went on to print. Where the other module failed too, its TestLoad
+// read on past its own closing lines, into TestParallelA's.
+try {
+  const verbose = (between) => [
+    "=== RUN   TestTable",
+    "=== RUN   TestTable/zero",
+    "    p1_test.go:22: Add(0, 0) = 1, want 0",
+    "=== RUN   TestTable/ones",
+    "--- FAIL: TestTable (0.00s)",
+    "    --- FAIL: TestTable/zero (0.00s)",
+    "    --- PASS: TestTable/ones (0.00s)",
+    "=== RUN   TestParallelA",
+    "=== PAUSE TestParallelA",
+    "=== CONT  TestParallelA",
+    "    p1_test.go:30: A says hello",
+    ...between,
+    "    p1_test.go:32: Add(1, 0) should be 1",
+    "--- FAIL: TestParallelA (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/gtv/p1\t0.286s",
+  ].join("\n");
+  const read = (text) => analyse(text).failures.map((f) => `${f.title} ${scopeOf(f)}: ${f.message}`).sort();
+  assert.deepEqual(read(verbose(["ok  \texample.com/svc/config\t0.012s"])), [
+    "TestParallelA example.com/gtv/p1: A says hello\nAdd(1, 0) should be 1",
+    "TestTable/zero example.com/gtv/p1: Add(0, 0) = 1, want 0",
+  ]);
+  const failing = analyse(verbose([
+    "--- FAIL: TestLoad (0.00s)",
+    "    config_test.go:12: missing PORT",
+    "FAIL",
+    "FAIL\texample.com/svc/config\t0.012s",
+  ])).failures;
+  assert.deepEqual(failing.map((f) => `${f.title} ${scopeOf(f)}`).sort(), [
+    "TestLoad example.com/svc/config", "TestParallelA example.com/gtv/p1", "TestTable/zero example.com/gtv/p1",
+  ]);
+  assert.equal(failing.find((f) => f.title === "TestLoad").message, "missing PORT",
+    "TestLoad read on past its package's closing lines, into TestParallelA's output");
+  // Two verbose runs interleave their frames, and a closing line inside one run's test can be
+  // the other's own: TestB's is, and TestB is read under it.
+  const two = [
+    "=== RUN   TestA",
+    "=== RUN   TestB",
+    "    b_test.go:5: b broke",
+    "--- FAIL: TestB (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/b\t0.010s",
+    "--- FAIL: TestA (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/a\t0.020s",
+  ].join("\n");
+  assert.ok(read(two).includes("TestB example.com/b: b broke"), read(two).join(" | "));
+  console.log("  ok   a test is read under its own run's package when another run shares the pipe");
+  pass++;
+} catch (e) { console.log(`  FAIL another run's closing line\n       ${e.message}`); fail++; }
 
 // `--- expected` heads one half of a unified diff, which is what minitest and PHPUnit print
 // between two values that differ - and it is the shape of go's own `--- FAIL:` line without
