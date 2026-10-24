@@ -481,6 +481,23 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL terraform refused command\n       ${e.message}`); fail++; }
 
+// git's own `fatal:` is read beside a conflict, a rejected push or files that would be
+// overwritten. A log holding two git commands can hold a conflict from one and `fatal: not a
+// git repository` from the other, and the second was dropped because the first had said
+// something structural. What git says again about the conflict is still not a second failure.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.file ?? "-"} ${f.message}`).sort();
+  const norepo = fx("git_norepo_fail.txt");
+  for (const name of ["git_conflict_fail.txt", "git_reject_fail.txt", "git_overwrite_fail.txt"]) {
+    assert.deepEqual(read(`${fx(name)}\n${norepo}`), [...read(fx(name)), ...read(norepo)].sort(), name);
+  }
+  const rebase = `${fx("git_conflict_fail.txt")}\nerror: could not apply 1a2b3c4... merge the branch\n` +
+    "error: Committing is not possible because you have unmerged files.\nfatal: Exiting because of an unresolved conflict.";
+  assert.deepEqual(read(rebase), read(fx("git_conflict_fail.txt")), "the conflict said again was read as more");
+  console.log("  ok   git's own fatal is read beside a conflict");
+  pass++;
+} catch (e) { console.log(`  FAIL git fatal beside a conflict\n       ${e.message}`); fail++; }
+
 // git lists the files a checkout would overwrite one per line, and a long list in a long log
 // is cut by a capture's cap: the head of it kept with the error, the end of it in the tail.
 // The list stopped at the marker, and the files after it went unread.
