@@ -10,7 +10,25 @@ import { alsoFrom, withSource } from "../ownership.js";
 import { append } from "../util.js";
 import { ELIDED } from "../capture.js";
 
-const CONFLICT = /^CONFLICT \(([^)]+)\): (?:Merge conflict in|.*? in) (.+)$/;
+const CONFLICT = /^CONFLICT \(([^)]+)\): (.+)$/;
+// The file a conflict leaves to resolve, as git writes it for each kind. A branch has no
+// space in its name, so where one is named is where the paths around it end. A conflict of
+// another kind than these names no file here.
+const CONFLICTED = [
+  // content, add/add, submodule
+  /^Merge conflict in (.+)$/,
+  // modify/delete, and rename/delete before merge-ort: the version left in the tree
+  /[^\S\n]Version \S+ of (.+) left in tree\.$/,
+  // rename/delete: the name it was given
+  /^.+? renamed to (.+) in \S+, but deleted in \S+\.$/,
+  // rename/rename, from the name both sides renamed - with merge-ort, and before it
+  /^(.+?) renamed to .+ in \S+ and to .+ in \S+\.$/,
+  /^Rename "?(.+?)"?->/,
+  // file/directory, and two kinds of thing at one path
+  /^directory in the way of (.+) from \S+; moving it to .+ instead\.$/,
+  /^(.+?) had different types on each side;/,
+];
+const conflicted = (text) => CONFLICTED.map((re) => text.match(re)?.[1]).find(Boolean);
 const REJECTED = /^[^\S\n]*!\s+\[([^\]]+)\][^\S\n]+(\S+)[^\S\n]+->[^\S\n]+(\S+)(?:[^\S\n]+\((.+)\))?$/;
 const OVERWRITE = /^error: Your local changes to the following files would be overwritten by (\w+):$/;
 // ...and under it, one of the files, indented.
@@ -95,10 +113,17 @@ export default {
         continue;
       }
 
+      // Each kind of conflict names its file in a sentence of its own. Read as whatever came
+      // after the first " in ", a file deleted on one side and changed on the other was
+      // "HEAD and modified in topic.  Version topic of file2 left in tree.", and a rename's
+      // was the branch it was renamed in.
       const c = l.match(CONFLICT);
       if (c) {
         conflicts++;
-        failures.push(withSource({ file: c[2], title: "merge conflict", label: "merge conflict", severity: "error", message: `${c[1]} conflict` }, i, i + 1));
+        // A kind with no file to read keeps its sentence, which is all there is to say where.
+        const file = conflicted(c[2]);
+        failures.push(withSource({ file, title: "merge conflict", label: "merge conflict", severity: "error",
+          message: file ? `${c[1]} conflict` : `${c[1]} conflict: ${c[2]}` }, i, i + 1));
         continue;
       }
 

@@ -416,6 +416,29 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL terraform fmt diff shape\n       ${e.message}`); fail++; }
 
+// git writes each kind of conflict as a sentence of its own, and only some of them say
+// "Merge conflict in". The rest were read as whatever followed their first " in " - the
+// branch, and the rest of the sentence - and named no file anyone has.
+try {
+  const files = (log) => analyse(log).failures.map((f) => f.file);
+  assert.deepEqual(files("CONFLICT (modify/delete): src/app.js deleted in HEAD and modified in topic.  Version topic of src/app.js left in tree.\n" +
+    "CONFLICT (modify/delete): lib/util.js deleted in topic and modified in HEAD. Version HEAD of lib/util.js left in tree.\n" +
+    "CONFLICT (rename/delete): old.txt renamed to new.txt in main, but deleted in topic.\n" +
+    "CONFLICT (rename/rename): a.txt renamed to b.txt in HEAD and to c.txt in topic.\n" +
+    'CONFLICT (rename/rename): Rename "x.txt"->"y.txt" in branch "HEAD" rename "x.txt"->"z.txt" in "topic"\n' +
+    "CONFLICT (file/directory): directory in the way of docs from topic; moving it to docs~topic instead.\n" +
+    "CONFLICT (add/add): Merge conflict in README.md\n" +
+    "Automatic merge failed; fix conflicts and then commit the result.\n"),
+  ["src/app.js", "lib/util.js", "new.txt", "a.txt", "x.txt", "docs", "README.md"]);
+  // A kind not read here names no file, and says what git said.
+  const other = analyse("CONFLICT (implicit dir rename): Cannot map more than one path to x; implicit directory renames tried to put these paths there: a, b\n" +
+    "Automatic merge failed; fix conflicts and then commit the result.\n").failures[0];
+  assert.equal(other.file, undefined);
+  assert.match(other.message, /^implicit dir rename conflict: Cannot map more than one path to x;/);
+  console.log("  ok   each kind of git conflict names the file it leaves");
+  pass++;
+} catch (e) { console.log(`  FAIL git conflict kinds\n       ${e.message}`); fail++; }
+
 // And a file's diff ends where another one begins, so a pipeline that formats and then
 // tests does not have the test runner's value diff read as more unformatted HCL.
 try {
