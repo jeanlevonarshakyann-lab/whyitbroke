@@ -748,6 +748,19 @@ for (const result of [runCases(CASES), agreeAcrossFormats([
 }
 
 
+// Less names a missing import in its message, quoted, and the file it was imported from after
+// " in ". An import named `theme in progress.less` cut the message at its "in", and the rest of
+// the sentence came back as the file.
+try {
+  const r = analyse("FileError: 'theme in progress.less' wasn't found. Tried - /app/theme in progress.less in /app/styles.less on line 3, column 1:\n" +
+    "3 @import \"theme in progress\";\n");
+  assert.equal(r?.tool, "less");
+  assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col, f.message]),
+    [["/app/styles.less", 3, 1, "'theme in progress.less' wasn't found. Tried - /app/theme in progress.less"]]);
+  console.log("  ok   a Less import named with \" in \" is the message, not the file");
+  pass++;
+} catch (e) { console.log(`  FAIL less import with in\n       ${e.message}`); fail++; }
+
 // The same eslint run captured both ways. As with cargo, the machine format is only
 // worth reading if it says the same thing as the human one - and here it can be held to
 // the stricter test, because eslint's stylish output is a table of the same fields
