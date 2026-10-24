@@ -263,5 +263,18 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL located warnings\n       ${e.message}`); fail++; }
 
+// A class's source file can be named with a space in it, `Cart Test.java` for `CartTest`:
+// javac keeps the name for the stack, and Surefire finds the test by its class. Each
+// reader of a frame took a file only without spaces, and a test that failed in one was
+// not read.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("maven_surefire_xml_fail.txt", (t) => t.replaceAll("(CartTest.java:", "(Cart Test.java:"), (file) => (file === "CartTest.java" ? "Cart Test.java" : file));
+  readsMoved("gradle_tests_full_fail.txt", (t) => t.replaceAll("(InvoiceTest.java:", "(Invoice Test.java:"), (file) => (file === "InvoiceTest.java" ? "Invoice Test.java" : file));
+  readsMoved("gradle_tests_plain_fail.txt", (t) => t.replaceAll(" at InvoiceTest.java:", " at Invoice Test.java:"), (file) => (file === "InvoiceTest.java" ? "Invoice Test.java" : file));
+  console.log("  ok   a test whose source file has a space in its name is read from its frame");
+  pass++;
+} catch (e) { console.log(`  FAIL jvm frames with spaces\n       ${e.message}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -156,6 +156,15 @@ const CASES = [
 ];
 
 let pass = 0, fail = 0;
+// PHPUnit runs any file with the suffix it is given, `ShopTest.php8` as well: a place was taken
+// only from a file whose extension is letters, and every other was read into the message.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("phpunit_fail.txt", (t) => t.replaceAll("ShopTest.php:", "ShopTest.php8:"), (file) => file?.replace("ShopTest.php", "ShopTest.php8"));
+  readsMoved("phpunit_teamcity_fail.txt", (t) => t.replaceAll("ArithmeticTest.php", "ArithmeticTest.php8"), (file) => file?.replace("ArithmeticTest.php", "ArithmeticTest.php8"));
+  console.log("  ok   a test file whose extension ends in a digit keeps its place");
+  pass++;
+} catch (e) { console.log(`  FAIL phpunit digit suffix\n       ${e.message}`); fail++; }
 for (const result of [runCases(CASES), agreeAcrossFormats([
   // --testdox renames every test on purpose, so the name is what differs there; it is
   // pinned in its own row above.

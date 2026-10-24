@@ -741,6 +741,16 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL uv claims a bare error:\n       ${e.message}`); fail++; }
 
+// A file can be named `::bad.py`, and flake8 writes it first on the line like any other. A
+// line that opened with `::` was taken for a GitHub workflow command - which quotes a
+// finding in its message, and is no finding - and the file's findings were not read.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("flake8_fail.txt", (t) => t.replaceAll("lint_me.py:", "::lint_me.py:"), (file) => (file === "lint_me.py" ? "::lint_me.py" : file));
+  console.log("  ok   flake8 reads a file whose name starts with ::");
+  pass++;
+} catch (e) { console.log(`  FAIL flake8 colon file\n       ${e.message}`); fail++; }
+
 // Poetry's chain is prose with no end marker but the sentence that closes it. Cut that
 // off - the log was truncated, or the job printed over it - and reading to the end of
 // the buffer instead would hand back whatever ran next as the resolver's explanation.

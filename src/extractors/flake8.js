@@ -12,7 +12,11 @@ import { pinnedMessage } from "../util.js";
 // check it came from, and E9/F8 are the ones that stop a build rather than tidy it.
 // Each message ends where the trailing whitespace starts - see pinnedMessage in util.js.
 export const DETAIL_RE = pinnedMessage(String.raw`^[^\S\n]+([A-Z]{1,4}\d{3,4})`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
-const finding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (rest) => {
+// A GitHub workflow command quotes a finding in its message - `::error file=a.py,line=1::a.py:1:1:
+// F401 ...` - and is no finding of flake8's. It is a name, then a space and its properties or
+// `::` at once; a file whose own name starts with `::`, `::bad.py`, is read like any other.
+const WORKFLOW_COMMAND = /^::[A-Za-z][\w-]*(?:[^\S\n][^\n]*?)?::/;
+const finding = (line) => WORKFLOW_COMMAND.test(line) ? null : locatedPrefix(line, (rest) => {
   const match = rest.match(DETAIL_RE);
   return match ? { code: match[1], message: match[2] } : null;
 });
@@ -24,7 +28,7 @@ const finding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (re
 // message. pylint's own parseable format looks alike but always writes the check's name
 // in the bracket too - `[W0611(unused-import), ]` - so a bare code is flake8's.
 export const PYLINT_DETAIL_RE = pinnedMessage(String.raw`^[^\S\n]+\[([A-Z]{1,4}\d{3,4})\]`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
-const pylintFinding = (line) => line.startsWith("::") ? null : locatedPrefix(line, (rest) => {
+const pylintFinding = (line) => WORKFLOW_COMMAND.test(line) ? null : locatedPrefix(line, (rest) => {
   const match = rest.match(PYLINT_DETAIL_RE);
   return match ? { code: match[1], message: match[2] } : null;
 }, { column: false });

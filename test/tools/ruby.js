@@ -333,6 +333,16 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL minitest block without its tally\n       ${e.message}`); fail++; }
 
+// minitest writes a failure's place in brackets as it has it, and a file can have brackets
+// in its name: `[shop[1]_test.rb:9]` was no place at all, and a run that failed only there
+// was read as nothing.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("minitest_fail.txt", (t) => t.replaceAll("shop_test.rb", "shop[1]_test.rb"), (file) => file?.replace("shop_test.rb", "shop[1]_test.rb"));
+  console.log("  ok   minitest reads a place in brackets whose file has brackets in its name");
+  pass++;
+} catch (e) { console.log(`  FAIL minitest bracketed file\n       ${e.message}`); fail++; }
+
 // A resolver conflict is prose with no end marker except the sentence that closes it,
 // and a CI log does not stop where the tool did. If "version solving has failed." is not
 // there - the log was cut, or the job printed over it - there is nothing to read, and

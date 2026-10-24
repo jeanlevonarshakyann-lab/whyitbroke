@@ -98,8 +98,11 @@ export function gradleTestLine(line) {
     return match;
   }
 }
-const GRADLE_SHORT_RE = /^[^\S\n]+([\w.$]+)[^\S\n]+at[^\S\n]+([^\s:]+\.(?:java|kt|groovy|scala)):(\d+)[^\S\n]*$/;
-const GRADLE_FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\s]+\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
+// A class's source can be named with a space in it, `Cart Test.java`, and the stack names it
+// as javac had it: the file is what the brackets hold up to its line, and in the short form
+// everything from ` at ` to its line.
+const GRADLE_SHORT_RE = /^[^\S\n]+([\w.$]+)[^\S\n]+at[^\S\n]+([^\s:][^:\n]*?\.(?:java|kt|groovy|scala)):(\d+)[^\S\n]*$/;
+const GRADLE_FRAME_RE = /^[^\S\n]+at[^\S\n]+(?:[\w.-]+\/\/)?([\w.$]+)\.([\w$<>-]+)\(([^:()\n]+?\.(?:java|kt|groovy|scala)):(\d+)\)[^\S\n]*$/;
 
 /** The failed tests in Gradle's own test logging. */
 function gradleTests(s) {

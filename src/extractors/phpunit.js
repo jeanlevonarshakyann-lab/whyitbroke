@@ -3,6 +3,10 @@ import { alsoFrom, joinSources, withSource } from "../ownership.js";
 // The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
 // matches only when it begins with what follows it, and that one match is kept.
 export const LOCATION_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]:\d+$))(.+?):(\d+)$/;
+// What makes `path:line` a place rather than a sentence ending in a number: the path has an
+// extension. PHPUnit runs any file with the suffix it is given, so the extension is a letter
+// and then letters or digits - `ShopTest.php8` too, whose place was read into the message.
+const EXTENSION = /\.[a-z][a-z\d]*$/i;
 // "Location: /app/tests/CrashTest.php:2", under "An error occurred inside PHPUnit." Where the file
 // starts is held - see pinnedStart in util.js.
 export const INTERNAL_LOCATION = pinnedStart("^Location:", { tail: String.raw`:(\d+)$`, flags: "m" });
@@ -86,7 +90,7 @@ function bodyOf(text) {
   const message = [];
   for (const raw of text.split("\n")) {
     const location = raw.trim().match(LOCATION_RE);
-    if (location && /\.[a-z]+$/i.test(location[1])) { file = location[1]; line = +location[2]; continue; }
+    if (location && EXTENSION.test(location[1])) { file = location[1]; line = +location[2]; continue; }
     if (raw.trim()) message.push(raw.trim());
   }
   return { file, line, message: message.join("\n") };
@@ -238,7 +242,7 @@ export default {
         !/^[^\S\n]*(?:Tests:|Time:|OK\b|FAILURES!|ERRORS!|WARNINGS!)/.test(lines[j]); j++) {
         if (lines[j].trim()) end = j + 1;
         const location = lines[j].match(LOCATION_RE);
-        if (location && /\.[a-z]+$/i.test(location[1])) {
+        if (location && EXTENSION.test(location[1])) {
           file = location[1];
           line = +location[2];
         } else if (lines[j].trim()) {
