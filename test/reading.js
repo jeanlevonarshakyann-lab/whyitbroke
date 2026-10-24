@@ -41,6 +41,55 @@ try {
   fail++;
 }
 
+// Every report in a log is read, not only the first.
+//
+// A workspace runs its linter once per package, and each run prints a report of its own, so
+// the log of the whole workspace holds one document per package. These readers took the
+// first document they recognised and stopped there: every package after the first came back
+// with nothing wrong. Each report here is followed by the same report about another file, and
+// both have to come back - and the same report printed twice is still one report.
+try {
+  const reports = {
+    "biome_lint_json_fail.txt": "cart.js", "biome_lint_gitlab_fail.txt": "cart.js",
+    "denolint_json_fail.txt": "orders.ts", "markdownlint_json_fail.txt": "doc.md",
+    "npm_404_json_fail.txt": "exist-9x7", "pylint_json_fail.txt": "orders.py",
+    "pylint_json2_fail.txt": "orders.py", "rspec_json_fail.txt": "math failures_spec.rb",
+    "ruff_json_fail.txt": "lint_me.py", "shellcheck_json_fail.txt": "b.sh",
+    "shellcheck_json1_fail.txt": "b.sh", "stylelint_json_fail.txt": "style.css",
+    "stylelint_warn_json_fail.txt": "style.css",
+  };
+  const read = (text) => {
+    const r = analyse(text);
+    const failures = [r, ...(r?.others ?? [])].flatMap((one) => one?.failures ?? []);
+    return [...new Set(failures.map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.message}`))].sort();
+  };
+  for (const [name, word] of Object.entries(reports)) {
+    const first = fx(name);
+    const second = first.split(word).join(`other-${word}`);
+    assert.notEqual(second, first, `${name} has no ${word} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), [...new Set([...read(first), ...read(second)])].sort(),
+      `${name}: a second report was not read`);
+    // A headline that counts counts both - rspec's was the first document's own sentence.
+    const once = analyse(first).summary;
+    if (once !== undefined) assert.notEqual(analyse(`${first}\n${second}`).summary, once, `${name}: the headline counted one report`);
+    assert.equal(analyse(`${first}\n${first}`).summary, once, `${name}: one report printed twice was counted twice`);
+  }
+  // A package with nothing wrong writes a report too, and three readers accept one. Where it
+  // came first, the log of a workspace whose later package failed read as nothing at all.
+  const clean = {
+    "biome_lint_json_fail.txt": { summary: { changed: 0, unchanged: 1, errors: 0, warnings: 0 }, diagnostics: [], command: "lint" },
+    "rspec_json_fail.txt": { version: "3.13.6", examples: [{ id: "./spec/ok_spec.rb[1:1]", description: "works",
+      full_description: "ok works", status: "passed", file_path: "./spec/ok_spec.rb", line_number: 2 }],
+    summary: { example_count: 1, failure_count: 0, pending_count: 0 }, summary_line: "1 example, 0 failures" },
+    "stylelint_json_fail.txt": [{ source: "/home/dev/site/ok.css", errored: false, warnings: [] }],
+  };
+  for (const [name, doc] of Object.entries(clean)) {
+    assert.deepEqual(read(`${JSON.stringify(doc)}\n${fx(name)}`), read(fx(name)), `${name}: a clean report first hid the failing one`);
+  }
+  console.log("  ok   every report in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every report in a log\n       ${e.message}`); fail++; }
+
 // A log does not always arrive the way the tool wrote it. It gets redirected on Windows,
 // captured from a terminal that was drawing a progress bar, pasted into a file. Every
 // parser anchors on ^, so anything in front of the first line is enough to lose it.

@@ -98,7 +98,9 @@ export default {
           severity: "error", message: b[5].trim() }, i, i + 1));
       }
     }
-    // The first report, read as jsonMessages reads it, each message where its object is.
+    // Every report, read as jsonMessages reads one, each message where its object is. A
+    // workspace that lints each package on its own prints a document for each, and only the
+    // first was read.
     for (const { value, where } of jsonDocumentsAt(s, JSON_MARK)) {
       for (const r of Array.isArray(value) ? value : value.messages) {
         const { start, end } = where(r);
@@ -106,7 +108,6 @@ export default {
           title: r.symbol, code: r["message-id"] ?? r.messageId,
           severity: "error", message: String(r.message ?? "").trim() }, start, end));
       }
-      break;
     }
     const stopping = all.filter((f) => STOPS_THE_RUN.test(f.code));
     // A real error alongside a missing docstring buries the error, so when there is one
