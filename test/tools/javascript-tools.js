@@ -782,6 +782,21 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL eslint json vs table\n       ${e.message}`); fail++; }
 
+// A mixin calling a mixin draws a frame for each call, and the trace ends where every sass
+// trace does, at `root stylesheet`. Read only so far past the heading, a deep trace was cut
+// before it, and an ASCII box - which has no Unicode cap to say it is sass's - was nobody's.
+try {
+  const fixture = fx("sass_ascii_fail.txt").trimEnd().split("\n");
+  const frames = Array.from({ length: 60 }, (_, k) => `  _mixins.scss ${k + 1}:3  level-${k}()`);
+  const log = [...fixture.slice(0, -1), ...frames, fixture.at(-1)].join("\n") + "\n";
+  const r = analyse(log);
+  assert.equal(r?.tool, "sass");
+  assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].col], ["_mixins.scss", 1, 3]);
+  assert.equal(r.failures[0].message, "Undefined variable.");
+  console.log("  ok   a sass error under a deep trace is read to the trace's end");
+  pass++;
+} catch (e) { console.log(`  FAIL sass deep trace\n       ${e.message}`); fail++; }
+
 // A refusal's range is where its sentence matched. The sentence was looked up as a whole
 // line, and a line break inside the quoted option - which `[^']*` steps over - made the
 // match two lines that equalled neither, so the failure was read from line -1 and the
