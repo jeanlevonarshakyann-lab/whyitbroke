@@ -674,6 +674,35 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL ANSI\n       ${e.message}`); fail++; }
 
+// A guard that keeps something out of a reader's way has to keep out only that. Four kept out a
+// record they were there to let through: swiftc's diagnostic for a file named `1|bad.swift`,
+// taken for a line of the source it draws under one; stylelint's heading for a file named
+// `✖.css`, taken for one of its status lines; a TAP file's roll-up, skipped as repeating its
+// members' failures where none had failed - the file would not load, and the roll-up is the only
+// record of it; and babel's error for code it read from stdin, which it names `unknown`.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const swift = fx("swiftc_fail.txt");
+  assert.deepEqual(read(swift.replace(/^mixed\.swift:/gm, "1|mixed.swift:")), read(swift).map(([, ...rest]) => ["1|mixed.swift", ...rest]));
+  const stylelint = fx("stylelint_string_fail.txt");
+  assert.deepEqual(read(stylelint.replace(/^style\.css$/m, "\u2716.css")), read(stylelint).map(([, ...rest]) => ["\u2716.css", ...rest]));
+  const tap = fx("tap_fail.txt"), crashed = [
+    "# Subtest: taptest/crash.test.cjs", "    1..0", "not ok 2 - taptest/crash.test.cjs # time=4.12ms", "  ---", "  stdio: inherit",
+    "  cwd: /home/dev/app", "  externalID: taptest/crash.test.cjs", "  command: /home/dev/.hermes/node/bin/node", "  args:",
+    "    - /home/dev/app/taptest/crash.test.cjs", "  exitCode: 1", "  signal: null", "  ...", ""].join("\n");
+  const both = analyse(tap + crashed);
+  assert.equal(both?.tool, "tap");
+  assert.deepEqual(both.failures.slice(0, 2).map((f) => [f.file, f.line, f.message]), read(tap));
+  assert.equal(both.failures.length, 3, "the file that would not load is not read");
+  assert.match([both.failures[2].file, both.failures[2].title, both.failures[2].subject].join(" "), /crash\.test\.cjs/);
+  const babel = fx("babel_fail.txt");
+  const stdin = analyse(babel.replaceAll("/home/dev/app/bad.jsx", "unknown"));
+  assert.equal(stdin?.tool, "babel");
+  assert.deepEqual(stdin.failures.map((f) => [f.file, f.line, f.col, f.message, f.stmt]), analyse(babel).failures.map((f) => [undefined, f.line, f.col, f.message, f.stmt]));
+  console.log("  ok   a guard keeps out only what it is there for");
+  pass++;
+} catch (e) { console.log(`  FAIL guards\n       ${e.message}`); fail++; }
+
 // A flag that changes how a diagnostic is printed must not change what is read from it.
 try {
   const same = (a, b, what) => {

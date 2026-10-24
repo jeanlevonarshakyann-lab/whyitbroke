@@ -19,8 +19,10 @@ export const GROUP_RE = /(?<![^\S\n])[^\S\n]+\[#([\w-]+)\]$/;
 const DRIVER_RE = /^<unknown>:0:[^\S\n]+(error|fatal error):[^\S\n]+(.+)$/;
 // The echoed source, and the annotation drawn under it. Both start with the gutter.
 // The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
-// line of spaces every way before refusing it.
-export const GUTTER_RE = /^[^\S\n]*(?:\d+[^\S\n]*)?\|/;
+// line of spaces every way before refusing it. swiftc puts a space between a line's number and its
+// `|`, always: a file can be named `1|bad.swift`, and its diagnostic, which starts with the name,
+// was taken for a line of the source and skipped.
+export const GUTTER_RE = /^[^\S\n]*(?:\d+[^\S\n]+)?\|/;
 const SOURCE_RE = /^[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 
 const swiftText = {

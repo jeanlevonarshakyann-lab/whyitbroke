@@ -126,7 +126,9 @@ export default {
       }
       if (NOISE_RE.test(line) || SUMMARY_RE.test(line)) continue;
       const f = line.match(FILE_RE);
-      if (f && !/^[✖⚠ⓘ]/.test(f[1])) file = f[1];
+      // A status line opens with its glyph and a space; a file can be named with the glyph alone,
+      // `✖.css`, and was then no heading.
+      if (f && !/^[✖⚠ⓘ][^\S\n]/.test(f[1])) file = f[1];
     }
 
     // The machine formats, read whatever the table gave: one log can hold two runs.
