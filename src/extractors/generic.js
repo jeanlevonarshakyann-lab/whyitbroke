@@ -1,4 +1,5 @@
 import { joinSources, withSource } from "../ownership.js";
+import { nodeFrame } from "../location.js";
 
 /** Last resort: no parser matched. Surface the lines most likely to matter. */
 const SIGNAL = [
@@ -96,6 +97,14 @@ const NOISE = [/^[^\S\n]*at /, /^npm (notice|warn)/, /^[^\S\n]*$/, /^warning:/i,
 const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:.*?\()?((?:file:\/\/)?[^\s()]+?):(\d+)(?::(\d+))?\)?[^\S\n]*$/;
 const INLINE_LOC_RE = /[^\S\n](?:in|at)[^\S\n]((?:\/|[A-Za-z]:\\)[^\s:]+?):(\d+)\b/;
 const unfile = (p) => (p.startsWith("file://") ? decodeURIComponent(p.slice(7)) : p);
+// A path the tool was given with a space in it - under `My Project` - is still a path when it
+// names a directory and a file with an extension: everything up to its first colon, past a
+// drive's. Prose before a colon names neither.
+const SPACED_LOC = /^((?:[A-Za-z]:[\\/])?[^:\n]+):(\d+)(?::(\d+))?:[^\S\n]*(.*)$/;
+const spacedLocation = (text) => {
+  const m = text.match(SPACED_LOC);
+  return m && /^\S(?:.*\S)?$/.test(m[1]) && /[\\/]/.test(m[1]) && /\.\w+$/.test(m[1]) ? m : null;
+};
 
 /** Where a message says it happened, if it says at all - and the line of the frame that
  *  said so, when it is a frame. */
@@ -105,6 +114,9 @@ function locate(lines, i, text) {
   // new event boundary. Without that boundary, "retry 2 begins" let attempt 1 borrow
   // attempt 2's frame and point at a file the first error never named.
   for (let j = i + 1; j < lines.length && j <= i + 5; j++) {
+    // A frame is read from its end, so a path with spaces in it is read whole - see v8Frame.
+    const v8 = nodeFrame(lines[j]);
+    if (v8) return { file: v8.file, line: v8.line, col: v8.col, frame: j };
     const m = lines[j].match(FRAME_RE);
     if (m) return { file: unfile(m[1]), line: +m[2], col: m[3] ? +m[3] : undefined, frame: j };
     if (!lines[j].trim()) continue;
@@ -157,7 +169,7 @@ export default {
       const earlier = repeats(h.text);
       if (earlier >= 0) { failures[earlier] = joinSources(failures[earlier], withSource({}, h.i, h.i + 1)); continue; }
       said.push(h.text.replace(/\s+/g, " ").trim());
-      const loc = h.text.match(/^([^\s:]+):(\d+)(?::(\d+))?:[^\S\n]*(.*)$/);
+      const loc = h.text.match(/^([^\s:]+):(\d+)(?::(\d+))?:[^\S\n]*(.*)$/) ?? spacedLocation(h.text);
       if (loc) {
         // A line or a column of 0 points at nothing. `<unknown>:0:` is how swift and clang
         // say there is no location, and a column of 0 is a tool counting from 0 - pylint

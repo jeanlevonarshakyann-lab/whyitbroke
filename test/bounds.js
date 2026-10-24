@@ -1042,8 +1042,8 @@ const PINNED = [
     () => gap() + pick(["a.c", "a b.c", "x", "+1"]) + gap() + pick(["+", "++"]) + pick(["2", "12", "x"]) + ":" + pick(["19", ""]) + ":" + gap() +
       pick(["error", "fatal error", "warning", "note"]) + ":" + gap() + pick(["msg", "", " ", "a +1:2: error: b"]) + gap()],
   ["clang warning flag", /[^\S\n]+\[(-W[\w-]+)\]$/, CODE_RE, () => pick(["unused variable", "", " ", "x [y]"]) + gap() + pick(["[-Wunused]", "[-W]", "[-Wa-b]", "[W]", "[-Wx] y"]) + gap()],
-  ["dotnet diagnostic", /^[^\S\n]*(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m, DIAGNOSTIC_RE,
-    () => gap() + pick(["Program", "a b", "", ".", "x.cs"]) + pick([".cs", ".fs", ".vb"]) + pick(["(", "(("]) + pick(["1", "x"]) + "," + pick(["2", "2", ""]) + "):" + gap() +
+  ["dotnet diagnostic", /^[^\S\n]*(.+?\.(?:[cC][sS]|[fF][sS]|[vV][bB]))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m, DIAGNOSTIC_RE,
+    () => gap() + pick(["Program", "a b", "", ".", "x.cs"]) + pick([".cs", ".fs", ".vb", ".CS", ".Vb"]) + pick(["(", "(("]) + pick(["1", "x"]) + "," + pick(["2", "2", ""]) + "):" + gap() +
       pick(["error", "warning"]) + gap() + pick(["CS0103", "FS1", "cs1"]) + ":" + gap() + pick(["msg", "", " ", "a.cs(1,2): error CS1: b"]) + gap()],
   ["dotnet project", /^[^\S\n]*(\S.*?)[^\S\n]+:[^\S\n]+(error|warning)[^\S\n]+((?:MSB|NU|NETSDK)\d+):[^\S\n]+(.+)$/, PROJECT_RE,
     () => gap() + pick(["app.csproj", "MSBUILD", "a b", "", "x : y"]) + gap() + pick([":", "::", ""]) + gap() + pick(["error", "warning", "x"]) + gap() +
@@ -1164,8 +1164,9 @@ const SHAPED = [
     ["warning: unused variable: `x`", "warning[E0001]:   something  "]],
   ["cargo SHORT_RE", /^(.+?\.rs):(\d+):(\d+):[^\S\n]+(error|warning)(?:\[(E\d+)\])?:[^\S\n]*(.*?)[^\S\n]*$/, CARGO_SHORT_RE,
     ["src/main.rs:3:5: error[E0425]: cannot find value `x` in this scope", "src/a.rs:1:1: warning:   ", "src/a.rs:1:1: error:"]],
-  ["make AT_LINE", /^([^\s:]+):(\d+):[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m, MAKE_AT_LINE,
-    ["Makefile:3: *** missing separator.  Stop.", "x.mk:10: ***   recipe commences before first target. Stop.  "]],
+  ["make AT_LINE", /^((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/])[^:\n]*?|[^\s:]+):(\d+):[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m, MAKE_AT_LINE,
+    ["Makefile:3: *** missing separator.  Stop.", "x.mk:10: ***   recipe commences before first target. Stop.  ", "/workspace/My Project/Makefile:3: *** missing separator.  Stop.",
+      "C:\\work\\My Project\\Makefile:3: *** missing separator.  Stop.", "pod/api-7d9 Makefile:3: *** missing separator.  Stop."]],
   ["make SELF", /^make(?:\[\d+\])?:[^\S\n]+\*\*\*[^\S\n]+(.+?)[^\S\n]*Stop\.[^\S\n]*$/m, MAKE_SELF,
     ["make: *** No rule to make target 'x'.  Stop.", "make[2]: *** [all] Error 1 Stop."]],
   ["stylelint COMPACT_RE", /^(\S.*?):[^\S\n]+line[^\S\n]+(\d+),[^\S\n]+col[^\S\n]+(\d+),[^\S\n]+(error|warning)[^\S\n]+-[^\S\n]+(.+?)[^\S\n]*\(([\w-]+(?:\/[\w-]+)?)\)[^\S\n]*$/, STYLELINT_COMPACT_RE,
@@ -1330,8 +1331,8 @@ const SHAPED = [
     ["#5 ERROR: process \"/bin/sh -c exit 3\" did not complete successfully: exit code: 3", "#1 ERROR:  x  ", "#2 ERROR:   "]],
   ["docker QUOTED_STEP", /^[^\S\n]*>[^\S\n]*\[\d+\/\d+\][^\S\n]*(.*):[^\S\n]*$/, DOCKER_QUOTED_STEP,
     [" > [5/5] RUN pytest -q:", "> [1/2]   :", ">[1/1] x :  "], testing],
-  ["terraform AT_RE", /^[^\S\n]*on[^\S\n]+(\S+)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in[^\S\n]+(.+?))?:[^\S\n]*$/, TERRAFORM_AT_RE,
-    ["  on main.tf line 1, in resource \"local_file\" \"demo\":", "on a.tf line 2:", "  on x line 3, in  :", "on a line 4, in   b c  :  "]],
+  ["terraform AT_RE", /^[^\S\n]*on[^\S\n]+(\S(?:[^\n]*?\S)?)[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in[^\S\n]+(.+?))?:[^\S\n]*$/, TERRAFORM_AT_RE,
+    ["  on main.tf line 1, in resource \"local_file\" \"demo\":", "on a.tf line 2:", "  on x line 3, in  :", "on a line 4, in   b c  :  ", "  on My Project/main.tf line 1, in resource \"local_file\" \"demo\":"]],
   ["eslint PARSE_RE", /^[^\S\n]+(\d+):(\d+)[^\S\n]+error[^\S\n]+(Parsing error:[^\S\n].+?)[^\S\n]*$/, ESLINT_PARSE_RE,
     ["  1:11  error  Parsing error: Unexpected token ;", "  1:1  error  Parsing error:   ", "  2:3 error Parsing error:  x  "]],
   ["jvm MAVEN_RE", /^\[ERROR\][^\S\n]+(.+?):\[(\d+),(\d+)\][^\S\n]+(.+)$/, JVM_MAVEN_RE,
