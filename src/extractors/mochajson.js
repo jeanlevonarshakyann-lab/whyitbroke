@@ -7,12 +7,16 @@
 // `stats` with a failure count, and a `failures` array. A log can hold other JSON.
 import { isNoise, jsonDocuments, jsonDocumentsAt } from "../util.js";
 import { withSource } from "../ownership.js";
-import { v8Frame } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 const MARKER = /"fullTitle"[^\S\n]*:/;
 // The same frame shape mocha's human reporter is read with, so both point at the line
 // that threw rather than at the test file as a whole.
-const frameAt = (line) => v8Frame(line, { indented: true, unclosed: "split" });
+// An ES module's frames are URLs, `file:///repo/test.mjs:4:7`, and a URL is the path it names.
+const frameAt = (line) => {
+  const frame = v8Frame(line, { indented: true, unclosed: "split" });
+  return frame && { ...frame, file: fileReference(frame.file) };
+};
 
 function firstUserFrame(lines) {
   for (const line of lines) {
