@@ -143,6 +143,36 @@ test("a prefix inside a message is a wrapper, even when the count does not move"
   }
 });
 
+test("a runner's prefix that reads like a directory comes off all the files it is in front of", () => {
+  // kubectl's pod, `pod/api-7d9 `, and pnpm's package and script, `packages/api test$ `, read
+  // like a directory: a parser took each as the start of every path, and the strip was
+  // refused, because mypy's repeated source directory reads the same way and is data. What
+  // tells them apart is the other lines. A directory is in front of the files a tool names
+  // and nothing else; a runner's prefix is in front of every line it relays - the tool's
+  // heading, its tally, the command it ran. Turborepo's task can be named in any case,
+  // `api:TypeCheck: `, and its prefix was no Turborepo prefix at all.
+  const files = (r) => r?.failures.map((f) => [f.file, f.line]);
+  for (const name of ["gobuild_fail.txt", "cargo_short_fail.txt", "tsc_plain.txt", "golangci_fail.txt", "clang_fail.txt"]) {
+    const bare = files(analyse(fx(name)));
+    // A prefix is found from the lines a runner relays, and a short log is one or two of them.
+    const lines = ["building api", "building web", "building docs", ...fx(name).split("\n")].join("\n");
+    for (const prefix of ["pod/api-7d9 ", "packages/api test$ ", "api-7d9f8c4b6-x2klm ", "api:TypeCheck: ", "@shop/api TypeCheck: "]) {
+      assert.deepEqual(files(analyse(wrap(lines, (l) => prefix + l))), bare, `${name} under ${JSON.stringify(prefix)}`);
+    }
+  }
+  // Two packages' tasks in one stream, each named in mixed case.
+  const tsc = fx("tsc_plain.txt");
+  const both = analyse(wrap(tsc, (l) => `api:TypeCheck: ${l}`) + "\n" + wrap(tsc, (l) => `web:TypeCheck: ${l}`));
+  assert.deepEqual(files(both), [...files(analyse(tsc)), ...files(analyse(tsc))]);
+  // ...while a directory every file shares, and nothing else, stays a directory - and so does
+  // one in front of the warnings oxlint holds back behind its errors, which name files too.
+  const mypy = analyse(fx("mypy_notes_fail.txt"));
+  assert.equal(mypy.wrappers, undefined);
+  const oxlint = analyse(fx("oxlint_unix_fail.txt").replaceAll("src/", "my project/src/"));
+  assert.equal(oxlint.wrappers, undefined);
+  assert.ok(oxlint.failures.every((f) => f.file.startsWith("my project/src/")));
+});
+
 test("a word that opens a diagnostic is not a wrapper because it opens one", () => {
   // The mirror, and why the rule above asks for a line AFTER the first: perl says
   // "no price for item" and "Can't call method ... on an undefined value", and the
