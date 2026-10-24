@@ -43,8 +43,19 @@ const LOC_RE = /^[^\S\n]+([\w./\\-]+\.go):(\d+):[^\S\n]*(.*)$/;
 // while `go test` was unaffected, because the testing package prints a bare basename and
 // the runtime writes its frames with forward slashes even there. Captured on
 // windows-latest rather than assumed; go_windows_build_fail is that output.
-const BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?([\w./\\-]+\.go):(\d+):(\d+): (.+)$/;
-const BUILD_ANY = /^(?:vet(?:\.exe)?: )?(?:\.[\\/])?[\w./\\-]+\.go:\d+:\d+: /m;   // same, but scans a whole blob
+//
+// Nor is a path only word characters: go names a file outside the directory it ran in by
+// its whole path, so a checkout under `My Project` puts its space in the path, and with -L
+// the compiler writes every path whole, `C:\work\pkg\a.go` - and both were a build error
+// read as nothing. A file's own name may hold a space too, `./my file.go`. A path that says
+// where it starts - a drive, a separator, `./`, `../` - is anything up to its `.go:line:col: `
+// but a colon, past a drive's, so a timestamp or a prefix ending in one is never part of it.
+// Any other is read without spaces, as before: read with them, a runner's prefix in front of
+// the path, `pod/api-7d9 ./main.go`, was taken as the start of it and never taken off. Only a
+// file's own name in a package below could have one there - an import path has none - and it
+// reads exactly as a prefix does.
+const BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?\.go|[\w./\\-]+\.go):(\d+):(\d+): (.+)$/;
+const BUILD_ANY = /^(?:vet(?:\.exe)?: )?(?:\.[\\/])?(?:(?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?|[\w./\\-]+)\.go:\d+:\d+: /m;   // same, but scans a whole blob
 // golangci-lint prints its findings in exactly go's shape and names the linter in
 // brackets at the end. Go writes no such tag - its messages end "in variable
 // declaration", never "(errcheck)" - so a line carrying one belongs to golangci-lint and
@@ -298,7 +309,8 @@ export default {
       for (; j < lines.length && !/^={10,}$/.test(lines[j]); j++) {
         const op = lines[j].match(/^((?:Previous )?(?:read|write)) at 0x[0-9a-f]+ by (goroutine \d+|main goroutine)/i);
         if (op) { what.push(`${op[1]} by ${op[2]}`); continue; }
-        const at = lines[j].match(/^[^\S\n]+(\S+):(\d+) \+0x[0-9a-f]+[^\S\n]*$/);
+        // A frame's path can hold spaces: it ends at the last `:line +0x...` on the line.
+        const at = lines[j].match(/^[^\S\n]+(\S(?:[^\n]*?\S)?):(\d+) \+0x[0-9a-f]+[^\S\n]*$/);
         if (at && !file && !STDLIB.test(at[1])) { file = at[1]; line = +at[2]; }
       }
       if (!what.length) continue;

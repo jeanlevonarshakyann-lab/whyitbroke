@@ -8,7 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 import golangci from "../../src/extractors/golangci.js";
 
 const CASES = [
@@ -553,6 +553,43 @@ try {
   console.log("  ok   a place named for another file does not move a golangci-lint finding");
   pass++;
 } catch (e) { console.log(`  FAIL golangci embedded place bound\n       ${e.message}`); fail++; }
+
+// go names a file outside the directory it ran in by its whole path, and under a checkout named
+// `My Project` that path has a space in it; with -L the compiler writes every path whole, drive
+// and all. A build error, a module file's parse error, a race's frame and golangci-lint's place
+// for a type error were each read only from a path of word characters, and lost - or put back on
+// line 1 - otherwise.
+try {
+  readsMoved("go_windows_build_fail.txt", (t) => t.replace("pkg\\helper.go", "C:\\work\\my probe\\pkg\\helper.go").replaceAll(".\\main.go", "C:\\work\\my probe\\main.go"),
+    (file) => (file === "pkg\\helper.go" ? "C:\\work\\my probe\\pkg\\helper.go" : file === "main.go" ? "C:\\work\\my probe\\main.go" : file));
+  readsMoved("gotest_build_and_tests_fail.txt", (t) => t.replace("p3/x.go:", "/work/my p3/x.go:"), (file) => (file === "p3/x.go" ? "/work/my p3/x.go" : file));
+  readsMoved("gotest_build_and_tests_fail.txt", (t) => t.replace("p3/x.go:", "../my p3/x.go:"), (file) => (file === "p3/x.go" ? "../my p3/x.go" : file));
+  readsMoved("gobuild_fail.txt", (t) => t.replaceAll("./broken.go:", "./my broken.go:"), (file) => (file === "broken.go" ? "my broken.go" : file));
+  readsMoved("gomod_parse_fail.txt", (t) => t.replaceAll("go.mod:", "/work/My Project/go.mod:"), (file) => (file === "go.mod" ? "/work/My Project/go.mod" : file));
+  readsMoved("gorace_fail.txt", (t) => t.replaceAll("/home/dev/goracer/", "/home/dev/go racer/"), (file) => file?.replace("/home/dev/goracer/", "/home/dev/go racer/"));
+  readsMoved("golangci_typecheck_json_fail.txt", (t) => t.replace("./shop.go:6:2", "/work/my shop/shop.go:6:2").replace('"Filename":"shop.go"', '"Filename":"/work/my shop/shop.go"'),
+    (file) => (file === "shop.go" ? "/work/my shop/shop.go" : file));
+  console.log("  ok   a Go path with spaces or a drive in it is read as go wrote it");
+  pass++;
+} catch (e) { console.log(`  FAIL go paths with spaces\n       ${e.message}`); fail++; }
+
+// Only a path that says where it starts - a drive, a separator, `./`, `../` - is read with a
+// space in it. Read with one anywhere, a runner's prefix in front of a build error's path -
+// kubectl's pod, pnpm's package - was taken as the start of the path, and was never taken
+// off: a JUnit report from golangci-lint under one was read as go build errors in
+// `pod/api-7d9       <failure message="main.go`.
+try {
+  for (const name of ["gobuild_fail.txt", "go_windows_build_fail.txt", "gomod_parse_fail.txt", "golangci_junit_fail.txt"]) {
+    const read = (r) => [r?.tool, r?.failures.map((f) => [f.file, f.line, f.col, f.message])];
+    const bare = read(analyse(fx(name)));
+    for (const prefix of ["pod/api-7d9 ", "packages/api test$ ", "api-7d9f8c4b6-x2klm "]) {
+      const wrapped = fx(name).split("\n").map((l) => (l.trim() ? prefix + l : l)).join("\n");
+      assert.deepEqual(read(analyse(wrapped)), bare, `${name} under ${JSON.stringify(prefix)}`);
+    }
+  }
+  console.log("  ok   a runner's prefix in front of a Go path is not read as part of it");
+  pass++;
+} catch (e) { console.log(`  FAIL runner prefix before a go path\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
