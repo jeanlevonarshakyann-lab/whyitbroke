@@ -850,6 +850,28 @@ test("a capture of output with no line end, arriving a few bytes at a time", () 
     `${ms(unbroken)}ms for 4MiB with no line end, ${ms(lines)}ms for 4MiB of lines - x${(unbroken / lines).toFixed(1)}`);
 });
 
+test("a capture of one-line documents past the cap, none of them a report", () => {
+  // A line that opens a JSON document is read on past the scan when what the scan holds of it
+  // reads like a diagnostic - a report on one line, rubocop's or jest's. Whether it does is
+  // read once, from that part: a document that is no report is skipped from there, and costs
+  // no more than ordinary lines do.
+  const MiB = 1024 * 1024;
+  const time = (text) => {
+    const buf = Buffer.from(text);
+    const once = () => {
+      const at = performance.now();
+      const c = createCapture(MiB);
+      for (let i = 0; i < buf.length; i += 65536) c.push(buf.subarray(i, i + 65536));
+      c.finish();
+      return performance.now() - at;
+    };
+    return Math.min(once(), once(), once());
+  };
+  const documents = time(('{"stats":"' + "a".repeat(256 * 1024) + '"}\n').repeat(32));
+  const lines = time("info: compiled module 0000042\n".repeat(8 * MiB / 30));
+  assert.ok(documents < lines, `${ms(documents)}ms for 8MiB of documents, ${ms(lines)}ms for 8MiB of lines`);
+});
+
 test("a capture of thousands of lines that look like diagnostics holds what it keeps", () => {
   // Every line that looked like a diagnostic was copied as it arrived, with a record, an array
   // slot and an index entry around it, and charged only its own bytes: 2.5MiB of five-byte FAIL
