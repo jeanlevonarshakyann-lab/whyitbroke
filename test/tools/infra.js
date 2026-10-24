@@ -442,6 +442,27 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL terraform fmt interleaving\n       ${e.message}`); fail++; }
 
+// Every terraform run in a log is read. An init error was looked for only after the last step
+// of init's narration in the whole log, and only where nothing else had been found; a refused
+// subcommand was read once, and only where nothing else had failed.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.title}: ${f.message}`).sort();
+  const union = (...texts) => texts.flatMap(read).sort();
+  const init = fx("terraform_init_fail.txt"), refused = fx("terraform_nocommand_fail.txt");
+  const another = init.split("example.com").join("registry.internal");
+  for (const [label, first, second] of [
+    ["two inits", init, another],
+    ["an init after a validate", fx("terraform_validate_fail.txt"), init],
+    ["two refused subcommands", refused, refused.split("notasubcommand").join("alsonot")],
+    ["a refused subcommand after an init", init, refused],
+  ]) {
+    assert.notEqual(first, second, label);
+    assert.deepEqual(read(`${first}\n${second}`), union(first, second), label);
+  }
+  console.log("  ok   every terraform run in a log is read");
+  pass++;
+} catch (e) { console.log(`  FAIL every terraform run\n       ${e.message}`); fail++; }
+
 // terraform names itself in the sentence, which is what makes it claimable at all.
 try {
   const { EXTRACTORS } = await import("../../src/index.js");
