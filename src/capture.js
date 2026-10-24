@@ -48,6 +48,10 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   "\\bdie[ds]?\\b",
   // diagnostic codes: TS2322, CS0103, MSB4018, E0277, F401, SC2086
   "\\b[A-Z]{1,4}\\d{3,5}\\b",
+  // ...and pnpm's, which come with no failure word: "ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND
+  // No package.json ... was found". In a recursive run with its prefixes hidden, nothing
+  // near it has one either.
+  "\\bERR_PNPM_[A-Z0-9_]+",
   // a location is a diagnostic by shape, whatever words follow it
   "^\\s*\\.?[\\w./\\\\-]+\\.\\w+:\\d+(?::\\d+)?:",
   "\\bat [\\w./\\\\-]+\\.\\w+ line \\d+",
@@ -65,6 +69,12 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   // ("can merge" is not "cannot"), "There is no tracking information for the current
   // branch." and "No stash entries found." ("entries found" is not "not found").
   "^(?:merge: .+ - not something we can merge|There is no tracking information|No stash entries found)\\b",
+  // ...and what it says when it does go wrong holds no failure word either: each conflicted
+  // file is a "CONFLICT (content): Merge conflict in <file>" row, and each refused ref a
+  // "! [rejected] <ref> -> <ref>" one. The footer under them has the word - "Automatic merge
+  // failed", "failed to push some refs" - and kept only the last eight rows of a long list.
+  "^CONFLICT \\([^)\\n]+\\): ",
+  "^[^\\S\\n]*![^\\S\\n]+\\[[^\\]\\n]+\\][^\\S\\n]+\\S+[^\\S\\n]+->",
   // Poetry says a file it cannot read in one sentence with no failure word in it at all:
   // "Invalid TOML file /app/pyproject.toml: Unexpected character: ... at line 1 col 8".
   // The path is in the middle, so the location shape above does not reach it either.
@@ -127,6 +137,12 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   // ends with the assembly it ran and the framework it ran on.
   "^[^\\S\\n]{2}\\S[^\\n]*[^\\S\\n]\\[(?:<[^\\S\\n]+)?\\d+(?:\\.\\d+)?[^\\S\\n]*m?s\\][^\\S\\n]*$",
   "^\\S[^\\n]*![^\\n]*\\.dll[^\\S\\n]+\\((?:net|\\.NET)[^)\\n]*\\)[^\\S\\n]*$",
+  // Testing Platform's console is translated as well, and a failure whose message holds no
+  // English word - a custom exception, say - gave the scan nothing to find: its heading is a
+  // translated word and a timing, and its assembly line is printed under passing tests too.
+  // Its stack is not. A frame naming its source file and line - four spaces in, a translated
+  // "at" before the method and "in" before the path - is a failure's alone.
+  "^[^\\S\\n]{4}\\S+[^\\S\\n]+(?:\\S+[^\\S\\n]+)?[^\\s(]+\\([^()\\n]*\\)[^\\S\\n]+\\S+(?:[^\\S\\n]+\\S+)?[^\\S\\n]+(?:\\/|[A-Za-z]:[\\\\/])\\S*:\\d+[^\\S\\n]*$",
   // oxlint draws its report the way miette does, and in a pipe it draws it in ASCII: an
   // `x` or a `!`, then the location on the next line in `,-[file:line:col]`. Neither is a
   // failure word, and the rule is spelled `plugin(rule)`. The run ends with a line only
