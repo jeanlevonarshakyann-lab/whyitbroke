@@ -56,8 +56,10 @@ const sameFile = (a, b) => {
   const x = String(a).replace(/\\/g, "/"), y = String(b).replace(/\\/g, "/");
   return x === y || x.endsWith("/" + y) || y.endsWith("/" + x);
 };
-// a Python frame, for --tb=native
-const FRAME_RE = /^[^\S\n]*File[^\S\n]+"(.+?)",[^\S\n]+line[^\S\n]+(\d+)/;
+// a Python frame, for --tb=native. The file is written raw between quotes and can hold
+// `", line 9` itself, so it runs to the last of them: what follows is the function, an
+// identifier, or nothing.
+const FRAME_RE = /^[^\S\n]*File[^\S\n]+"(.+)",[^\S\n]+line[^\S\n]+(\d+)(?:,[^\S\n]+in[^\S\n]+\S+)?[^\S\n]*$/;
 // "test_shop.py::TestClass::test_method" is titled "TestClass.test_method" in a block
 // banner, so the summary's ids are shaped the same way to match.
 function idParts(id) {

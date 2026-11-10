@@ -13,6 +13,26 @@ const cli = join(here, "..", "bin", "whyitbroke.js");
 let pass = 0, fail = 0;
 
 
+// A name is read to the delimiter its tool writes after it - the last one, where the name
+// can hold its text too. Python writes a frame's file raw between quotes, and the function
+// after it is an identifier: a file named `boom", line 900, in fake.py` was read up to its
+// first `", line`, as the file `boom` at line 900. terraform fmt's diff header puts the file
+// straight after `old/`, and a root-level file named ` main.tf` was no header at all.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.title]);
+  for (const [name, path] of [["py_traceback.txt", "/home/dev/fx/boom.py"], ["py_unittest.txt", "/home/dev/fx/test_billing.py"],
+    ["pytest_tb_native_fail.txt", "/home/dev/pytest/test_shop.py"]]) {
+    const spoofed = path.replace(/\.py$/, '", line 900, in fake.py');
+    assert.ok(fx(name).includes(`"${path}"`), `${name} names no ${path}`);
+    assert.deepEqual(read(fx(name).replaceAll(`"${path}"`, `"${spoofed}"`)), read(fx(name)).map(([file, ...rest]) => [file === path ? spoofed : file, ...rest]), name);
+  }
+  const tf = fx("terraform_fmt_fail.txt");
+  assert.deepEqual(read(tf.replace("--- old/main.tf", "--- old/ main.tf").replace("+++ new/main.tf", "+++ new/ main.tf")),
+    read(tf).map(([file, ...rest]) => [file === "main.tf" ? " main.tf" : file, ...rest]));
+  console.log("  ok   a name is read to the delimiter its tool writes after it");
+  pass++;
+} catch (e) { console.log(`  FAIL names between delimiters\n       ${e.message}`); fail++; }
+
 // A self-closing XML element holds nothing after it.
 //
 // Node's parser steps over stacks that are quoted INSIDE a <failure> or <error> element,

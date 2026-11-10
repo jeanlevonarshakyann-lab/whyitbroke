@@ -4,7 +4,9 @@ import { withSource } from "../ownership.js";
 const CHAIN = /^(?:During handling of the above exception|The above exception was the direct cause)/;
 const HEADER = /^Traceback \(most recent call last\):$/;
 
-const FRAME_RE = /^[^\S\n]*File "(.+?)", line (\d+), in (.+)$/;
+// Python writes a frame's file raw between quotes, so the file can hold `", line 9, in ` itself;
+// the function after it is an identifier, which cannot. The file runs to the last of them.
+const FRAME_RE = /^[^\S\n]*File "(.+)", line (\d+), in (.+)$/;
 // `python -m pytest` with pytest not installed prints one line and stops: the
 // interpreter's own path, then what it could not find. No traceback, no "Error", no
 // location - and it is the entire log of a CI step that never ran a test at all. The
@@ -105,7 +107,7 @@ function tracebackReadings(lines) {
 function parseTraceback(body) {
   const frames = [];
   for (let i = 0; i < body.length; i++) {
-    const m = body[i].match(/^[^\S\n]*File "(.+?)", line (\d+), in (.+)$/);
+    const m = body[i].match(FRAME_RE);
     if (m) frames.push({ file: m[1], line: +m[2], fn: m[3], code: (body[i + 1] ?? "").trim() });
   }
   let err = "";
