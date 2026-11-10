@@ -14,6 +14,7 @@
 // version line, which node does not emit, and node's YAML uses `failureType` and
 // `location` where tap uses `at:` with a nested fileName.
 import { withSource } from "../ownership.js";
+import { ELIDED } from "../capture.js";
 
 const VERSION_RE = /^TAP version \d+[^\S\n]*$/m;
 // The whitespace either side of a missing dash is one stretch, and the name is read to its last
@@ -33,6 +34,19 @@ const MARKER_RE = /^[^\S\n]*-+\^/;
 const END_RE = /^[^\S\n]*\.\.\.[^\S\n]*$/;
 // A subtest's own roll-up repeats a failure that its members already reported.
 const SUBTEST_RE = /^[^\S\n]*not ok[^\S\n]+\d+[^\S\n]*-[^\S\n]*\S+\.[cm]?[jt]s\b/;
+
+/** Whether a file's roll-up at `i` follows a failure of its own members: a `not ok` indented
+ *  under it, back to the line that opens its subtest - past a gap a capture left in it, where
+ *  the subtest goes on. */
+function membersFailed(lines, i) {
+  const depth = lines[i].length - lines[i].trimStart().length;
+  for (let j = i - 1; j >= 0; j--) {
+    if (!lines[j].trim() || ELIDED.test(lines[j])) continue;
+    if (lines[j].length - lines[j].trimStart().length <= depth) return false;
+    if (NOT_OK_RE.test(lines[j])) return true;
+  }
+  return false;
+}
 
 /** Is there a YAML block under this result line, before the next TAP statement? */
 function hasYaml(lines, i) {
@@ -70,8 +84,10 @@ export default {
       const m = lines[i].match(NOT_OK_RE);
       if (!m) continue;
       // The line naming a test FILE is tap reporting that the file had failures in it,
-      // which its own members have already said.
-      if (SUBTEST_RE.test(lines[i])) continue;
+      // which its own members have already said - where they have. A file that would not
+      // load failed before it declared any, and its roll-up is the only record of it.
+      const rollUp = SUBTEST_RE.test(lines[i]);
+      if (rollUp && membersFailed(lines, i)) continue;
 
       // A result with no YAML block under it is bare TAP - TAP 12, what `mocha
       // --reporter tap` and Test::More emit - and this parser has nothing to read from
@@ -137,19 +153,21 @@ export default {
         if (inAt && f[1] === "columnNumber") inAt = false;
       }
 
+      // A roll-up names its file, and node-tap writes how long the file took after it.
+      const named = rollUp ? m[2].replace(/[^\S\n]+#[^\S\n]+time=\S+[^\S\n]*$/, "") : m[2];
       failures.push(withSource({
-        file: field.fileName || undefined,
+        file: field.fileName || (rollUp ? named : undefined),
         line: field.lineNumber ? +field.lineNumber : undefined,
         col: field.columnNumber ? +field.columnNumber : undefined,
-        title: m[2] || `test ${m[1]}`,
-        subject: m[2] || `test ${m[1]}`,
+        title: named || `test ${m[1]}`,
+        subject: named || `test ${m[1]}`,
         severity: "error",
         stmt,
         message: diff.length
           ? diff.join("\n")
           : (field.found !== undefined && field.wanted !== undefined
               ? `expected ${field.wanted}, got ${field.found}`
-              : (m[2] || `test ${m[1]}`)),
+              : (named || `test ${m[1]}`)),
       }, i, end));
     }
 

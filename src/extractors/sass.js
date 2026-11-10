@@ -63,13 +63,16 @@ const GAP_RE = /^[^\S\n]*[│|┆:][^\S\n]*$/;
 const ROOT = "root stylesheet";
 // How far a diagnostic reaches before its trace. A fatal deprecation says why it is fatal
 // and where to read more first, and a deprecation warning suggests what to write instead.
+// The trace itself is read to its end, however deep the calls that led to the error: one
+// that went on past this was cut short, and without its `root stylesheet` an ASCII
+// diagnostic was not sass's at all.
 const MAX_BLOCK = 40;
 
 /** Lines i onward read as one sass diagnostic: where it ends, where it is, and the source
  *  line it is about - or null when what follows the heading is not sass's. */
 function diagnostic(lines, i) {
   let box = false, cap = false, where = null, stmt, first, last, end = i + 1;
-  for (let j = i + 1; j < lines.length && j <= i + MAX_BLOCK; j++) {
+  for (let j = i + 1; j < lines.length && (j <= i + MAX_BLOCK || where); j++) {
     const line = lines[j];
     if (HEAD_RE.test(line)) break;
     // A frame is indented and ends in a line and column; a paragraph above the box starts

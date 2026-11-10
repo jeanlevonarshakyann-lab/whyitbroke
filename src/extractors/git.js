@@ -10,7 +10,25 @@ import { alsoFrom, withSource } from "../ownership.js";
 import { append } from "../util.js";
 import { ELIDED } from "../capture.js";
 
-const CONFLICT = /^CONFLICT \(([^)]+)\): (?:Merge conflict in|.*? in) (.+)$/;
+const CONFLICT = /^CONFLICT \(([^)]+)\): (.+)$/;
+// The file a conflict leaves to resolve, as git writes it for each kind. A branch has no
+// space in its name, so where one is named is where the paths around it end. A conflict of
+// another kind than these names no file here.
+const CONFLICTED = [
+  // content, add/add, submodule
+  /^Merge conflict in (.+)$/,
+  // modify/delete, and rename/delete before merge-ort: the version left in the tree
+  /[^\S\n]Version \S+ of (.+) left in tree\.$/,
+  // rename/delete: the name it was given
+  /^.+? renamed to (.+) in \S+, but deleted in \S+\.$/,
+  // rename/rename, from the name both sides renamed - with merge-ort, and before it
+  /^(.+?) renamed to .+ in \S+ and to .+ in \S+\.$/,
+  /^Rename "?(.+?)"?->/,
+  // file/directory, and two kinds of thing at one path
+  /^directory in the way of (.+) from \S+; moving it to .+ instead\.$/,
+  /^(.+?) had different types on each side;/,
+];
+const conflicted = (text) => CONFLICTED.map((re) => text.match(re)?.[1]).find(Boolean);
 const REJECTED = /^[^\S\n]*!\s+\[([^\]]+)\][^\S\n]+(\S+)[^\S\n]+->[^\S\n]+(\S+)(?:[^\S\n]+\((.+)\))?$/;
 const OVERWRITE = /^error: Your local changes to the following files would be overwritten by (\w+):$/;
 // ...and under it, one of the files, indented.
@@ -32,6 +50,9 @@ const ADVICE = [
 ];
 // "failed to push some refs" restates a rejection the ! line already explained.
 const RESTATES = /^failed to push some refs/;
+// ...and these restate a conflict the CONFLICT lines already named: what git will not do
+// until it is resolved, and the commit a rebase could not apply because of it.
+const RESTATES_CONFLICT = /(?:is not possible because you have unmerged files|^Exiting because of an unresolved conflict|^could not apply\b)/;
 
 // Three things git says with no `fatal:` or `error:` in front of them. The clause in
 // detect below is what keeps a bare severity word from claiming another tool's log, and
@@ -73,9 +94,11 @@ export default {
     // `error:` and `fatal:` at line start belong to half the tools in existence, and in
     // a log holding more than one they are as likely to be somebody else's - cargo's
     // "error: could not compile ... due to 3 previous errors" is a tally cargo itself
-    // suppresses. When git has said something structural - a conflict, a rejected push,
-    // files that would be overwritten - that IS the failure, and a loose line elsewhere
-    // in the log is not a second one.
+    // suppresses. Only a line that says something git would say is read - see GIT_ISH -
+    // and it is read beside a conflict, a rejected push or files that would be
+    // overwritten, not instead of nothing: a log holding two git commands can hold a
+    // conflict from one and `fatal: not a git repository` from the other, and the second
+    // was dropped. A line restating the conflict or the rejection is not a second failure.
     const bare = [];
 
     for (let i = 0; i < lines.length; i++) {
@@ -90,10 +113,17 @@ export default {
         continue;
       }
 
+      // Each kind of conflict names its file in a sentence of its own. Read as whatever came
+      // after the first " in ", a file deleted on one side and changed on the other was
+      // "HEAD and modified in topic.  Version topic of file2 left in tree.", and a rename's
+      // was the branch it was renamed in.
       const c = l.match(CONFLICT);
       if (c) {
         conflicts++;
-        failures.push(withSource({ file: c[2], title: "merge conflict", label: "merge conflict", severity: "error", message: `${c[1]} conflict` }, i, i + 1));
+        // A kind with no file to read keeps its sentence, which is all there is to say where.
+        const file = conflicted(c[2]);
+        failures.push(withSource({ file, title: "merge conflict", label: "merge conflict", severity: "error",
+          message: file ? `${c[1]} conflict` : `${c[1]} conflict: ${c[2]}` }, i, i + 1));
         continue;
       }
 
@@ -132,7 +162,7 @@ export default {
       if (d && GIT_ISH.test(d[2]) && !(rejected && RESTATES.test(d[2]))) bare.push(withSource({ title: d[1], label: d[1], severity: "error", message: d[2] }, i, i + 1));
     }
 
-    if (!failures.length) append(failures, bare);
+    append(failures, conflicts ? bare.filter((f) => !RESTATES_CONFLICT.test(f.message)) : bare);
     if (!failures.length) return null;
     // A summary that just repeats the only failure's message says it twice. Count the
     // conflicted files, which is the one case where a tally adds something.

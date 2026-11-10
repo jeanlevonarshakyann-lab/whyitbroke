@@ -187,3 +187,23 @@ export function locatedPrefix(value, readRest, { column = true } = {}) {
   }
   return null;
 }
+
+// What a path written whole starts with: a root, a drive, or a scheme.
+const WHOLE_PATH = /(?:[\\/]|[A-Za-z]:[\\/]|[a-z][\w+.-]*:\/\/)/y;
+const IN = /[^\S\n]+in[^\S\n]+/g;
+
+/** `{ message, file }` from a message and the file after it, as a reader found them at the
+ *  first ` in ` between them - split again at the last ` in ` a whole path follows. A message
+ *  can say "in" itself - "the name is already in use", "previously declared in /a.php:3" -
+ *  and the file is the path after the last of them. A path with ` in ` in it is still read
+ *  whole, because what follows its own ` in ` is not a path written whole. */
+export function lastPathIn(message, file) {
+  let at = -1, after = -1;
+  IN.lastIndex = 0;
+  for (let m; (m = IN.exec(file));) {
+    const start = m.index + m[0].length;
+    WHOLE_PATH.lastIndex = start;
+    if (WHOLE_PATH.test(file)) { at = m.index; after = start; }
+  }
+  return at < 0 ? { message, file } : { message: `${message} in ${file.slice(0, at)}`, file: file.slice(after) };
+}

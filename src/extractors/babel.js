@@ -16,7 +16,10 @@ import { joinSources, withSource } from "../ownership.js";
 // The message ends where the whitespace before `(line:col)` starts - see pinnedMessage in util.js.
 // It could end anywhere in a long stretch of spaces, and the whitespace on both sides of it could
 // be divided every way as well: 8,000 spaces at the end of one line took three and a half minutes.
-export const HEAD_RE = pinnedMessage(String.raw`^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):`,
+// The file ends at the first colon a space follows, which is where babel ends it. Ended at the
+// first colon, `C:\work\bad.js` was the file `C` - no path, by the check below, so the error was
+// not read at all - and `/work/src/foo:bar.js`, a name POSIX allows, was `/work/src/foo`.
+export const HEAD_RE = pinnedMessage(String.raw`^(\w*(?:Error|Exception)):[^\S\n]*(\S(?:[^:\n]|:(?![^\S\n]))*?):(?=[^\S\n])`,
   { before: 0, separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`\((\d+):(\d+)\)[^\S\n]*$` });
 // "> 1 | const x = ;" - the marked line of the code frame.
 const MARKED_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
@@ -39,8 +42,11 @@ export default {
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(HEAD_RE);
       if (!m) continue;
-      // A path is a path; anything else in that position is part of the message.
-      if (!/[/\\]|\.\w+$/.test(m[2])) continue;
+      // A path is a path; anything else in that position is part of the message - but for
+      // `unknown`, which is what babel names code it read from stdin with no filename given:
+      // that error is babel's all the same, in no file.
+      const stdin = m[2] === "unknown";
+      if (!stdin && !/[/\\]|\.\w+$/.test(m[2])) continue;
       if (isNoise(m[2])) continue;
       const key = `${m[2]}:${m[4]}:${m[5]}`;
 
@@ -53,7 +59,7 @@ export default {
       // column in its header from 0 - `const x = ;` fails at `(1:10)`, with the caret under
       // the semicolon, the eleventh character - and a column here counts from 1.
       const failure = withSource({
-        file: m[2], line: +m[4], col: +m[5] + 1,
+        file: stdin ? undefined : m[2], line: +m[4], col: +m[5] + 1,
         title: m[1], code: m[1], severity: "error",
         message: m[3].trim(), stmt,
       }, i, end);

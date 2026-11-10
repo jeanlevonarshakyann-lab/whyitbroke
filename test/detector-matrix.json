@@ -5337,6 +5337,18 @@
       "generic": 2
     }
   },
+  "webpack4_entry_fail.txt": {
+    "winner": "webpack",
+    "parser": "webpack",
+    "failures": 1,
+    "claimants": [
+      "webpack",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 1
+    }
+  },
   "webpack_parse_fail.txt": {
     "winner": "webpack",
     "parser": "webpack",

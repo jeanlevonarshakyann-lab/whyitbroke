@@ -3,6 +3,10 @@ import { alsoFrom, joinSources, withSource } from "../ownership.js";
 // The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
 // matches only when it begins with what follows it, and that one match is kept.
 export const LOCATION_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]:\d+$))(.+?):(\d+)$/;
+// What makes `path:line` a place rather than a sentence ending in a number: the path has an
+// extension. PHPUnit runs any file with the suffix it is given, so the extension is a letter
+// and then letters or digits - `ShopTest.php8` too, whose place was read into the message.
+const EXTENSION = /\.[a-z][a-z\d]*$/i;
 // "Location: /app/tests/CrashTest.php:2", under "An error occurred inside PHPUnit." Where the file
 // starts is held - see pinnedStart in util.js.
 export const INTERNAL_LOCATION = pinnedStart("^Location:", { tail: String.raw`:(\d+)$`, flags: "m" });
@@ -12,6 +16,7 @@ export const INTERNAL_LOCATION = pinnedStart("^Location:", { tail: String.raw`:(
 const TALLY_RE = /There (?:was|were) \d+ (?:failure|error)/;
 // A file that throws while being loaded never becomes a numbered result at all.
 const INTERNAL_RE = /^An error occurred inside PHPUnit\.$/m;
+const MESSAGE_RE = /^Message:[^\S\n]+(.+)$/;
 
 // --log-junit writes the same results as a JUnit document, which is a shape every runner
 // writes. What makes a result PHPUnit's is inside the element: PHPUnit opens the body
@@ -85,7 +90,7 @@ function bodyOf(text) {
   const message = [];
   for (const raw of text.split("\n")) {
     const location = raw.trim().match(LOCATION_RE);
-    if (location && /\.[a-z]+$/i.test(location[1])) { file = location[1]; line = +location[2]; continue; }
+    if (location && EXTENSION.test(location[1])) { file = location[1]; line = +location[2]; continue; }
     if (raw.trim()) message.push(raw.trim());
   }
   return { file, line, message: message.join("\n") };
@@ -168,18 +173,34 @@ export default {
     // than one run does, and returning early dropped the other run's failures silently.
     const internal = [];
     if (INTERNAL_RE.test(s)) {
-      const message = s.match(/^Message:[^\S\n]+(.+)$/m);
-      const at = s.match(INTERNAL_LOCATION);
-      if (message || at) {
+      // Each run that errors says so, and its Message: and Location: are its own: the first
+      // ones in the log were read for every error, and a second run's went missing. The
+      // first error's are wherever they are before the next error is announced, and each
+      // later one's are between its own announcement and the next.
+      const errors = [], known = new Map();
+      lines.forEach((line, i) => { if (INTERNAL_RE.test(line)) errors.push(i); });
+      errors.forEach((from, n) => {
+        let said = -1, placed = -1;
+        for (let j = n ? from : 0; j < (errors[n + 1] ?? lines.length); j++) {
+          if (said < 0 && MESSAGE_RE.test(lines[j])) said = j;
+          if (placed < 0 && INTERNAL_LOCATION.test(lines[j])) placed = j;
+        }
+        if (said < 0 && placed < 0) return;
+        const message = said >= 0 ? lines[said].match(MESSAGE_RE) : null;
+        const at = placed >= 0 ? lines[placed].match(INTERNAL_LOCATION) : null;
         // The Message: and Location: lines PHPUnit wrote, wherever each is.
-        const [first, second] = [message, at].filter(Boolean).map((m) => lineAt(s, m.index));
+        const [first, second] = [said, placed].filter((k) => k >= 0);
         const failure = withSource({
           file: at?.[1], line: at ? +at[2] : undefined,
           title: "load error", label: "load error", severity: "error",
           message: message?.[1] ?? "An error occurred inside PHPUnit.",
         }, first, first + 1);
-        internal.push(second === undefined ? failure : alsoFrom(failure, second, second + 1));
-      }
+        const read = second === undefined ? failure : alsoFrom(failure, second, second + 1);
+        // The same run printed twice is one error, read in both places.
+        const key = [read.file, read.line, read.message].join("\u0000");
+        if (known.has(key)) internal[known.get(key)] = joinSources(internal[known.get(key)], read);
+        else { known.set(key, internal.length); internal.push(read); }
+      });
     }
     // PHPUnit's numbered blocks live under "There were N failures:" and nowhere else.
     // "N) name" belongs to jasmine, mocha, rspec and Playwright too, and jasmine writes
@@ -221,7 +242,7 @@ export default {
         !/^[^\S\n]*(?:Tests:|Time:|OK\b|FAILURES!|ERRORS!|WARNINGS!)/.test(lines[j]); j++) {
         if (lines[j].trim()) end = j + 1;
         const location = lines[j].match(LOCATION_RE);
-        if (location && /\.[a-z]+$/i.test(location[1])) {
+        if (location && EXTENSION.test(location[1])) {
           file = location[1];
           line = +location[2];
         } else if (lines[j].trim()) {
@@ -262,9 +283,10 @@ export default {
       // The internal error is why PHPUnit stopped, so it leads; whatever else the log
       // holds follows it rather than being dropped.
       const rest = counted.length ? counted.join(", ") : failures.length ? many(failures.length, "failure") : "";
+      const inside = internal.length === 1 ? "error inside PHPUnit" : `${internal.length} errors inside PHPUnit`;
       return {
         tool: "phpunit",
-        summary: rest ? `error inside PHPUnit — ${rest} elsewhere` : "error inside PHPUnit",
+        summary: rest ? `${inside} — ${rest} elsewhere` : inside,
         failures: [...internal, ...failures],
       };
     }

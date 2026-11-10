@@ -20,7 +20,7 @@ import { githubOutput } from "../src/github.js";
 import { REPORT_SCHEMA, inconsistencies, unknownKeywords, validate } from "./schema.js";
 import { evidenced } from "./evidenced.js";
 import { createCapture } from "../src/capture.js";
-import { stripAnsi } from "../src/util.js";
+import { githubAnnotations, stripAnsi } from "../src/util.js";
 import { sourceRange } from "../src/ownership.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -408,6 +408,36 @@ test("a signal's report is schema-clean and says the same thing in every output"
   const terminal = renderReport(report, {});
   const { stdout, summary } = githubOutput(report, {});
   for (const where of [terminal, stdout, summary]) assert.ok(where.includes(report.status.says), where.slice(0, 200));
+});
+
+// GitHub ends a command's properties at `::`, and in their values unescapes %3A, %2C, %0D, %0A
+// and %25, and trims nothing. The reader every annotation-writing tool shares ended them at the
+// first colon, so a file on a drive lost its annotation; it unescaped nothing, so a path whose
+// colon or comma was escaped - as whyitbroke's own annotations escape them - read back as
+// another path; and it trimmed them.
+test("an annotation's properties read back as they were written", () => {
+  const yaml = read("yamllint_github_fail.txt"), file = "C:\\work\\deploy, prod.yml ";
+  const files = (r) => r?.failures.map((f) => f.file);
+  const at = analyse(yaml).failures.map((f) => (f.file === "deploy.yml" ? file : f.file));
+  for (const written of ["file=C%3A\\work\\deploy%2C prod.yml ", "file=C:\\work\\deploy%2C prod.yml "]) {
+    assert.deepEqual(files(analyse(yaml.replaceAll("file=deploy.yml", written))), at, written);
+  }
+  // oxlint repeats the file at the head of its message, and keeps an annotation only where the two agree.
+  const oxlint = read("oxlint_github_fail.txt");
+  assert.deepEqual(files(analyse(oxlint.replaceAll("file=src/checkout.js", "file=C%3A\\work\\checkout.js").replaceAll("::src/checkout.js:", "::C:\\work\\checkout.js:"))),
+    files(analyse(oxlint)).map((f) => (f === "src/checkout.js" ? "C:\\work\\checkout.js" : f)));
+  // A title is a value like any other: jest names the test in one, and a test is named in words.
+  const jest = read("jest_github_fail.txt"), title = "quotes shipping, fast: and cheap";
+  const named = jest.replaceAll("quotes shipping", title).replace(`title=${title}::`, "title=quotes shipping%2C fast%3A and cheap::");
+  assert.notEqual(named, jest.replaceAll("quotes shipping", title));
+  assert.deepEqual(analyse(named).failures.map((f) => f.title), analyse(jest).failures.map((f) => (f.title === "quotes shipping" ? title : f.title)));
+  // ...and what whyitbroke writes reads back as it was: each failure's annotation, and the notice
+  // after them that names whyitbroke.
+  const report = reportOf(yaml.replaceAll("file=deploy.yml", "file=C%3A\\work\\deploy%2C prod.yml "), { exitCode: 1, inputMode: "command" });
+  const back = githubAnnotations(githubOutput(report, {}).stdout);
+  assert.ok(report.failures.some((f) => f.file === file));
+  assert.deepEqual(back.slice(0, report.failures.length).map((a) => [a.props.file, +a.props.line]), report.failures.map((f) => [f.file, f.line]));
+  assert.equal(back.at(-1).props.title, "whyitbroke");
 });
 
 test("a status is claimed only where there is a status to claim", () => {

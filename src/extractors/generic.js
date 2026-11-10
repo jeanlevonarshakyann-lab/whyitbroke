@@ -1,5 +1,5 @@
+import { fileReference, nodeFrame } from "../location.js";
 import { joinSources, withSource } from "../ownership.js";
-import { nodeFrame } from "../location.js";
 
 /** Last resort: no parser matched. Surface the lines most likely to matter. */
 const SIGNAL = [
@@ -96,7 +96,7 @@ const NOISE = [/^[^\S\n]*at /, /^npm (notice|warn)/, /^[^\S\n]*$/, /^warning:/i,
 //   php    ... on null in /app/bad.php:2
 const FRAME_RE = /^[^\S\n]*at[^\S\n]+(?:.*?\()?((?:file:\/\/)?[^\s()]+?):(\d+)(?::(\d+))?\)?[^\S\n]*$/;
 const INLINE_LOC_RE = /[^\S\n](?:in|at)[^\S\n]((?:\/|[A-Za-z]:\\)[^\s:]+?):(\d+)\b/;
-const unfile = (p) => (p.startsWith("file://") ? decodeURIComponent(p.slice(7)) : p);
+const unfile = fileReference;
 // A path the tool was given with a space in it - under `My Project` - is still a path when it
 // names a directory and a file with an extension: everything up to its first colon, past a
 // drive's. Prose before a colon names neither.
