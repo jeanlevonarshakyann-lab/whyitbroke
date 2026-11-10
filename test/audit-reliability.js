@@ -9,7 +9,7 @@ import { analyse } from "../src/index.js";
 import { fileReference } from "../src/location.js";
 import { render, setColor } from "../src/render.js";
 import { resetSnippetCache } from "../src/snippet.js";
-import { xmlStructure } from "../src/util.js";
+import { firstTag, tags, xmlStructure } from "../src/util.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "bin", "whyitbroke.js");
@@ -159,6 +159,15 @@ test("unterminated XML literals are masked in linear time", () => {
   const elapsed = Date.now() - started;
   assert.equal(structure.length, hostile.length);
   assert.ok(elapsed < 1000, `xmlStructure took ${elapsed}ms for ${hostile.length} bytes`);
+});
+
+test("a tag is found where an element is: whole, and not inside a comment", () => {
+  const text = `<!-- <error line="1"/> --><error note="a > b" line='2'/><![CDATA[<error line="3"/>]]>`;
+  const found = [...tags(text, /<error\b([^>]*?)\/?>/g)];
+  assert.deepEqual(found.map((match) => [match.index, match[0], match[1]]),
+    [[text.indexOf("<error note"), `<error note="a > b" line='2'/>`, ` note="a > b" line='2'`]]);
+  assert.equal(firstTag(text, /<error\b([^>]*?)\/?>/)?.[1], ` note="a > b" line='2'`);
+  assert.equal(firstTag("<a>", /<b\b[^>]*>/), null);
 });
 
 test("a `>` inside a tag's quoted value is masked, and only there, in linear time", () => {

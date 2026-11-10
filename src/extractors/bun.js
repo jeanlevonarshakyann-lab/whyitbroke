@@ -1,4 +1,4 @@
-import { elements, firstElement, isNoise, lineAt, pinnedSource, xmlAttributes, xmlContent } from "../util.js";
+import { elements, firstElement, firstTag, isNoise, lineAt, pinnedSource, xmlAttributes, xmlContent } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { fileReference, v8Frame } from "../location.js";
 
@@ -88,7 +88,7 @@ const OUTCOME = { open: /<(failure|error)\b/, close: (name) => `</${name}>`, sel
 
 /** The failed cases of a `--reporter=junit` document, or none. */
 function junitCases(s) {
-  if (!BUN_SUITES.test(s)) return [];
+  if (!firstTag(s, BUN_SUITES)) return [];
   const out = [];
   for (const doc of elements(s, BUN_DOC_RE, DOC)) {
   for (const test of elements(doc[1], CASE_RE, CASE)) {
@@ -215,7 +215,7 @@ export default {
     if (passed) bits.push(`${passed} pass`);
     // The document prints no tally line; it counts the same things on its root suite.
     if (!bits.length) {
-      const root = s.match(/<testsuites\b[^>]*\bname="bun test"[^>]*>/);
+      const root = firstTag(s, /<testsuites\b[^>]*\bname="bun test"[^>]*>/);
       const counts = root ? xmlAttributes(root[0]) : {};
       const fails = Number(counts.failures ?? 0) + Number(counts.errors ?? 0);
       const total = Number(counts.tests ?? 0);

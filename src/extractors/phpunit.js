@@ -1,4 +1,4 @@
-import { counted as many, elements, firstElement, lineAt, pinnedStart, xmlAttributes, xmlText } from "../util.js";
+import { counted as many, elements, firstElement, firstTag, lineAt, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, joinSources, withSource } from "../ownership.js";
 // The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
 // matches only when it begins with what follows it, and that one match is kept.
@@ -294,7 +294,7 @@ export default {
     // none - but it counts the same things on its outermost suite, so the sentence is
     // written from there rather than from how many results happened to be read.
     if (!counted.length) {
-      const root = s.match(/<testsuite\b([^>]*)>/);
+      const root = firstTag(s, /<testsuite\b([^>]*)>/);
       const a = root ? xmlAttributes(root[1]) : {};
       for (const kind of ["failures", "errors"]) {
         const n = Number(a[kind] ?? 0);

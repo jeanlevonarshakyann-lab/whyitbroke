@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, firstTag, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // Biome heads each finding with the location and the rule, then says what is wrong on
 // the line under it, then draws the source and offers fixes:
@@ -186,7 +186,7 @@ function reported(s, placed = false) {
     }
   }
 
-  for (const doc of JUNIT_SUITES.test(s) ? elements(s, JUNIT_DOC_RE, JUNIT_DOC) : []) {
+  for (const doc of firstTag(s, JUNIT_SUITES) ? elements(s, JUNIT_DOC_RE, JUNIT_DOC) : []) {
     for (const suite of elements(doc[1], JUNIT_SUITE_RE, JUNIT_SUITE)) {
       const file = xmlAttributes(suite[1]).name;
       for (const test of elements(suite[2], JUNIT_CASE_RE, JUNIT_CASE)) {
