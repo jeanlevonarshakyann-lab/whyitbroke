@@ -161,6 +161,22 @@ test("unterminated XML literals are masked in linear time", () => {
   assert.ok(elapsed < 1000, `xmlStructure took ${elapsed}ms for ${hostile.length} bytes`);
 });
 
+test("a `>` inside a tag's quoted value is masked, and only there, in linear time", () => {
+  assert.equal(xmlStructure(`<a x="1>2" y = '3>4' z="5"/>b > c</a>`), `<a x="1 2" y = '3 4' z="5"/>b > c</a>`);
+  // Text that holds a quote and a `>` is not a tag, and neither is a tag XML would not read.
+  for (const text of [`if (a = "b" > c) "d"`, `x="a>b"`, `<a>b="c>d"</a>`, `<a x="1>2" <b>`, `<a x="1<2>3">`, `< a x="1>2">`]) {
+    assert.equal(xmlStructure(text), text, text);
+  }
+  for (const hostile of [`x="a>b" `.repeat(100_000), `<a${` x="a>b"`.repeat(100_000)} !`, `<a x="a>`.repeat(100_000), `="> `.repeat(100_000),
+    `<a${` x="a>b"`.repeat(100_000)}>`]) {
+    const started = Date.now();
+    const structure = xmlStructure(hostile);
+    const elapsed = Date.now() - started;
+    assert.equal(structure.length, hostile.length);
+    assert.ok(elapsed < 1000, `xmlStructure took ${elapsed}ms for ${hostile.length} bytes of ${hostile.slice(0, 12)}`);
+  }
+});
+
 test("a Node error cannot borrow a later retry's frame", () => {
   const result = analyse("Error: attempt 1 failed\nretry 2 begins\n    at nextAttempt (/tmp/retry-2.js:99:1)\n");
   assert.ok(!result?.failures?.some((f) => f.file === "/tmp/retry-2.js" && /attempt 1/.test(f.message)),

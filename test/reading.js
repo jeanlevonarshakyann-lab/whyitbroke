@@ -776,5 +776,57 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL file urls\n       ${e.message}`); fail++; }
 
+// A tag is read as XML writes it. XML allows space on either side of an attribute's `=`,
+// and a `>` inside a quoted value is that value's text: `message="expected a => b"` is one
+// attribute. The attributes of a tag were read only as `name="value"`, and a tag ended at its
+// first `>`, so a report written either way lost the names of its tests, or the tests.
+// Every XML report here is read again in each spelling, and reads as it did.
+//
+// A root that names its tool - `<testsuites name="Biome">` - is left with its `=` as that
+// tool writes it: it is how the report is known for that tool's.
+//
+// `unread` is what does not hold yet, by report and spelling: these readers find their own
+// documents and tags in the log as it was written, where a tag still ends at its first `>`
+// or an attribute is still `name="value"`. Each is held to still being unread, so a reader
+// that learns a spelling has to come off the list.
+try {
+  const read = (text) => { const report = analyse(text); return report && [report.tool, report.failures.map((f) => [f.file, f.line, f.title, f.message])]; };
+  const tag = /<[A-Za-z_][\w:.-]*(?:[^\S\n]+[\w:.-]+="[^"<>]*")+[^\S\n]*\/?>/g;
+  const every = (respell) => (text) => text.replace(tag, respell);
+  const inner = (respell) => every((t) => (/^<(?:testsuites?|TestRun)\b/.test(t) ? t : respell(t)));
+  const spellings = [
+    ["space around `=`", inner((t) => t.replace(/([\w:.-]+)="/g, '$1 = "'))],
+    ["a line break after `=`", inner((t) => t.replace(/([\w:.-]+)="/, '$1=\n"'))],
+    ["`>` for `&gt;` in a value", every((t) => t.replaceAll("&gt;", ">"))],
+    ["a first attribute holding `>`", every((t) => t.replace(/^(<[\w:.-]+)/, '$1 note="a => b"'))],
+    ["a last attribute holding `>`", every((t) => t.replace(/[^\S\n]*\/?>$/, (end) => ` note="a => b"${end}`))],
+  ];
+  const unread = {
+    "space around `=`": /^nodetest_reporter_/,
+    "a line break after `=`": /^(?:denotest_junit_multiline|denotest_reporter_|mocha_xunit|nodetest_reporter_)/,
+    "a first attribute holding `>`": /^(?:biome_lint_junit|bun_junit|denotest_junit_multiline|denotest_reporter_|dotnettest_trx|mocha_xunit|nodetest_reporter_|oxlint_checkstyle|ruff_junit|vitest_junit)/,
+  };
+  const reports = readdirSync(join(here, "fixtures")).filter((name) => /<(?:testsuites?|checkstyle|TestRun)\b/.test(fx(name)));
+  assert.ok(reports.length >= 20, `only ${reports.length} XML reports among the fixtures`);
+  const held = new Map(spellings.map(([spelling]) => [spelling, 0]));
+  for (const name of reports) {
+    const text = fx(name), expected = read(text);
+    assert.ok(expected?.[1].length, `${name} reads as nothing`);
+    for (const [spelling, respell] of spellings) {
+      const respelled = respell(text);
+      if (respelled === text) continue;
+      if (unread[spelling]?.test(name)) {
+        assert.notDeepEqual(read(respelled), expected, `${name} reads ${spelling} now: take it off the list`);
+        continue;
+      }
+      assert.deepEqual(read(respelled), expected, `${name} with ${spelling}`);
+      held.set(spelling, held.get(spelling) + 1);
+    }
+  }
+  for (const [spelling, count] of held) assert.ok(count, `no report was read with ${spelling}`);
+  console.log("  ok   a tag is read as XML writes it, in every XML report");
+  pass++;
+} catch (e) { console.log(`  FAIL xml tags\n       ${e.message.split("\n").slice(0, 3).join("\n       ")}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

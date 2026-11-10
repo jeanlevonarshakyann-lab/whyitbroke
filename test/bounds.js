@@ -700,11 +700,11 @@ test("each replacement matches exactly what its pattern matched", () => {
     () => pick(["", "x\n", "x\r", "x" + gap()]) + pick(["panic: ", "panic:", "xpanic: "]) + pick(["", "a", "[recovered]"]) + gap() + pick(["", "\ny"]));
   agrees("xml attributes", attributes((tag) => {
     const found = {};
-    for (const match of tag.matchAll(/([\w:.-]+)=(?:"([^"]*)"|'([^']*)')/g)) found[match[1]] = xmlText(match[2] ?? match[3]);
+    for (const match of tag.matchAll(/([\w:.-]+)[ \t\r\n]*=[ \t\r\n]*(?:"([^"]*)"|'([^']*)')/g)) found[match[1]] = xmlText(match[2] ?? match[3]);
     return found;
   }), attributes(xmlAttributes),
-  () => pick(["<file", "<testcase", "<a", ""]) + gap() + pick(["name", "a:b", "x.y-z", "", "aaaa", "1", "\u00e9"]) + pick(["=", "", "=="]) +
-      pick(['"v"', "'v'", '"a b"', "'it''s'", "v", '""', '"x', "&amp;"]) + gap() + pick(["name", "classname", "a", "-", ":"]) + pick(["=", ""]) +
+  () => pick(["<file", "<testcase", "<a", ""]) + gap() + pick(["name", "a:b", "x.y-z", "", "aaaa", "1", "\u00e9"]) + pick(["=", "", "==", " = ", "=\n", "\t=", " ", "\u00a0="]) +
+      pick(['"v"', "'v'", '"a b"', "'it''s'", "v", '""', '"x', "&amp;"]) + gap() + pick(["name", "classname", "a", "-", ":"]) + pick(["=", "", " = ", "= "]) +
       pick(['"1"', "'2'", "3", ""]) + pick([">", "/>", ""]));
 });
 

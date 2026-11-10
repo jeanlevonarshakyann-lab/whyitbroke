@@ -267,6 +267,65 @@ export function xmlStructure(text) {
     out.push(text.slice(start, end).replace(/[^\r\n]/g, " "));
     at = end;
   }
+  return quotedTagEndsMasked(out.join(""));
+}
+
+// A quoted attribute value that holds a `>`: what the first `>` of a tag otherwise ends.
+const QUOTED_TAG_END = /=[ \t\r\n]*(?:"[^"<>]*>[^"<]*"|'[^'<>]*>[^'<]*')/g;
+// A start tag, piece by piece, as XML writes one: its name, then attributes - a name, `=`
+// with any space around it, and a value in either quote, which holds no `<` - then its end.
+const TAG_NAME = /<[A-Za-z_:][\w:.-]*/y;
+const TAG_ATTRIBUTE = /[ \t\r\n]+[^\s=<>"'/]+[ \t\r\n]*=[ \t\r\n]*(?:"([^"<]*)"|'([^'<]*)')/y;
+const TAG_END = /[ \t\r\n]*\/?>/y;
+
+/** `text` with each `>` inside a quoted attribute value of a start tag made inert, without
+ *  moving any offsets.
+ *
+ *  `message="expected a => b"` is one attribute, and the `>` in it is its text. Every reader
+ *  here ends a tag at its first `>`, so such a tag ended inside its own value: the rest of
+ *  the value was read as the element's body, and its name and file - the attributes after
+ *  it - were not read at all. A Maven report whose failures said `=>` came back as no
+ *  report.
+ *
+ *  Only a well-formed start tag is touched, read from its `<` to its end, so text that
+ *  merely holds a quote and a `>` is left as it is. Each `<` is asked once whether it
+ *  starts one, however many values after it hold a `>`. */
+function quotedTagEndsMasked(text) {
+  const spans = [];
+  let open = -1, nextOpen = text.indexOf("<"), asked = -1, tagEnd = -1;
+  QUOTED_TAG_END.lastIndex = 0;
+  for (let hit; (hit = QUOTED_TAG_END.exec(text));) {
+    while (nextOpen !== -1 && nextOpen < hit.index) { open = nextOpen; nextOpen = text.indexOf("<", nextOpen + 1); }
+    if (open !== -1 && open !== asked) {
+      asked = open; tagEnd = -1;
+      TAG_NAME.lastIndex = open;
+      if (TAG_NAME.test(text)) {
+        const found = [];
+        let at = TAG_NAME.lastIndex;
+        for (;;) {
+          TAG_ATTRIBUTE.lastIndex = at;
+          const attribute = TAG_ATTRIBUTE.exec(text);
+          if (!attribute) break;
+          at = TAG_ATTRIBUTE.lastIndex;
+          const value = attribute[1] ?? attribute[2];
+          if (value.includes(">")) found.push([at - 1 - value.length, at - 1]);
+        }
+        TAG_END.lastIndex = at;
+        if (TAG_END.test(text)) { tagEnd = TAG_END.lastIndex; append(spans, found); }
+      }
+    }
+    // Past the tag when this value was one of its own; otherwise from just after the `=`,
+    // since what was taken for a value may hold the start of a real one.
+    QUOTED_TAG_END.lastIndex = hit.index < tagEnd ? tagEnd : hit.index + 1;
+  }
+  if (!spans.length) return text;
+  const out = [];
+  let at = 0;
+  for (const [from, to] of spans) {
+    out.push(text.slice(at, from), text.slice(from, to).replaceAll(">", " "));
+    at = to;
+  }
+  out.push(text.slice(at));
   return out.join("");
 }
 
@@ -555,7 +614,11 @@ export function xmlAttributes(tag) {
   // name characters with no `=` after it was otherwise tried from each of its characters,
   // and from each one backtracked through the rest of the run: one malformed tag of
   // eighty thousand characters took half a minute.
-  for (const match of tag.matchAll(/(?<![\w:.-])(?=([\w:.-]+))\1=(?:"([^"]*)"|'([^']*)')/g)) {
+  //
+  // XML allows space on either side of the `=`, and a report indented one attribute to a
+  // line can break there. `classname = "shop.CartTest"` was no attribute, and the test it
+  // named was skipped.
+  for (const match of tag.matchAll(/(?<![\w:.-])(?=([\w:.-]+))\1[ \t\r\n]*=[ \t\r\n]*(?:"([^"]*)"|'([^']*)')/g)) {
     attributes[match[1]] = xmlText(match[2] ?? match[3]);
   }
   return attributes;
