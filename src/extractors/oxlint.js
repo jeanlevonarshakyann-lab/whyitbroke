@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, RULE_NAME, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { locatedPrefix } from "../location.js";
 // oxlint prints one run ten ways, and it chooses among them itself: a terminal gets a
@@ -15,14 +15,17 @@ import { locatedPrefix } from "../location.js";
 //
 // A finding with no rule - a file that does not parse - is read only where the format
 // names oxlint some other way, since the shape alone is also eslint's.
-const RULE_RE = /^([\w-]+)\(([\w/-]+)\)$/;
-const RULE = String.raw`([\w-]+)\(([\w/-]+)\)`;
+//
+// A plugin is named as its package is: `@pandacss(no-physical-properties)`. Every format
+// dropped the finding, or its rule, for the `@`.
+const RULE = String.raw`(${RULE_NAME})\(([\w/-]+)\)`;
+const RULE_RE = new RegExp(`^${RULE}$`);
 
 // -f agent: `lintme.js:1:5: error eslint(no-unused-vars): Variable 'unused' is ... help: ...`
 // The message is read to its last character that is not a space, at once - lazily, it stopped at
 // each space of a long stretch and read the rest of it again - and a message that is all spaces is
 // the one space it always was.
-export const AGENT_DETAIL_RE = /^[^\S\n]+(error|warning)[^\S\n]+(?:([\w-]+)\()?([\w-]+)\)?:[^\S\n]*(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$))[^\S\n]*$/;
+export const AGENT_DETAIL_RE = new RegExp(String.raw`^[^\S\n]+(error|warning)[^\S\n]+(?:(${RULE_NAME})\()?([\w-]+)\)?:[^\S\n]*(\S(?:.*\S)?|[^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*$))[^\S\n]*$`);
 const agentFinding = (line) => locatedPrefix(line, (rest) => {
   const match = rest.match(AGENT_DETAIL_RE);
   return match ? {
@@ -76,8 +79,8 @@ function reportsBelow(lines) {
 // starts. Otherwise the pattern divided a line of spaces every way between the two and read the rest
 // of it from each: 4,000 spaces took twenty seconds. When the line is nothing but spaces before the
 // bracket, the message is the last of them that is not a line separator, as it was.
-export const UNIX_DETAIL_RE = /^(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*[^\S\n]\[))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*[^\S\n]\[)|(?![^\S\n]).+?(?<![^\S\n]))[^\S\n]+\[(Error|Warning)\/([\w-]+)\(([\w/-]+)\)\][^\S\n]*$/;
-const UNIX_TAIL_RE = /\[(?:Error|Warning)\/[\w-]+\([\w/-]+\)\][^\S\n]*$/;
+export const UNIX_DETAIL_RE = new RegExp(String.raw`^(?:[^\S\n]+(?![^\S\n])|[^\S\n]+(?=[^\S\n\r\u2028\u2029][\r\u2028\u2029]*[^\S\n]\[))([^\S\n\r\u2028\u2029](?=[\r\u2028\u2029]*[^\S\n]\[)|(?![^\S\n]).+?(?<![^\S\n]))[^\S\n]+\[(Error|Warning)\/${RULE}\][^\S\n]*$`);
+const UNIX_TAIL_RE = new RegExp(String.raw`\[(?:Error|Warning)\/${RULE_NAME}\([\w/-]+\)\][^\S\n]*$`);
 const unixFinding = (line) => UNIX_TAIL_RE.test(line) && locatedPrefix(line, (rest) => {
   const match = rest.match(UNIX_DETAIL_RE);
   return match ? {
