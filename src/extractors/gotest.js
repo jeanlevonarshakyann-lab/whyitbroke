@@ -43,8 +43,19 @@ const LOC_RE = /^[^\S\n]+([\w./\\-]+\.go):(\d+):[^\S\n]*(.*)$/;
 // while `go test` was unaffected, because the testing package prints a bare basename and
 // the runtime writes its frames with forward slashes even there. Captured on
 // windows-latest rather than assumed; go_windows_build_fail is that output.
-const BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?([\w./\\-]+\.go):(\d+):(\d+): (.+)$/;
-const BUILD_ANY = /^(?:vet(?:\.exe)?: )?(?:\.[\\/])?[\w./\\-]+\.go:\d+:\d+: /m;   // same, but scans a whole blob
+//
+// Nor is a path only word characters: go names a file outside the directory it ran in by
+// its whole path, so a checkout under `My Project` puts its space in the path, and with -L
+// the compiler writes every path whole, `C:\work\pkg\a.go` - and both were a build error
+// read as nothing. A file's own name may hold a space too, `./my file.go`. A path that says
+// where it starts - a drive, a separator, `./`, `../` - is anything up to its `.go:line:col: `
+// but a colon, past a drive's, so a timestamp or a prefix ending in one is never part of it.
+// Any other is read without spaces, as before: read with them, a runner's prefix in front of
+// the path, `pod/api-7d9 ./main.go`, was taken as the start of it and never taken off. Only a
+// file's own name in a package below could have one there - an import path has none - and it
+// reads exactly as a prefix does.
+const BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?\.go|[\w./\\-]+\.go):(\d+):(\d+): (.+)$/;
+const BUILD_ANY = /^(?:vet(?:\.exe)?: )?(?:\.[\\/])?(?:(?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?|[\w./\\-]+)\.go:\d+:\d+: /m;   // same, but scans a whole blob
 // golangci-lint prints its findings in exactly go's shape and names the linter in
 // brackets at the end. Go writes no such tag - its messages end "in variable
 // declaration", never "(errcheck)" - so a line carrying one belongs to golangci-lint and
@@ -119,12 +130,67 @@ export function goPackage(desc) {
   return binary ? binary.replace(/\.test$/, "") : named.split(/\s/)[0];
 }
 
+// A frame's verb, and the test it names.
+const FRAME_VERB_RE = /^=== (RUN|PAUSE|CONT|NAME)[^\S\n]+(\S+)[^\S\n]*$/;
+
+/** Which lines of a verbose log were written while one of its tests was running - between
+ *  the test's `=== RUN` and the first result after it - or null where that says nothing. A
+ *  test binary ends, and its package closes, only once every test in it is done, so a closing
+ *  line written meanwhile was another run's: another `go test`, writing into the same pipe.
+ *
+ *  That holds for one binary's frames. A binary starts a test at the top level only when none
+ *  of its others is running unpaused, and its closing line ends it, tests it never reported
+ *  and all. A top-level `=== RUN` while another test runs is a second binary's, and a closing
+ *  line inside one binary's test can then be the other's own. */
+function whileRunning(lines, packageOf) {
+  const started = new Map(), finished = new Map(), running = new Set();
+  const note = (seen, name, k) => { if (!seen.has(name)) seen.set(name, []); seen.get(name).push(k); };
+  for (let k = 0; k < lines.length; k++) {
+    if (packageOf?.(k)) continue;
+    if (PACKAGE_TRAILER_RE.test(lines[k])) { running.clear(); continue; }
+    const frame = lines[k].match(FRAME_VERB_RE);
+    if (frame) {
+      const [, verb, name] = frame;
+      if (verb === "RUN") note(started, name, k);
+      if (name.includes("/")) continue;
+      if (verb === "RUN" && running.size) return null;
+      if (verb === "RUN" || verb === "CONT") running.add(name);
+      else if (verb === "PAUSE") running.delete(name);
+      continue;
+    }
+    const result = lines[k].match(RESULT_RE);
+    if (result) { note(finished, result[2], k); running.delete(result[2]); }
+  }
+  if (!started.size) return null;
+  const opened = new Int32Array(lines.length + 1);
+  for (const [name, runs] of started) {
+    const results = finished.get(name) ?? [];
+    let next = 0;
+    runs.forEach((run, n) => {
+      while (next < results.length && results[next] < run) next++;
+      // A test that never reported - its binary died first - ran until nothing knows when.
+      if (next < results.length && results[next] < (runs[n + 1] ?? lines.length)) { opened[run]++; opened[results[next]]--; }
+    });
+  }
+  const meanwhile = new Uint8Array(lines.length);
+  for (let k = 0, depth = 0; k < lines.length; k++) { depth += opened[k]; meanwhile[k] = depth > 0 ? 1 : 0; }
+  return meanwhile;
+}
+
 /** Each failure under the package it was reported in - see SCOPE in ownership.js. A test's
- *  package is named by the first closing line at or after it, a compile error's by the
- *  last header above it - unless the caller knows a line's package outright, as `go test
- *  -json` says on every event. A stream of events can carry plain lines too, and those
- *  are named by their own closing lines and headers, never by an event's. */
-function packaged(failures, lines, packageOf) {
+ *  package is named by the first closing line after the last line it was read from, a
+ *  compile error's by the last header above it - unless the caller knows a line's package
+ *  outright, as `go test -json` says on every event. A stream of events can carry plain
+ *  lines too, and those are named by their own closing lines and headers, never by an
+ *  event's.
+ *
+ *  A package closes after every line its tests print. A test was named by the first closing
+ *  line after the FIRST line it printed, and a parallel test pauses and reports once the rest
+ *  of its package is done: with two modules tested into one pipe, the other's closing line
+ *  came in between, and the test was reported in a package it is not in. Nor is a test read
+ *  from a verbose run's own frames - those in `framed` - named by a closing line written
+ *  while one of that run's tests was running (`meanwhile`, from whileRunning). */
+function packaged(failures, lines, packageOf, framed = new Set(), meanwhile = null) {
   const closing = new Array(lines.length + 1).fill(null), heading = new Array(lines.length).fill(null);
   for (let k = lines.length - 1; k >= 0; k--) {
     closing[k] = (!packageOf?.(k) && lines[k].match(PACKAGE_TRAILER_RE)?.[1]) || closing[k + 1];
@@ -133,12 +199,22 @@ function packaged(failures, lines, packageOf) {
     const header = !packageOf?.(k) && lines[k].match(PACKAGE_HEADER_RE)?.[1];
     heading[k] = last = header ? goPackage(header) : last;
   }
+  let own = closing;
+  if (meanwhile && framed.size) {
+    own = new Array(lines.length + 1).fill(null);
+    for (let k = lines.length - 1; k >= 0; k--) {
+      own[k] = (!meanwhile[k] && !packageOf?.(k) && lines[k].match(PACKAGE_TRAILER_RE)?.[1]) || own[k + 1];
+    }
+  }
   return failures.map((failure) => {
-    const at = sourceRange(failure)?.start;
-    if (at === undefined) return failure;
-    const known = packageOf?.(at);
+    const range = sourceRange(failure);
+    if (!range) return failure;
+    const known = packageOf?.(range.start);
     if (known) return withScope(failure, known);
-    return withScope(failure, failure.title === "compile error" ? heading[at] : closing[at]);
+    if (failure.title === "compile error") return withScope(failure, heading[range.start]);
+    let last = range.end - 1;
+    for (const place of range.also ?? []) last = Math.max(last, place.end - 1);
+    return withScope(failure, (framed.has(failure) && own[last]) || closing[last]);
   });
 }
 
@@ -178,8 +254,8 @@ function details(block, at) {
 /** In a verbose log, the lines each failing test printed, keyed by the index of its
  *  "--- FAIL" line. Resolved only once the package is read: a panic's dump comes after
  *  the test's result line, and still belongs to it. A plain log has no frames, and gets
- *  an empty map. */
-function verboseBlocks(lines, packageOf) {
+ *  an empty map. `meanwhile` is from whileRunning. */
+function verboseBlocks(lines, packageOf, meanwhile) {
   const out = new Map();
   if (!lines.some((l) => FRAME_RE.test(l))) return out;
   // Where each line's package is known, each package frames its own tests: a TestAdd in
@@ -200,7 +276,11 @@ function verboseBlocks(lines, packageOf) {
     if (f) { st.current = f[1]; continue; }
     const r = l.match(RESULT_RE);
     if (r) { if (r[1] === "FAIL") pending.push([i, r[2], st.seg]); continue; }
-    if (TRAILER_RE.test(l)) { st.current = null; st.seg = new Map(); continue; }
+    // A run's closing lines end its frames - and another run's, written while one of this
+    // run's tests was still running, end nothing of this one's: a parallel test that went on
+    // printing after the other module's closing line was read with none of its output, and
+    // without any, not read at all.
+    if (TRAILER_RE.test(l)) { if (!meanwhile?.[i]) { st.current = null; st.seg = new Map(); } continue; }
     if (st.current == null) continue;
     // Each line with where it was: parallel tests interleave, so a test's lines are
     // not one stretch of the log.
@@ -215,23 +295,34 @@ function verboseBlocks(lines, packageOf) {
 // Go's own runtime/testing frames are never your bug
 const STDLIB = /\/(libexec\/)?src\/(runtime|testing|internal)\//;
 
-/** A panic with no test around it: the goroutine dump carries the location, and the
- *  first frame that is not the runtime is the one in your code. */
-function standalonePanic(lines) {
+/** Each panic with no test around it: the goroutine dump carries the location, and the
+ *  first frame that is not the runtime is the one in your code. A panic that one of `read`
+ *  was read from is that test's own.
+ *
+ *  `go run` panics once, but a log can hold more than one program, and a test run beside
+ *  them: the first panic was the only one read, and none was where a test had failed too. */
+function standalonePanics(lines, read) {
+  const taken = new Uint8Array(lines.length);
+  for (const failure of read) {
+    const range = sourceRange(failure);
+    if (range) for (const { start, end } of range.also ? [range, ...range.also] : [range]) taken.fill(1, start, end);
+  }
+  const panics = [];
   for (let i = 0; i < lines.length; i++) {
-    const message = panicMessage(lines[i]);
+    const message = taken[i] ? null : panicMessage(lines[i]);
     if (message === null) continue;
     let file, line, frame = -1;
-    for (let k = i + 1; k < lines.length; k++) {
+    // ...down to the next panic, whose frames are its own.
+    for (let k = i + 1; k < lines.length && panicMessage(lines[k]) === null; k++) {
       const fm = lines[k].match(/^\t(.+?):(\d+)(?:[^\S\n]|$)/);
       if (fm && !STDLIB.test(fm[1])) { file = fm[1]; line = +fm[2]; frame = k; break; }
     }
     // The panic, and the frame in your code that the dump names.
     const panic = withSource({ file, line, title: "panic", label: "panic", category: "runtime",
       severity: "error", message }, i, i + 1);
-    return frame >= 0 ? alsoFrom(panic, frame, frame + 1) : panic;
+    panics.push(frame >= 0 ? alsoFrom(panic, frame, frame + 1) : panic);
   }
-  return null;
+  return panics;
 }
 
 export default {
@@ -287,7 +378,8 @@ export default {
       for (; j < lines.length && !/^={10,}$/.test(lines[j]); j++) {
         const op = lines[j].match(/^((?:Previous )?(?:read|write)) at 0x[0-9a-f]+ by (goroutine \d+|main goroutine)/i);
         if (op) { what.push(`${op[1]} by ${op[2]}`); continue; }
-        const at = lines[j].match(/^[^\S\n]+(\S+):(\d+) \+0x[0-9a-f]+[^\S\n]*$/);
+        // A frame's path can hold spaces: it ends at the last `:line +0x...` on the line.
+        const at = lines[j].match(/^[^\S\n]+(\S(?:[^\n]*?\S)?):(\d+) \+0x[0-9a-f]+[^\S\n]*$/);
         if (at && !file && !STDLIB.test(at[1])) { file = at[1]; line = +at[2]; }
       }
       if (!what.length) continue;
@@ -298,7 +390,9 @@ export default {
     }
 
     // --- test failures ---
-    const attributed = verboseBlocks(lines, packageOf);
+    const meanwhile = whileRunning(lines, packageOf);
+    const attributed = verboseBlocks(lines, packageOf, meanwhile);
+    const framed = new Set();
     for (let i = 0; i < lines.length; i++) {
       const m = lines[i].match(FAIL_RE);
       if (!m || m[1] !== "FAIL") continue;
@@ -309,11 +403,14 @@ export default {
       // log is laid out, but never into the next test's frame.
       const own = attributed.get(i);
       let found = own ? details(own.block, own.at) : { msg: [], used: [] };
+      const fromFrames = found.msg.length > 0 || !!found.file;
       if (!found.msg.length && !found.file) {
         const ahead = [], at = [];
         // ...and never into another package's lines, which `go test -json` interleaves.
         const mine = (j) => !packageOf || packageOf(j) === packageOf(i);
-        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]) && mine(j); j++) { ahead.push(lines[j]); at.push(j); }
+        // ...nor past the package's closing lines, after which whatever ran next printed its own:
+        // a later program's panic was this test's, frame and all.
+        for (let j = i + 1; j < lines.length && !FAIL_RE.test(lines[j]) && !FRAME_RE.test(lines[j]) && !TRAILER_RE.test(lines[j]) && mine(j); j++) { ahead.push(lines[j]); at.push(j); }
         found = details(ahead, at);
       }
       const { file, line, msg, used } = found;
@@ -323,17 +420,18 @@ export default {
       let failure = withSource({ file, line, title: name, subject: name, category: "test", severity: "error", message: msg.join("\n") }, i, i + 1);
       for (const at of used) failure = alsoFrom(failure, at, at + 1);
       failures.push(failure);
+      if (fromFrames) framed.add(failure);
     }
 
-    const distinct = uniqueFailures(packaged(failures, lines, packageOf));
+    const distinct = uniqueFailures(packaged(failures, lines, packageOf, framed, meanwhile));
     failures.length = 0;
     append(failures, distinct);
     const builds = failures.filter((f) => f.title === "compile error").length;
+    // Every panic no test was read from, whatever else the log holds.
+    const panics = PANIC_LINE.test(s) ? standalonePanics(lines, failures) : [];
+    const panicked = panics.length === 1 ? "a panic" : `${panics.length} panics`;
 
-    if (!failures.length) {
-      const panic = standalonePanic(lines);
-      if (panic) return { tool: "go", summary: "panic", failures: [panic] };
-    }
+    if (!failures.length && panics.length) return { tool: "go", summary: panics.length === 1 ? "panic" : panicked, failures: panics };
 
     // count what we actually report: a parent of subtests prints its own
     // "--- FAIL" line but carries no failure of its own
@@ -345,9 +443,8 @@ export default {
       // panic in the same stream, and golangci-lint prints go's own diagnostics above
       // its tally. Returning early dropped the panic without a word - it is the later and
       // usually the more interesting of the two, so it is kept rather than lost.
-      const panic = standalonePanic(lines);
-      if (panic) failures.push(panic);
-      const andPanic = panic ? " and a panic" : "";
+      append(failures, panics);
+      const andPanic = panics.length ? ` and ${panicked}` : "";
       // Vet's own findings are written exactly like a compile error, so a piped log gives
       // no way to tell them apart. The prefix is the one time it does say.
       return vetted
@@ -364,10 +461,12 @@ export default {
       }, refused.at, refused.at + 1));
       return { tool: "go", summary: "the command was refused", failures };
     }
+    append(failures, panics);
     const bits = [];
     if (builds) bits.push(`${builds} ${vetted ? "vet" : "compile"} error${builds > 1 ? "s" : ""}`);
     if (tests) bits.push(`${tests} test${tests > 1 ? "s" : ""} failed`);
     if (races) bits.push(`${races} data race${races > 1 ? "s" : ""}`);
+    if (panics.length) bits.push(panicked);
     const summary = bits.length ? bits.join(", ") : undefined;
     if (!failures.length) return null;
     return { tool: "go test", summary, failures };

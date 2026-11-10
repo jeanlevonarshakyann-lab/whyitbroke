@@ -40,8 +40,11 @@ import { withSource } from "../ownership.js";
 // only when it names the file the record already names, so a message that merely
 // quotes some other file's line cannot move a finding to it.
 // Read to its last character that is not a space, at once: read lazily, it stopped at each space of
-// a long stretch and read the rest of the stretch again from there.
-export const EMBEDDED = /^(?:\.[\\/])?(\S+\.go):(\d+):(\d+):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/m;
+// a long stretch and read the rest of the stretch again from there. A path that says where it
+// starts - a drive, a separator, `./`, `../` - is read to its `.go:line:col:`, spaces and all:
+// under a checkout named `My Project`, the place fell back to golangci-lint's own, often line 1.
+// Any other is read without spaces, as in go's own build errors - see BUILD_RE in gotest.js.
+export const EMBEDDED = /^(?:\.[\\/])?((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?\.go|\S+\.go):(\d+):(\d+):[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/m;
 const sameFile = (a, b) => {
   const x = String(a ?? "").replace(/\\/g, "/"), y = String(b ?? "").replace(/\\/g, "/");
   return !!x && !!y && (x === y || x.endsWith("/" + y) || y.endsWith("/" + x));

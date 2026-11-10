@@ -850,6 +850,28 @@ test("a capture of output with no line end, arriving a few bytes at a time", () 
     `${ms(unbroken)}ms for 4MiB with no line end, ${ms(lines)}ms for 4MiB of lines - x${(unbroken / lines).toFixed(1)}`);
 });
 
+test("a capture of one-line documents past the cap, none of them a report", () => {
+  // A line that opens a JSON document is read on past the scan when what the scan holds of it
+  // reads like a diagnostic - a report on one line, rubocop's or jest's. Whether it does is
+  // read once, from that part: a document that is no report is skipped from there, and costs
+  // no more than ordinary lines do.
+  const MiB = 1024 * 1024;
+  const time = (text) => {
+    const buf = Buffer.from(text);
+    const once = () => {
+      const at = performance.now();
+      const c = createCapture(MiB);
+      for (let i = 0; i < buf.length; i += 65536) c.push(buf.subarray(i, i + 65536));
+      c.finish();
+      return performance.now() - at;
+    };
+    return Math.min(once(), once(), once());
+  };
+  const documents = time(('{"stats":"' + "a".repeat(256 * 1024) + '"}\n').repeat(32));
+  const lines = time("info: compiled module 0000042\n".repeat(8 * MiB / 30));
+  assert.ok(documents < lines, `${ms(documents)}ms for 8MiB of documents, ${ms(lines)}ms for 8MiB of lines`);
+});
+
 test("a capture of thousands of lines that look like diagnostics holds what it keeps", () => {
   // Every line that looked like a diagnostic was copied as it arrived, with a record, an array
   // slot and an index entry around it, and charged only its own bytes: 2.5MiB of five-byte FAIL
@@ -1068,7 +1090,7 @@ const PINNED = [
   ["yamllint file", /^(\S.*?)[^\S\n]*$/, YAMLLINT_FILE, () => gap() + words() + gap() + words() + gap()],
   ["deno gutter", /^[^\S\n]*\d*[^\S\n]*\|/, DENO_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["generic annotation", /^[^\S\n]*\d*[^\S\n]*\|/, ANNOTATION, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
-  ["swift gutter", /^[^\S\n]*\d*[^\S\n]*\|/, SWIFT_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
+  ["swift gutter", /^[^\S\n]*(?:\d+[^\S\n]+)?\|/, SWIFT_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["swift group", /[^\S\n]+\[#([\w-]+)\]$/, GROUP_RE, () => words() + gap() + pick(["[#Group]", "[#a-b]", "[#]", "[#x] y"]) + pick(["", " "])],
   ["webpack gutter", /^[^\S\n]*\d*[^\S\n]*\|/, WEBPACK_GUTTER, () => gap() + pick(["", "12", "1 2"]) + gap() + pick(["|", "", "x|"]) + words()],
   ["vitest separator", /^[\u23af\u2500-\u257f\s]*(?:\[\d+\/\d+\])?[\u23af\u2500-\u257f\s]*$/, SEP_RE,
@@ -1132,8 +1154,8 @@ const SHAPED = [
     ["  3:14  error  Expected a conditional expression  eslint(no-cond-assign)", "  1:7  error  Use logical properties  @pandacss(no-physical-properties)"]],
   ["oxlint DRAWN_HEAD_RE", /^[^\S\n]*(x|!|\u00d7|\u26a0)[^\S\n]+(?:(@?[\w.-]+(?:\/[\w.-]+)*)\(([\w/-]+)\):[^\S\n]+)?(\S.*?)[^\S\n]*$/, OXLINT_DRAWN_HEAD_RE,
     ["  x eslint(no-cond-assign): Expected a conditional", "\u00d7 eslint(no-debugger): `debugger` statement  ", "! msg", "  ! @pandacss(no-physical-properties): Use logical"]],
-  ["babel HEAD_RE", /^(\w*(?:Error|Exception)):[^\S\n]*(\S[^:]*?):[^\S\n]*(.+?)[^\S\n]*\((\d+):(\d+)\)[^\S\n]*$/, BABEL_HEAD_RE,
-    ["SyntaxError: /app/src/a.js: Unexpected token (3:14)", "SyntaxError: a.js:   Missing semicolon.   (1:2)  "]],
+  ["babel HEAD_RE", /^(\w*(?:Error|Exception)):[^\S\n]*(\S(?:[^:\n]|:(?![^\S\n]))*?):(?=[^\S\n])[^\S\n]*(.+?)[^\S\n]*\((\d+):(\d+)\)[^\S\n]*$/, BABEL_HEAD_RE,
+    ["SyntaxError: /app/src/a.js: Unexpected token (3:14)", "SyntaxError: a.js:   Missing semicolon.   (1:2)  ", "SyntaxError: C:\\work\\bad.js: Unexpected token (1:10)", "SyntaxError: /work/src/foo:bar.js: Unexpected token (1:10)"]],
   ["rubocop OFFENSE", /^(#[^\S\n])?(.+?):(\d+):(\d+):[^\S\n]+([CWEFRI]):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?([A-Z]\w*\/[A-Z]\w*):[^\S\n]+(.+?)[^\S\n]*$/, RUBOCOP_OFFENSE,
     ["app/a.rb:3:5: C: Style/StringLiterals: Prefer single-quoted strings.", "# a.rb:1:1: W: [Correctable] Lint/X: msg  "]],
   ["rubocop SIMPLE_ROW", /^([CWEFRI]):[^\S\n]*(\d+):[^\S\n]*(\d+):[^\S\n]+(?:\[[^\]]*\][^\S\n]+)?([A-Z]\w*\/[A-Z]\w*):[^\S\n]+(.+?)[^\S\n]*$/, RUBOCOP_SIMPLE_ROW,
@@ -1174,8 +1196,9 @@ const SHAPED = [
     ["  1:8   \u2716  Unknown property \"colr\"     property-no-unknown", "  4:6  \u26a0  Duplicate  declaration-block-no-duplicate-properties  ", "  1:8  \u2716  Expected indentation  @stylistic/indentation"]],
   ["markdownlint VIOLATION_RE", /^(\S.*?):(\d+)(?::(\d+))?[^\S\n]+(?:error[^\S\n]+)?(MD\d{3})\/([\w-]+(?:\/[\w-]+)*)[^\S\n]+(.+?)[^\S\n]*$/, MARKDOWNLINT_VIOLATION_RE,
     ["README.md:3 MD022/blanks-around-headings Headings should be surrounded by blank lines", "a.md:3:1 error MD009/no-trailing-spaces Trailing spaces [Expected: 0; Actual: 1]  "]],
-  ["gomod PARSE_LINE_RE", /^(\S*go\.mod):(\d+):[^\S\n]*(\S.*?)[^\S\n]*$/, GOMOD_PARSE_LINE_RE,
-    ["go.mod:3: unknown directive: foo", "/a/go.mod:10:   usage: require module/path v1.2.3  "]],
+  ["gomod PARSE_LINE_RE", /^((?:[A-Za-z]:[\\/]|[\\/]|\.\.?[\\/])[^:\n]*?go\.mod|\S*go\.mod):(\d+):[^\S\n]*(\S.*?)[^\S\n]*$/, GOMOD_PARSE_LINE_RE,
+    ["go.mod:3: unknown directive: foo", "/a/go.mod:10:   usage: require module/path v1.2.3  ", "/work/My Project/go.mod:3: unknown directive: foo",
+      "C:\\work\\My Project\\go.mod:3: unknown directive: foo", "pod/api-7d9 go.mod:3: unknown directive: foo"]],
   ["gomod AT_VERSION_RE", /^go:[^\S\n]+(\S+@\S+?):[^\S\n]*(\S.*?)[^\S\n]*$/, GOMOD_AT_VERSION_RE,
     ["go: example.com/x@v1.2.3: invalid version: unknown revision v1.2.3", "go: a@b:   reading  "]],
   ["prettier ERROR_RE", /^\[error\][^\S\n]+(\S.*?)[^\S\n]*$/, PRETTIER_ERROR_RE,
@@ -1192,14 +1215,14 @@ const SHAPED = [
     ["CMake Error: The source directory \"/x\" does not exist.", "CMake Warning:   y  "]],
   ["terraformfmt OLD_RE", /^---[^\S\n]+old\/(\S.*?)[^\S\n]*$/, TERRAFORMFMT_OLD_RE,
     ["--- old/main.tf", "--- old/a b.tf  "]],
-  ["golangci EMBEDDED", /^(?:\.[\\/])?(\S+\.go):(\d+):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/m, GOLANGCI_EMBEDDED,
-    ["a.go:3:5: undefined: x", "./b/c.go:1:2: msg  "]],
+  ["golangci EMBEDDED", /^(?:\.[\\/])?((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?\.go|\S+\.go):(\d+):(\d+):[^\S\n]+(\S.*?)[^\S\n]*$/m, GOLANGCI_EMBEDDED,
+    ["a.go:3:5: undefined: x", "./b/c.go:1:2: msg  ", "/work/my dir/c.go:1:2: undefined: y", "./my shop.go:1:2: undefined: y", "my dir/c.go:1:2: undefined: y"]],
   ["golangci TAB", /^(?:\.[\\/])?(\S+?\.go):(\d+):(\d+)[^\S\n]+([\w-]+)[^\S\n]{2,}(\S.*?)[^\S\n]*$/, GOLANGCI_TAB,
     ["a.go:3:5  errcheck  Error return value is not checked", "./a.go:1:1 unused   x  "]],
   ["gotest NO_MODULE_RE", /^pattern[^\S\n]+(\S+):[^\S\n]+(\S.*?\bmain module\b.*?)[^\S\n]*$/, GOTEST_NO_MODULE_RE,
     ["pattern ./...: directory prefix . does not contain main module or its selected dependencies", "pattern x: a main module b  "]],
-  ["pyresolve PO_INVALID", /^Invalid (\w+) file[^\S\n]+(\S.*?):[^\S\n]+(\S.*?)[^\S\n]*$/, PYRESOLVE_PO_INVALID,
-    ["Invalid poetry file pyproject.toml: invalid key", "Invalid lock file /a/poetry.lock:   bad  "]],
+  ["pyresolve PO_INVALID", /^Invalid (\w+) file[^\S\n]+(\S.*?\.\w+):[^\S\n]+(\S.*?)[^\S\n]*$/, PYRESOLVE_PO_INVALID,
+    ["Invalid poetry file pyproject.toml: invalid key", "Invalid lock file /a/poetry.lock:   bad  ", "Invalid TOML file /work/project: scratch/pyproject.toml: Unexpected character: 'x' at line 1 col 8"]],
   ["vitest REPORT_WRITTEN", /^([A-Z][A-Z-]*) report written to (\S.*?)[^\S\n]*$/m, VITEST_REPORT_WRITTEN,
     ["JUNIT report written to /app/junit.xml", "JSON report written to  a b  "]],
   ["vitest FAIL_RE", /^[^\S\n]*FAIL[^\S\n]+(.+?)[^\S\n]+>[^\S\n]+(.+?)[^\S\n]*$/, VITEST_FAIL_RE,
@@ -1348,8 +1371,9 @@ const SHAPED = [
     ["     # ./spec/shop_spec.rb:12:in `fetch'", "  #  :3:in x", "  # a:1:in b:2:in c"]],
   ["cluster MISSING_OPERAND", /\b(?:(?:cannot|could not|can't|couldn't|unable to)[^\S\n]+(?:find|resolve|locate|load)(?:[^\S\n]+(?:module|package|crate|dependency|declaration file for module))?|no[^\S\n]+module[^\S\n]+named|unresolved[^\S\n]+import|module[^\S\n]+not[^\S\n]+found:?(?:[^\S\n]+Error:)?(?:[^\S\n]+Can't[^\S\n]+resolve)?|failed[^\S\n]+to[^\S\n]+resolve)[^\S\n]*:?[^\S\n]+(?!in\b|from\b)([^\s,;]+)/gi, CLUSTER_MISSING_OPERAND,
     ["Cannot find module './a.js'", "error: could not resolve:  x, y", "unable to load  in x", "No module named foo", "cannot find :x"], everyMatch],
-  ["util ANNOTATION_RE", /^[^\S\n]*::(error|warning|notice)[^\S\n]+([^:\n]*)::(.*)$/, UTIL_ANNOTATION_RE,
-    ["::error file=deploy.yml,line=9,col=18::9:18 [trailing-spaces] trailing spaces", "::warning  ::msg", "  ::notice a b::c"]],
+  ["util ANNOTATION_RE", /^[^\S\n]*::(error|warning|notice)[^\S\n]+((?:[^:\n]|:(?!:))*)::(.*)$/, UTIL_ANNOTATION_RE,
+    ["::error file=deploy.yml,line=9,col=18::9:18 [trailing-spaces] trailing spaces", "::warning  ::msg", "  ::notice a b::c",
+      "::error file=C:\\work\\deploy.yml,line=9::9:18 too many spaces", "::error file=a.yml:::msg"]],
   ["pytest BANNER_RE", /^_{3,}[^\S\n]+(.+?)[^\S\n]+_{3,}$/, PYTEST_BANNER_RE,
     ["______________________________ test_invoice_total ______________________________", "___ a b ___", "___    ___"]],
   ["pytest TALLY_RE", /^=+[^\S\n]+(.*?(?:failed|passed|error).*?)[^\S\n]+=+$/i, PYTEST_TALLY_RE,

@@ -79,9 +79,12 @@ export const counted = (n, noun) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 export function relPath(p) {
   if (!p) return p;
   const cwd = process.cwd();
-  // Windows matches paths without regard to case; nothing else does.
+  // Windows matches paths without regard to case, or to which separator they are written with -
+  // Go writes a frame there as `D:/a/app/t/shop_test.go` under a working directory of `D:\a\app`;
+  // nothing else does.
+  const same = (path) => path.replace(/\\/g, "/").toLowerCase();
   const under = process.platform === "win32"
-    ? p.slice(0, cwd.length).toLowerCase() === cwd.toLowerCase()
+    ? same(p.slice(0, cwd.length)) === same(cwd)
     : p.startsWith(cwd);
   if (!under) return p;
   const next = p[cwd.length];
@@ -864,9 +867,15 @@ export function* jsonDocuments(text, accept) {
 // The shape is shared - biome, yamllint, eslint and jest all write it - and it carries
 // severity, location and message but never the tool's own name. So this decodes the
 // shape and the parsers decide which annotations are theirs, by what is inside them.
-// The whitespace in front of the properties is taken whole: they end at the same colon wherever in a
-// stretch they start, and from each place in a long one the pattern read the rest of the line again.
-export const ANNOTATION_RE = /^[^\S\n]*::(error|warning|notice)[^\S\n]+(?![^\S\n])([^:\n]*)::(.*)$/;
+// The whitespace in front of the properties is taken whole: they end at the same place wherever in
+// a stretch they start, and from each place in a long one the pattern read the rest of the line again.
+// They end at `::`, as GitHub ends them, and not at a colon of their own: a tool that writes a file
+// on a drive raw, `file=C:\work\a.js`, wrote an annotation all the same.
+export const ANNOTATION_RE = /^[^\S\n]*::(error|warning|notice)[^\S\n]+(?![^\S\n])((?:[^:\n]|:(?!:))*)::(.*)$/;
+// GitHub unescapes these five in a property's value, and only these - in one pass, so that an
+// escaped percent sign is not read again.
+const PROPERTY_ESCAPES = { "%0D": "\r", "%0A": "\n", "%3A": ":", "%2C": ",", "%25": "%" };
+const unescapeProperty = (value) => value.replace(/%(?:0D|0A|3A|2C|25)/g, (code) => PROPERTY_ESCAPES[code]);
 
 /** The GitHub workflow annotations in `text`.
  *
@@ -880,10 +889,12 @@ export function githubAnnotations(text) {
     if (!m) continue;
     const props = {};
     // `title` may contain a comma in principle; every other property is a number or a
-    // path, and GitHub itself separates them with commas, so this is what it means.
+    // path, and GitHub itself separates them with commas, so this is what it means. A value
+    // is read as GitHub reads it: unescaped - a path's colon and comma are escaped by a
+    // writer that keeps to the protocol, whyitbroke's own among them - and not trimmed.
     for (const pair of m[2].split(",")) {
       const eq = pair.indexOf("=");
-      if (eq > 0) props[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+      if (eq > 0) props[pair.slice(0, eq).trim()] = unescapeProperty(pair.slice(eq + 1));
     }
     // GitHub percent-escapes the three characters that would end the command early.
     const message = m[3].replace(/%0D/g, "").replace(/%0A/g, "\n").replace(/%25/g, "%");

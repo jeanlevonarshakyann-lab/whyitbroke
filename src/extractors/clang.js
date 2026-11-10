@@ -1,5 +1,6 @@
 import { uniqueFailures } from "../util.js";
 import { withSource } from "../ownership.js";
+import { fileReference } from "../location.js";
 
 // The column is optional. gcc drops it under -fno-show-column, and older gcc never
 // printed one at all - which left `inc.c:1: fatal error: nope.h: No such file or
@@ -74,10 +75,10 @@ function clangSarif(text) {
         let file;
         if (typeof uri === "string") {
           if (uri.startsWith("file://")) {
-            try { file = decodeURIComponent(uri.slice(7)); } catch { file = uri.slice(7); }
-            // Windows SARIF uses file:///C:/path; keep the drive path platform-neutral
-            // when a Windows capture is analysed on Linux or macOS.
-            if (/^\/[A-Za-z]:\//.test(file)) file = file.slice(1);
+            // A file URL is the path it names: a drive's, `file:///C:/path`, platform-neutral
+            // when a Windows capture is analysed on Linux or macOS, and a host's - see
+            // fileReference in location.js.
+            file = fileReference(uri);
           } else {
             try { file = decodeURIComponent(uri); } catch { file = uri; }
           }

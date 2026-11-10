@@ -129,7 +129,9 @@ export default {
       }
       if (NOISE_RE.test(line) || SUMMARY_RE.test(line)) continue;
       const f = line.match(FILE_RE);
-      if (f && !/^[✖⚠ⓘ]/.test(f[1])) file = f[1];
+      // A status line opens with its glyph and a space; a file can be named with the glyph alone,
+      // `✖.css`, and was then no heading.
+      if (f && !/^[✖⚠ⓘ][^\S\n]/.test(f[1])) file = f[1];
     }
 
     // The machine formats, read whatever the table gave: one log can hold two runs.
@@ -163,6 +165,8 @@ export default {
       if (p.severity !== "error") { warn(p.file, p.line, p.column, p.rule); continue; }
       add({ file: p.file, line: p.line, col: p.column, title: p.rule, code: p.rule, severity: "error", message: p.message }, p.from, p.to);
     }
+    // Every report: a workspace that lints each package on its own prints a document for
+    // each, and only the first was read.
     for (const { value, where } of jsonDocumentsAt(s, JSON_MARK)) {
       for (const file of value) {
         for (const w of file.warnings) {
@@ -176,7 +180,6 @@ export default {
           }, start, end);
         }
       }
-      break;
     }
     if (!failures.length) return null;
     const summary = s.match(SUMMARY_RE);

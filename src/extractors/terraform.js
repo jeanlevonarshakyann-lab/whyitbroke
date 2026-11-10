@@ -12,8 +12,8 @@
 //
 // Read as prose that comes to "│ Error: Missing required argument" and nothing else -
 // no file, no line, and not the sentence at the bottom that says what to do about it.
-import { withSource } from "../ownership.js";
-import { jsonDocumentsAt } from "../util.js";
+import { sourceRange, withSource } from "../ownership.js";
+import { append, jsonDocumentsAt } from "../util.js";
 
 const BAR = /^[^\S\n]*[│|][^\S\n]?/;
 const HEAD_RE = /^[^\S\n]*[│|][^\S\n]*(Error|Warning):[^\S\n]*(.*)$/;
@@ -149,6 +149,7 @@ function flatValidateDiagnostics(text) {
 // and it is the whole log of a pipeline that stopped before it touched any state, usually
 // because a script names a subcommand this version of terraform does not ship.
 const NO_COMMAND_RE = /^(?:Terraform|OpenTofu|Tofu) has no command named "([^"\n]+)"\.?[^\S\n]*$/m;
+const NO_COMMAND_LINE = new RegExp(NO_COMMAND_RE.source);
 
 export default {
   name: "terraform",
@@ -196,7 +197,7 @@ export default {
         message: (message.length ? message : [h[2]]).join("\n"), stmt,
       }, i, end));
     }
-    if (!failures.length && INIT_BANNER_RE.test(s)) {
+    if (INIT_BANNER_RE.test(s)) {
       // Bounded to the window after terraform's own banner. init says what it is doing
       // and then why it stopped, so its errors sit directly under the last "Initializing
       // ..." or "- Finding ..." line it wrote. Scanning the whole log for "Error: " -
@@ -206,21 +207,28 @@ export default {
       // then why it stopped, so the error is the first non-blank line after the last
       // step. A window of a dozen lines still reached past terraform's own output into
       // whatever followed it, and took sass's "Error: Undefined variable." with it.
+      // ...after each narration: a log can hold more than one init, and the last step of
+      // the whole log was the only place an error was looked for - and only where nothing
+      // else had been found.
       const INIT_STEP_RE = /^[^\S\n]*(?:Initializing |- (?:Finding|Installing|Using|Downloading) )/;
-      let last = -1;
-      for (let i = 0; i < lines.length; i++) if (INIT_STEP_RE.test(lines[i])) last = i;
-      let stop = last;
-      for (let i = last + 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        stop = i;   // the first thing said after the narration, whatever it is
-        break;
+      const read = new Uint8Array(lines.length);
+      for (const f of failures) {
+        const range = sourceRange(f);
+        if (range) for (const { start: from, end: to } of range.also ? [range, ...range.also] : [range]) read.fill(1, from, to);
+      }
+      const stops = [];
+      for (let i = 0, narrating = false; i < lines.length; i++) {
+        if (INIT_STEP_RE.test(lines[i])) { narrating = true; continue; }
+        if (!narrating || !lines[i].trim()) continue;
+        stops.push(i);   // the first thing said after the narration, whatever it is
+        narrating = false;
       }
       // The flat form. The prose under the header is the explanation; a blank line or
       // the next header ends it, and there is no location to find because init runs
       // before anything has been parsed.
-      for (let i = stop; i <= stop && i >= 0 && i < lines.length; i++) {
+      for (const i of stops) {
         const h = lines[i].match(FLAT_HEAD_RE);
-        if (!h) continue;
+        if (!h || read[i]) continue;
         // A blank line separates the header from the prose, so it cannot end it - but a
         // blank AFTER the prose has started does.
         const prose = [];
@@ -238,17 +246,20 @@ export default {
         }, i, end));
       }
     }
-    // A refused subcommand ran nothing, so it stands alone rather than beside a
-    // diagnostic there is none of.
-    const refused = lines.findIndex((line) => NO_COMMAND_RE.test(line));
-    if (refused >= 0 && !failures.length) {
-      const name = lines[refused].match(NO_COMMAND_RE)[1];
-      failures.push(withSource({
-        title: name, subject: name, severity: "error",
-        message: lines[refused].trim(),
-      }, refused, refused + 1));
-      return { tool: "terraform", summary: "the command was refused", failures };
+    // A refused subcommand ran nothing, so it is a failure of its own - each one, beside
+    // whatever another run in the log said. Only the first was read, and only where there
+    // was nothing else.
+    const refused = [];
+    lines.forEach((line, i) => {
+      const m = line.match(NO_COMMAND_LINE);
+      if (!m) return;
+      refused.push(withSource({ title: m[1], subject: m[1], severity: "error", message: line.trim() }, i, i + 1));
+    });
+    if (refused.length && !failures.length) {
+      const n = refused.length;
+      return { tool: "terraform", summary: n === 1 ? "the command was refused" : `${n} commands were refused`, failures: refused };
     }
+    append(failures, refused);
     if (!failures.length) return null;
     const n = failures.length;
     return {

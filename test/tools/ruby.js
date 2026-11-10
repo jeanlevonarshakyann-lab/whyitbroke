@@ -8,6 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
+import { elision } from "../../src/capture.js";
 import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
 
 const CASES = [
@@ -332,6 +333,16 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL minitest block without its tally\n       ${e.message}`); fail++; }
 
+// minitest writes a failure's place in brackets as it has it, and a file can have brackets
+// in its name: `[shop[1]_test.rb:9]` was no place at all, and a run that failed only there
+// was read as nothing.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("minitest_fail.txt", (t) => t.replaceAll("shop_test.rb", "shop[1]_test.rb"), (file) => file?.replace("shop_test.rb", "shop[1]_test.rb"));
+  console.log("  ok   minitest reads a place in brackets whose file has brackets in its name");
+  pass++;
+} catch (e) { console.log(`  FAIL minitest bracketed file\n       ${e.message}`); fail++; }
+
 // A resolver conflict is prose with no end marker except the sentence that closes it,
 // and a CI log does not stop where the tool did. If "version solving has failed." is not
 // there - the log was cut, or the job printed over it - there is nothing to read, and
@@ -350,6 +361,22 @@ try {
   console.log("  ok   a conflict with no closing line is not read to the end of the log");
   pass++;
 } catch (e) { console.log(`  FAIL unclosed bundler conflict\n       ${e.message}`); fail++; }
+
+// Nor is a conflict cut off from its closing sentence read into the next conflict's: a
+// capture that left out the end of the first one kept the second whole, and the first
+// came back as a conflict made of the two.
+try {
+  const block = fx("bundler_conflict_fail.txt").split("\n");
+  const conflict = block.slice(block.findIndex((l) => /^Could not find compatible versions/.test(l)));
+  const second = conflict.map((l) => l.replace(/rspec-core/g, "rack").replace(/rspec/g, "rails"));
+  const cut = conflict.slice(0, conflict.findIndex((l) => /^So, because/.test(l)));
+  const r = analyse(`${block.slice(0, 2).join("\n")}\n${cut.join("\n")}${elision(48213)}${second.join("\n")}`);
+  assert.equal(r?.tool, "bundle");
+  assert.deepEqual(r.failures.map((f) => f.message), [second.slice(2).map((l) => l.trim()).filter(Boolean).join(" ")],
+    "the conflict cut short borrowed the next one's explanation");
+  console.log("  ok   a conflict cut short is not read into the next one");
+  pass++;
+} catch (e) { console.log(`  FAIL bundler conflict cut short\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

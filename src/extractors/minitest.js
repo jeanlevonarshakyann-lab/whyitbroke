@@ -24,6 +24,11 @@ import { withSource } from "../ownership.js";
 const BLOCK_RE = /^[^\S\n]*\d+\) (Failure|Error):[^\S\n]*$/;
 // The name, which a spec-style test builds with spaces in it, and where it is.
 const FAILURE_RE = /^(\S.*?#\S.*?) \[([^\[\]\n]+?):(\d+)\]:[^\S\n]*$/;
+// A spec's name can hold brackets, and so can a file's: minitest writes the place in brackets
+// as it has it, `[shop[1]_test.rb:9]`, and read only without them that was no place at all. A
+// place with no bracket in it is read first, so that a name ending in one stays the name, and
+// one with brackets only where nothing else fits the line.
+const failureLine = (line) => line.match(FAILURE_RE) ?? line.match(/^(\S.*?#\S.*?) \[([^\n]+?):(\d+)\]:[^\S\n]*$/);
 const ERROR_RE = /^(\S.*?#\S.*?):[^\S\n]*$/;
 // Ruby 3.4 quotes the method as 'Class#name' where earlier rubies wrote `name'.
 // /^[^\S\n]+(.+?):(\d+):in [`'](.+?)'$/ - see frameLine.
@@ -39,7 +44,7 @@ export default {
   // The tally, or a numbered block whose next line names a test the way minitest does:
   // Class#test. RSpec numbers its blocks too, and writes the example's name on that line.
   detect: (s) => TALLY_RE.test(s) || s.split("\n").some((line, i, lines) =>
-    /^[^\S\n]*\d+\) (?:Failure|Error):[^\S\n]*$/.test(line) && (FAILURE_RE.test(lines[i + 1] ?? "") || ERROR_RE.test(lines[i + 1] ?? ""))),
+    /^[^\S\n]*\d+\) (?:Failure|Error):[^\S\n]*$/.test(line) && (failureLine(lines[i + 1] ?? "") || ERROR_RE.test(lines[i + 1] ?? ""))),
 
   extract(s) {
     const lines = s.split("\n");
@@ -57,7 +62,7 @@ export default {
       let named = i + 1;
       let failure = null, error = null;
       for (; named <= i + 2 && named < lines.length; named++) {
-        failure = block[1] === "Failure" ? lines[named].match(FAILURE_RE) : null;
+        failure = block[1] === "Failure" ? failureLine(lines[named]) : null;
         error = block[1] === "Error" ? lines[named].match(ERROR_RE) : null;
         if (failure || error) break;
       }

@@ -8,8 +8,9 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 import golangci from "../../src/extractors/golangci.js";
+import { scopeOf } from "../../src/ownership.js";
 
 const CASES = [
   // One real golangci-lint 2.13 run - five issues from four linters over two files - in
@@ -412,6 +413,67 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL build and tests\n       ${e.message}`); fail++; }
 
+// Two modules tested at once, into one pipe: one streams its verbose run, the other prints
+// each package whole once it is done. A test's package was the first closing line after the
+// first line it printed, and the other module's closing line came before this run's own: a
+// parallel test pauses, and reports once the rest of its package is done. TestTable/zero
+// failed in example.com/gtv/p1 and was reported in example.com/svc/config, which passed, and
+// TestParallelA was not read at all: the other module's closing line ended its frames, and
+// with them the output it went on to print. Where the other module failed too, its TestLoad
+// read on past its own closing lines, into TestParallelA's.
+try {
+  const verbose = (between) => [
+    "=== RUN   TestTable",
+    "=== RUN   TestTable/zero",
+    "    p1_test.go:22: Add(0, 0) = 1, want 0",
+    "=== RUN   TestTable/ones",
+    "--- FAIL: TestTable (0.00s)",
+    "    --- FAIL: TestTable/zero (0.00s)",
+    "    --- PASS: TestTable/ones (0.00s)",
+    "=== RUN   TestParallelA",
+    "=== PAUSE TestParallelA",
+    "=== CONT  TestParallelA",
+    "    p1_test.go:30: A says hello",
+    ...between,
+    "    p1_test.go:32: Add(1, 0) should be 1",
+    "--- FAIL: TestParallelA (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/gtv/p1\t0.286s",
+  ].join("\n");
+  const read = (text) => analyse(text).failures.map((f) => `${f.title} ${scopeOf(f)}: ${f.message}`).sort();
+  assert.deepEqual(read(verbose(["ok  \texample.com/svc/config\t0.012s"])), [
+    "TestParallelA example.com/gtv/p1: A says hello\nAdd(1, 0) should be 1",
+    "TestTable/zero example.com/gtv/p1: Add(0, 0) = 1, want 0",
+  ]);
+  const failing = analyse(verbose([
+    "--- FAIL: TestLoad (0.00s)",
+    "    config_test.go:12: missing PORT",
+    "FAIL",
+    "FAIL\texample.com/svc/config\t0.012s",
+  ])).failures;
+  assert.deepEqual(failing.map((f) => `${f.title} ${scopeOf(f)}`).sort(), [
+    "TestLoad example.com/svc/config", "TestParallelA example.com/gtv/p1", "TestTable/zero example.com/gtv/p1",
+  ]);
+  assert.equal(failing.find((f) => f.title === "TestLoad").message, "missing PORT",
+    "TestLoad read on past its package's closing lines, into TestParallelA's output");
+  // Two verbose runs interleave their frames, and a closing line inside one run's test can be
+  // the other's own: TestB's is, and TestB is read under it.
+  const two = [
+    "=== RUN   TestA",
+    "=== RUN   TestB",
+    "    b_test.go:5: b broke",
+    "--- FAIL: TestB (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/b\t0.010s",
+    "--- FAIL: TestA (0.00s)",
+    "FAIL",
+    "FAIL\texample.com/a\t0.020s",
+  ].join("\n");
+  assert.ok(read(two).includes("TestB example.com/b: b broke"), read(two).join(" | "));
+  console.log("  ok   a test is read under its own run's package when another run shares the pipe");
+  pass++;
+} catch (e) { console.log(`  FAIL another run's closing line\n       ${e.message}`); fail++; }
+
 // `--- expected` heads one half of a unified diff, which is what minitest and PHPUnit print
 // between two values that differ - and it is the shape of go's own `--- FAIL:` line without
 // the word. go claimed five such captures and read nothing from any of them, which is the
@@ -553,6 +615,43 @@ try {
   console.log("  ok   a place named for another file does not move a golangci-lint finding");
   pass++;
 } catch (e) { console.log(`  FAIL golangci embedded place bound\n       ${e.message}`); fail++; }
+
+// go names a file outside the directory it ran in by its whole path, and under a checkout named
+// `My Project` that path has a space in it; with -L the compiler writes every path whole, drive
+// and all. A build error, a module file's parse error, a race's frame and golangci-lint's place
+// for a type error were each read only from a path of word characters, and lost - or put back on
+// line 1 - otherwise.
+try {
+  readsMoved("go_windows_build_fail.txt", (t) => t.replace("pkg\\helper.go", "C:\\work\\my probe\\pkg\\helper.go").replaceAll(".\\main.go", "C:\\work\\my probe\\main.go"),
+    (file) => (file === "pkg\\helper.go" ? "C:\\work\\my probe\\pkg\\helper.go" : file === "main.go" ? "C:\\work\\my probe\\main.go" : file));
+  readsMoved("gotest_build_and_tests_fail.txt", (t) => t.replace("p3/x.go:", "/work/my p3/x.go:"), (file) => (file === "p3/x.go" ? "/work/my p3/x.go" : file));
+  readsMoved("gotest_build_and_tests_fail.txt", (t) => t.replace("p3/x.go:", "../my p3/x.go:"), (file) => (file === "p3/x.go" ? "../my p3/x.go" : file));
+  readsMoved("gobuild_fail.txt", (t) => t.replaceAll("./broken.go:", "./my broken.go:"), (file) => (file === "broken.go" ? "my broken.go" : file));
+  readsMoved("gomod_parse_fail.txt", (t) => t.replaceAll("go.mod:", "/work/My Project/go.mod:"), (file) => (file === "go.mod" ? "/work/My Project/go.mod" : file));
+  readsMoved("gorace_fail.txt", (t) => t.replaceAll("/home/dev/goracer/", "/home/dev/go racer/"), (file) => file?.replace("/home/dev/goracer/", "/home/dev/go racer/"));
+  readsMoved("golangci_typecheck_json_fail.txt", (t) => t.replace("./shop.go:6:2", "/work/my shop/shop.go:6:2").replace('"Filename":"shop.go"', '"Filename":"/work/my shop/shop.go"'),
+    (file) => (file === "shop.go" ? "/work/my shop/shop.go" : file));
+  console.log("  ok   a Go path with spaces or a drive in it is read as go wrote it");
+  pass++;
+} catch (e) { console.log(`  FAIL go paths with spaces\n       ${e.message}`); fail++; }
+
+// Only a path that says where it starts - a drive, a separator, `./`, `../` - is read with a
+// space in it. Read with one anywhere, a runner's prefix in front of a build error's path -
+// kubectl's pod, pnpm's package - was taken as the start of the path, and was never taken
+// off: a JUnit report from golangci-lint under one was read as go build errors in
+// `pod/api-7d9       <failure message="main.go`.
+try {
+  for (const name of ["gobuild_fail.txt", "go_windows_build_fail.txt", "gomod_parse_fail.txt", "golangci_junit_fail.txt"]) {
+    const read = (r) => [r?.tool, r?.failures.map((f) => [f.file, f.line, f.col, f.message])];
+    const bare = read(analyse(fx(name)));
+    for (const prefix of ["pod/api-7d9 ", "packages/api test$ ", "api-7d9f8c4b6-x2klm "]) {
+      const wrapped = fx(name).split("\n").map((l) => (l.trim() ? prefix + l : l)).join("\n");
+      assert.deepEqual(read(analyse(wrapped)), bare, `${name} under ${JSON.stringify(prefix)}`);
+    }
+  }
+  console.log("  ok   a runner's prefix in front of a Go path is not read as part of it");
+  pass++;
+} catch (e) { console.log(`  FAIL runner prefix before a go path\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
