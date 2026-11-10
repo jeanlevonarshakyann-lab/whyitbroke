@@ -993,5 +993,21 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL vitest tap vs pretty\n       ${e.message}`); fail++; }
 
+// vitest's JUnit case names its file in `classname`, and its annotation in `file`; the frame
+// under either can name the file with no function in front of it. Read without them, a path
+// whose first part has a space in it was a function and a file - `my tests/cart.test.js` was
+// `tests/cart.test.js` - where the file the report already names settles which it is.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.col, f.title]);
+  for (const name of ["vitest_junit_fail.txt", "vitest_github_fail.txt"]) {
+    const text = fx(name);
+    assert.ok(text.includes("test/cart.test.js"), `${name} names no test/cart.test.js`);
+    assert.deepEqual(read(text.replaceAll("test/cart.test.js", "my tests/cart.test.js")),
+      read(text).map(([file, ...rest]) => [file === "test/cart.test.js" ? "my tests/cart.test.js" : file, ...rest]), name);
+  }
+  console.log("  ok   vitest's machine reports read a frame by the file they name");
+  pass++;
+} catch (e) { console.log(`  FAIL vitest known file\n       ${e.message}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

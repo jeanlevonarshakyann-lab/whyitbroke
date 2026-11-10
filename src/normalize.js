@@ -33,14 +33,17 @@ const MAX_LITERAL_CANDIDATES = 4;   // bound the parses a single log can cost
 // Exactly one separator byte is consumed, preserving the wrapped tool's indentation.
 // Script names may themselves contain colons (`web:test:unit: `), so a single
 // relay label is two or more colon-terminated tokens.
-const TASK_LABEL = String.raw`[a-z0-9_@./-]+:(?:[a-z][a-z0-9_.-]*:)+`;
+// A task is named as the package's scripts name it, in any case - `api:TypeCheck: ` - though
+// with a small letter somewhere in it, so that a code such as `TS2322` is never one.
+const TASK_LABEL = String.raw`[a-z0-9_@./-]+:(?:(?=[\w.-]*[a-z])[A-Za-z][\w.-]*:)+`;
 const TASK_PREFIX = new RegExp(`^(?:${TASK_LABEL}[^\\S\\n])+`);
 // pnpm's append-only reporter uses `<package> <script>: ` rather than Turborepo's
 // `<package>:<script>: `. Treat the whole stamp atomically. Letting literal-prefix
 // discovery try its whitespace boundaries first could accept only `@scope/api `: the
 // parser then saw `test: src/main.rs` as the file, or a generic reader won before the
-// full candidate was tried.
-const PNPM_TASK_PREFIX = /^@[a-z0-9_.-]+\/[a-z0-9_.-]+[^\S\n]+[a-z][a-z0-9_.:-]*:[^\S\n]/;
+// full candidate was tried. The script is named as package.json names it, in any case, with a
+// small letter somewhere in it, as a Turborepo task is.
+const PNPM_TASK_PREFIX = /^@[a-z0-9_.-]+\/[a-z0-9_.-]+[^\S\n]+(?=[\w.:-]*[a-z])[A-Za-z][\w.:-]*:[^\S\n]/;
 const ONE_TASK_PREFIX = new RegExp(TASK_LABEL + `(?=[^\\S\\n])`, "g");
 const taskWrapperLabel = (text) => {
   const labels = new Set();

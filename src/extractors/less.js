@@ -7,6 +7,7 @@
 // Self-bounding: there is nothing to scan for, because the whole diagnostic is one line.
 import { withSource } from "../ownership.js";
 import { lazyIn, tailFirst } from "../util.js";
+import { lastPathIn } from "../location.js";
 
 // The header, as the pattern
 //   /^(\w*(?:Error|Exception)):[^\S\n]*(.+?)[^\S\n]+in[^\S\n]+(.+?)[^\S\n]+on line[^\S\n]+(\d+)(?:,[^\S\n]+column[^\S\n]+(\d+))?:?[^\S\n]*$/
@@ -42,11 +43,14 @@ export default {
         const src = lines[j].match(SOURCE_RE);
         if (src && +src[1] === +m[4]) { stmt = src[2].trim(); end = j + 1; break; }
       }
-      // The header, and the source it echoes when it does.
+      // The header, and the source it echoes when it does. The message can name a file with
+      // " in " in it - an import that is missing, `theme in progress.less` - and the file is
+      // the path after the last " in ": see lastPathIn.
+      const { message, file } = lastPathIn(m[2], m[3]);
       failures.push(withSource({
-        file: m[3], line: +m[4], col: m[5] ? +m[5] : undefined,
+        file, line: +m[4], col: m[5] ? +m[5] : undefined,
         title: m[1], code: m[1], severity: "error",
-        message: m[2].trim(), stmt,
+        message: message.trim(), stmt,
       }, i, end));
     }
     if (!failures.length) return null;

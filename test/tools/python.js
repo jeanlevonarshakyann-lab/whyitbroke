@@ -478,6 +478,20 @@ try {
   console.log("  ok   pytest -q summary is found without the === decoration");
   pass++;
 } catch (e) { console.log(`  FAIL pytest -q summary\n       ${e.message}`); fail++; }
+// A value can hold the character that ends the one before it. Azure's logging command splits
+// its properties at `;` and each at its first `=`, and ruff writes the file as it has it: a file
+// named `pkg/bad=name.py` was `pkg/bad`, which is no Python file, and its findings were dropped.
+// Poetry writes the file it could not read, `: `, and why - which says `: ` again: a project
+// under `/work/project: scratch` was the file `/work/project`, and the rest was the message.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const moved = (text, from, to) => [read(text.replaceAll(from, to)), read(text).map(([file, ...rest]) => [file?.replace(from, to), ...rest])];
+  assert.deepEqual(...moved(fx("ruff_azure_fail.txt"), "/home/dev/ruff/lint_me.py", "/home/dev/ruff/bad=name.py"));
+  assert.deepEqual(...moved(fx("poetry_toml_syntax_fail.txt"), "/home/dev/shop/pyproject.toml", "/work/project: scratch/pyproject.toml"));
+  console.log("  ok   a file named with the character that ends it is read whole");
+  pass++;
+} catch (e) { console.log(`  FAIL delimiters inside values\n       ${e.message}`); fail++; }
+
 // Five traceback styles, one run. The style changes how much is printed, never which
 // tests failed or what they raised.
 try {
@@ -726,6 +740,16 @@ try {
   console.log("  ok   a bare error: line beside uv's is not uv's");
   pass++;
 } catch (e) { console.log(`  FAIL uv claims a bare error:\n       ${e.message}`); fail++; }
+
+// A file can be named `::bad.py`, and flake8 writes it first on the line like any other. A
+// line that opened with `::` was taken for a GitHub workflow command - which quotes a
+// finding in its message, and is no finding - and the file's findings were not read.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("flake8_fail.txt", (t) => t.replaceAll("lint_me.py:", "::lint_me.py:"), (file) => (file === "lint_me.py" ? "::lint_me.py" : file));
+  console.log("  ok   flake8 reads a file whose name starts with ::");
+  pass++;
+} catch (e) { console.log(`  FAIL flake8 colon file\n       ${e.message}`); fail++; }
 
 // Poetry's chain is prose with no end marker but the sentence that closes it. Cut that
 // off - the log was truncated, or the job printed over it - and reading to the end of

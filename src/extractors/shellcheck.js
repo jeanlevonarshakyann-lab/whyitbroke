@@ -64,13 +64,14 @@ function machine(s, placed = false) {
   const out = [];
   const at = (f, start, end) => (placed ? withSource(f, start, end) : f);
   if (placed) {
+    // Every report: a workspace that checks each package's scripts on its own prints a
+    // document for each, and only the first was read.
     for (const { value, where } of s.includes('"level"') ? jsonDocumentsAt(s, JSON_MARK) : []) {
       for (const c of Array.isArray(value) ? value : value.comments) {
         const { start, end } = where(c);
         out.push(at({ file: c.file, line: c.line, col: c.column, code: `SC${c.code}`,
           severity: c.level, message: String(c.message).trim() }, start, end));
       }
-      break;
     }
   } else {
     for (const c of comments(s)) {

@@ -61,6 +61,55 @@ try {
   fail++;
 }
 
+// Every report in a log is read, not only the first.
+//
+// A workspace runs its linter once per package, and each run prints a report of its own, so
+// the log of the whole workspace holds one document per package. These readers took the
+// first document they recognised and stopped there: every package after the first came back
+// with nothing wrong. Each report here is followed by the same report about another file, and
+// both have to come back - and the same report printed twice is still one report.
+try {
+  const reports = {
+    "biome_lint_json_fail.txt": "cart.js", "biome_lint_gitlab_fail.txt": "cart.js",
+    "denolint_json_fail.txt": "orders.ts", "markdownlint_json_fail.txt": "doc.md",
+    "npm_404_json_fail.txt": "exist-9x7", "pylint_json_fail.txt": "orders.py",
+    "pylint_json2_fail.txt": "orders.py", "rspec_json_fail.txt": "math failures_spec.rb",
+    "ruff_json_fail.txt": "lint_me.py", "shellcheck_json_fail.txt": "b.sh",
+    "shellcheck_json1_fail.txt": "b.sh", "stylelint_json_fail.txt": "style.css",
+    "stylelint_warn_json_fail.txt": "style.css",
+  };
+  const read = (text) => {
+    const r = analyse(text);
+    const failures = [r, ...(r?.others ?? [])].flatMap((one) => one?.failures ?? []);
+    return [...new Set(failures.map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.message}`))].sort();
+  };
+  for (const [name, word] of Object.entries(reports)) {
+    const first = fx(name);
+    const second = first.split(word).join(`other-${word}`);
+    assert.notEqual(second, first, `${name} has no ${word} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), [...new Set([...read(first), ...read(second)])].sort(),
+      `${name}: a second report was not read`);
+    // A headline that counts counts both - rspec's was the first document's own sentence.
+    const once = analyse(first).summary;
+    if (once !== undefined) assert.notEqual(analyse(`${first}\n${second}`).summary, once, `${name}: the headline counted one report`);
+    assert.equal(analyse(`${first}\n${first}`).summary, once, `${name}: one report printed twice was counted twice`);
+  }
+  // A package with nothing wrong writes a report too, and three readers accept one. Where it
+  // came first, the log of a workspace whose later package failed read as nothing at all.
+  const clean = {
+    "biome_lint_json_fail.txt": { summary: { changed: 0, unchanged: 1, errors: 0, warnings: 0 }, diagnostics: [], command: "lint" },
+    "rspec_json_fail.txt": { version: "3.13.6", examples: [{ id: "./spec/ok_spec.rb[1:1]", description: "works",
+      full_description: "ok works", status: "passed", file_path: "./spec/ok_spec.rb", line_number: 2 }],
+    summary: { example_count: 1, failure_count: 0, pending_count: 0 }, summary_line: "1 example, 0 failures" },
+    "stylelint_json_fail.txt": [{ source: "/home/dev/site/ok.css", errored: false, warnings: [] }],
+  };
+  for (const [name, doc] of Object.entries(clean)) {
+    assert.deepEqual(read(`${JSON.stringify(doc)}\n${fx(name)}`), read(fx(name)), `${name}: a clean report first hid the failing one`);
+  }
+  console.log("  ok   every report in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every report in a log\n       ${e.message}`); fail++; }
+
 // A log does not always arrive the way the tool wrote it. It gets redirected on Windows,
 // captured from a terminal that was drawing a progress bar, pasted into a file. Every
 // parser anchors on ^, so anything in front of the first line is enough to lose it.
@@ -321,6 +370,35 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL multi-tool log\n       ${e.message}`); fail++; }
 
+// Every crash in a log is read, not only the first - and beside whatever else failed.
+//
+// A log holds more than one run: a job that tests each package in turn, a script that runs two
+// programs. These readers took the first crash they found - bun's first footer, the first file
+// Python would not compile, the first file mocha, PHPUnit or AVA would not load, go's first
+// panic - and mocha, AVA and go read one only where nothing else had failed. Each crash here is
+// followed by the same crash in another file, then put after a run that failed some other way.
+try {
+  const crashes = {
+    "bunrun_crash_fail.txt": "crash.ts", "bun_syntax_fail.txt": "bsyn.ts", "py_syntax_fail.txt": "syn.py",
+    "py_indent_fail.txt": "ind.py", "mocha_load_fail.txt": "syn.test.js", "phpunit_load_fail.txt": "CrashTest.php",
+    "ava_load_fail.txt": "syn.test.js", "gopanic_fail.txt": "main.go",
+  };
+  const read = (text) => [...new Set((analyse(text)?.failures ?? [])
+    .map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.message}`))].sort();
+  const union = (...texts) => [...new Set(texts.flatMap(read))].sort();
+  for (const [name, word] of Object.entries(crashes)) {
+    const first = fx(name), second = first.split(word).join(`other-${word}`);
+    assert.notEqual(second, first, `${name} has no ${word} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), union(first, second), `${name}: the second crash was not read`);
+  }
+  for (const [failed, crash] of [["mocha_fail.txt", "mocha_load_fail.txt"], ["ava_fail.txt", "ava_load_fail.txt"],
+    ["gotest_verbose_fail.txt", "gopanic_fail.txt"], ["gotest_fail.txt", "gopanic_fail.txt"]]) {
+    assert.deepEqual(read(`${fx(failed)}\n${fx(crash)}`), union(fx(failed), fx(crash)), `${crash} after ${failed}`);
+  }
+  console.log("  ok   every crash in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every crash in a log\n       ${e.message}`); fail++; }
+
 // When two parsers both claim a fixture, only their order in the list decides the
 // answer - which is how bun test came back as cargo errors. Pin the known cases so
 // a new parser cannot quietly introduce another.
@@ -476,6 +554,39 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL duplicate diagnostics\n       ${e.message}`); fail++; }
 
+// Every package manager run in a log is read, not only the first.
+//
+// A workspace installs, and runs scripts, one package at a time, and each run that fails says so
+// in its own block: pnpm's box, yarn's banner, poetry's resolver chain, pip's error and build
+// output, npm's error block. Each reader took the first block it found, or read every block as
+// one: two npm runs became one failure under the first run's code, and every package pip failed
+// to build was named after the first one in the log. Each failure here is followed by the same
+// failure about something else - another package that failed in its own way - and both have to
+// come back.
+try {
+  const runs = {
+    "pnpm_boxed_fail.txt": [["9x7", "9x8"]], "yarn_fail.txt": [["exit code 3.", "exit code 4."]],
+    "poetry_toml_syntax_fail.txt": [["pyproject.toml", "other-pyproject.toml"]],
+    "poetry_conflict_fail.txt": [["urllib3 (1.0)", "urllib3 (1.1)"]],
+    "poetry_missing_package_fail.txt": [["xyzzy", "plugh"]], "pip_badreq_fail.txt": [["bad.txt", "other-bad.txt"]],
+    "pip_build_fail.txt": [["brokenpkg", "otherpkg"], ["deliberate failure", "another failure"]],
+    "npm_fail.txt": [["nonexistent-script", "other-script"]], "npm_404_text_same_fail.txt": [["9x7", "9x8"]],
+  };
+  const read = (text) => [...new Set((analyse(text)?.failures ?? [])
+    .map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.subject ?? ""} ${f.message}`))].sort();
+  for (const [name, renames] of Object.entries(runs)) {
+    const first = fx(name), second = renames.reduce((text, [from, to]) => text.split(from).join(to), first);
+    for (const [from] of renames) assert.ok(first.includes(from), `${name} has no ${from} in it`);
+    assert.deepEqual(read(`${first}\n${second}`), [...new Set([...read(first), ...read(second)])].sort(), `${name}: the second run was not read`);
+  }
+  // npm's ERESOLVE block says what it found and what could not be resolved, and the second is
+  // the conflict itself: it was past the end of the three lines a message is given.
+  const eresolve = analyse(fx("npm_eresolve_fail.txt")).failures[0].message;
+  assert.match(eresolve, /Could not resolve dependency: peer react@"\^18\.2\.0" from react-dom@18\.2\.0/);
+  console.log("  ok   every package manager run in a log is read, not only the first");
+  pass++;
+} catch (e) { console.log(`  FAIL every package manager run\n       ${e.message}`); fail++; }
+
 try {
   // CI systems retry and concatenate a failed step. The visible diagnostics are
   // de-duplicated, so the headline must describe that same visible set rather than the
@@ -583,6 +694,35 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL ANSI\n       ${e.message}`); fail++; }
 
+// A guard that keeps something out of a reader's way has to keep out only that. Four kept out a
+// record they were there to let through: swiftc's diagnostic for a file named `1|bad.swift`,
+// taken for a line of the source it draws under one; stylelint's heading for a file named
+// `✖.css`, taken for one of its status lines; a TAP file's roll-up, skipped as repeating its
+// members' failures where none had failed - the file would not load, and the roll-up is the only
+// record of it; and babel's error for code it read from stdin, which it names `unknown`.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const swift = fx("swiftc_fail.txt");
+  assert.deepEqual(read(swift.replace(/^mixed\.swift:/gm, "1|mixed.swift:")), read(swift).map(([, ...rest]) => ["1|mixed.swift", ...rest]));
+  const stylelint = fx("stylelint_string_fail.txt");
+  assert.deepEqual(read(stylelint.replace(/^style\.css$/m, "\u2716.css")), read(stylelint).map(([, ...rest]) => ["\u2716.css", ...rest]));
+  const tap = fx("tap_fail.txt"), crashed = [
+    "# Subtest: taptest/crash.test.cjs", "    1..0", "not ok 2 - taptest/crash.test.cjs # time=4.12ms", "  ---", "  stdio: inherit",
+    "  cwd: /home/dev/app", "  externalID: taptest/crash.test.cjs", "  command: /home/dev/.hermes/node/bin/node", "  args:",
+    "    - /home/dev/app/taptest/crash.test.cjs", "  exitCode: 1", "  signal: null", "  ...", ""].join("\n");
+  const both = analyse(tap + crashed);
+  assert.equal(both?.tool, "tap");
+  assert.deepEqual(both.failures.slice(0, 2).map((f) => [f.file, f.line, f.message]), read(tap));
+  assert.equal(both.failures.length, 3, "the file that would not load is not read");
+  assert.match([both.failures[2].file, both.failures[2].title, both.failures[2].subject].join(" "), /crash\.test\.cjs/);
+  const babel = fx("babel_fail.txt");
+  const stdin = analyse(babel.replaceAll("/home/dev/app/bad.jsx", "unknown"));
+  assert.equal(stdin?.tool, "babel");
+  assert.deepEqual(stdin.failures.map((f) => [f.file, f.line, f.col, f.message, f.stmt]), analyse(babel).failures.map((f) => [undefined, f.line, f.col, f.message, f.stmt]));
+  console.log("  ok   a guard keeps out only what it is there for");
+  pass++;
+} catch (e) { console.log(`  FAIL guards\n       ${e.message}`); fail++; }
+
 // A flag that changes how a diagnostic is printed must not change what is read from it.
 try {
   const same = (a, b, what) => {
@@ -596,6 +736,45 @@ try {
   console.log("  ok   a printing flag does not change what is read");
   pass++;
 } catch (e) { console.log(`  FAIL printing flags\n       ${e.message}`); fail++; }
+
+// A file URL names a path, and every reader of one reads it as that path - a drive's,
+// `file:///C:/work/a.py`, as `C:/work/a.py`, and a host's, `file://server/share/a.py`, as
+// `//server/share/a.py` - as location.js's fileReference does. Five readers took `file://` off
+// and decoded the rest, which made a drive's `/C:/work/a.py` and a host's `server/share/a.py`,
+// and mocha's three readers kept an ES module's frame, `file:///repo/test.mjs:4:7`, as a URL.
+try {
+  const read = (text) => analyse(text)?.failures.map((f) => [f.file, f.line, f.message]);
+  const urls = [["file:///C:/work/", "C:/work/"], ["file://server/share/", "//server/share/"]];
+  const moved = (rows, path, as) => rows.map(([file, line, message]) =>
+    [file?.startsWith(path) ? as + file.slice(path.length) : file, line, message?.replaceAll(`"${path}`, `"${as}`)]);
+  for (const [name, url, path] of [
+    ["clang_sarif_fail.txt", "file:///home/dev/clang-sarif/", "/home/dev/clang-sarif/"],
+    ["ruff_sarif_fail.txt", "file:///home/dev/ruff/", "/home/dev/ruff/"],
+    ["denorun_crash_fail.txt", "file:///home/dev/app/", "/home/dev/app/"],
+    ["deno_import_fail.txt", "file:///home/dev/app/", "/home/dev/app/"],
+    ["nodetest_reporter_junit_fail.txt", "file:///home/dev/", "/home/dev/"],
+  ]) {
+    const text = fx(name);
+    assert.ok(text.includes(url), `${name} names no ${url}`);
+    for (const [to, as] of urls) assert.deepEqual(read(text.replaceAll(url, to)), moved(read(text), path, as), `${name} at ${to}`);
+  }
+  // An ES module's frames are URLs, where a CommonJS module's are paths.
+  for (const [name, frame] of [["mocha_fail.txt", "(test/sum.test.js:"], ["mocha_json_same_fail.txt", "(test/cart.test.js:"], ["mocha_xunit_fail.txt", "(test_shop.cjs:"]]) {
+    const text = fx(name), file = frame.slice(1, -1);
+    assert.ok(text.includes(frame), `${name} has no frame ${frame}`);
+    for (const [to, as] of [["file:///repo/", "/repo/"], ...urls]) {
+      const rows = read(text.replaceAll(frame, `(${to}${frame.slice(1)}`));
+      assert.deepEqual(rows, read(text).map(([f, line, message]) => [f === file ? as + file : f, line, message]), `${name} at ${to}`);
+    }
+  }
+  // ...and the last resort, which reads the frame under what it took for the failure.
+  for (const [to, as] of urls) {
+    const rows = read(`FATAL: deploy aborted\n    at ${to}app/deploy.mjs:12:5\n`);
+    assert.deepEqual(rows?.map(([file, line]) => [file, line]), [[`${as}app/deploy.mjs`, 12]], `the last resort at ${to}`);
+  }
+  console.log("  ok   a file URL is read as the path it names, by every reader of one");
+  pass++;
+} catch (e) { console.log(`  FAIL file urls\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

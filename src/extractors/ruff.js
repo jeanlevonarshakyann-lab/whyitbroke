@@ -1,5 +1,6 @@
 import { elements, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
+import { fileReference } from "../location.js";
 // ruff emits rustc-style diagnostics: a header line, then " --> file:line:col".
 const HEAD_RE = /^([A-Z]+\d+)(?:[^\S\n]+\[[*x]\])?[^\S\n]+(.+)$/;
 // Not everything ruff reports has a rule code. A file it cannot parse is reported as
@@ -83,7 +84,9 @@ const GITLAB_MARK = (v) => Array.isArray(v) && v.length > 0 && v.every((d) =>
   CODE.test(d?.check_name ?? "") && PYTHON.test(d.location?.path ?? "") &&
   String(d.description ?? "").startsWith(`${d.check_name}: `));
 const AZURE_RE = /^##vso\[task\.logissue\b([^\]]*)\](.*)$/;
-const unfile = (uri) => (String(uri).startsWith("file://") ? decodeURIComponent(String(uri).slice(7)) : String(uri));
+// ruff's SARIF names each file by a URL - `file:///C:/work/a.py` on Windows - and a URL is the
+// path it names: see fileReference in location.js.
+const unfile = (uri) => fileReference(String(uri));
 const placed = (failure, { start, end }) => withSource(failure, start, end);
 const finding = (file, line, col, code, message) => ({
   file, line, ...(col ? { col } : {}), title: code ?? "ruff", ...(code ? { code } : { label: "ruff" }),
@@ -157,7 +160,10 @@ function reported(s, lines) {
     lines.forEach((line, i) => {
       const m = line.match(AZURE_RE);
       if (!m) return;
-      const props = Object.fromEntries(m[1].split(";").map((p) => p.trim().split("=")).filter(([k, v]) => k && v !== undefined));
+      // A property is its name up to the first `=`, and the rest is its value - which a file can
+      // hold an `=` in, as Azure reads it.
+      const props = Object.fromEntries(m[1].split(";").map((p) => p.trim()).filter((p) => p.indexOf("=") > 0)
+        .map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]));
       if (!CODE.test(props.code ?? "") || !PYTHON.test(props.sourcepath ?? "")) return;
       out.push(withSource(finding(props.sourcepath, +props.linenumber || undefined, +props.columnnumber || undefined, props.code, m[2].trim()), i, i + 1));
     });
@@ -210,19 +216,21 @@ function oneLinePerFinding(lines) {
 
 /** --output-format=json: an array of records, pretty-printed across many lines.
  *
- *  Every array that opens a line is a candidate, and the first one whose records carry
- *  ruff's fields wins. Starting from the first `[` in the log was the obvious way and a
- *  wrong one: in a log holding another tool's JSON as well, the scan opened on somebody
- *  else's bracket and swallowed the rest - 148 ordered pairs lost failures that way.
- *  The candidates are the ones every reader of JSON shares, found in one pass - see
- *  documentSpans in util.js. Scanning on from each bracket on its own read the rest of a
- *  log of unclosed ones again from every one of them. */
+ *  Every array that opens a line is a candidate, and each one whose records carry ruff's
+ *  fields is read. Starting from the first `[` in the log was the obvious way and a wrong
+ *  one: in a log holding another tool's JSON as well, the scan opened on somebody else's
+ *  bracket and swallowed the rest - 148 ordered pairs lost failures that way. Stopping at
+ *  the first array was wrong too: a workspace that runs ruff in each package prints one
+ *  per package. The candidates are the ones every reader of JSON shares, found in one
+ *  pass - see documentSpans in util.js. Scanning on from each bracket on its own read the
+ *  rest of a log of unclosed ones again from every one of them. */
 function jsonFindings(text) {
   if (!text.includes('"filename"') || !text.includes('"code"')) return [];
+  const out = [];
   for (const { value, where } of jsonDocumentsAt(text, (v) => Array.isArray(v) && v.some(isRecord))) {
-    return value.filter(isRecord).map((r) => placed(fromRecord(r), where(r)));
+    for (const r of value) if (isRecord(r)) out.push(placed(fromRecord(r), where(r)));
   }
-  return [];
+  return out;
 }
 
 export default {

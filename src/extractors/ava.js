@@ -159,42 +159,49 @@ export default {
       }, at, end), rolled[index], rolled[index] + 1));
     }
 
-    if (!failures.length) {
-      // A file that will not load never reaches the roll-call.
-      const at = lines.findIndex((l) => UNCAUGHT_RE.test(l));
-      if (at >= 0) {
-        const file = lines[at].match(UNCAUGHT_RE)[1];
-        let why = null, seen = 0, end = at + 1;
-        for (let j = at + 1; j < lines.length && seen < 3; j++) {
-          if (!lines[j].trim()) continue;
-          seen++;
-          const m = lines[j].match(CLASS_RE);
-          if (m) { why = m; end = j + 1; break; }
-        }
-        failures.push(withSource({
-          file, title: why ? why[1] : "uncaught exception",
-          code: why ? why[1] : undefined,
-          label: why ? undefined : "uncaught exception",
-          severity: "error",
-          message: why ? why[2].trim() : "ava could not run this file",
-        }, at, end));
-      } else {
-        const exited = s.match(EXITED_RE);
-        if (exited) {
-          const line = lines.findIndex((l) => EXITED_RE.test(l));
-          failures.push(withSource({
-            file: exited[1], title: "exited non-zero", label: "exited non-zero",
-            severity: "error", message: "the test file exited with a non-zero code",
-          }, line, line + 1));
-        }
+    // A file that will not load never reaches the roll-call - but it is beside the roll-call,
+    // not instead of it: AVA runs its files at once, so one can fail to load while another
+    // fails a test, and a log can hold more than one run. Reading these only where nothing
+    // else failed, and only the first, lost the rest.
+    const crashed = new Set();
+    let uncaught = 0;
+    if (s.includes("Uncaught exception in")) for (let at = 0; at < lines.length; at++) {
+      const u = lines[at].match(UNCAUGHT_RE);
+      if (!u) continue;
+      const file = u[1];
+      let why = null, seen = 0, end = at + 1;
+      for (let j = at + 1; j < lines.length && seen < 3; j++) {
+        if (!lines[j].trim()) continue;
+        seen++;
+        const m = lines[j].match(CLASS_RE);
+        if (m) { why = m; end = j + 1; break; }
       }
+      failures.push(withSource({
+        file, title: why ? why[1] : "uncaught exception",
+        code: why ? why[1] : undefined,
+        label: why ? undefined : "uncaught exception",
+        severity: "error",
+        message: why ? why[2].trim() : "ava could not run this file",
+      }, at, end));
+      if (!crashed.has(file)) uncaught++;
+      crashed.add(file);
     }
+    // A worker that exited non-zero, where no exception says why: the exception already does.
+    if (s.includes("exited with a non-zero exit code")) lines.forEach((line, i) => {
+      const exited = line.match(EXITED_RE);
+      if (!exited || crashed.has(exited[1])) return;
+      failures.push(withSource({
+        file: exited[1], title: "exited non-zero", label: "exited non-zero",
+        severity: "error", message: "the test file exited with a non-zero code",
+      }, i, i + 1));
+    });
     if (!failures.length) return null;
 
     const tally = s.match(TALLY_RE);
     return {
       tool: "ava",
-      summary: tally ? `${tally[1]} test${tally[1] === "1" ? "" : "s"} failed` : undefined,
+      summary: tally ? `${tally[1]} test${tally[1] === "1" ? "" : "s"} failed` +
+        (uncaught ? `, ${uncaught} uncaught exception${uncaught === 1 ? "" : "s"}` : "") : undefined,
       failures,
     };
   },

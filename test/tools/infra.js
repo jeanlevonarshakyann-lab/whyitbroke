@@ -416,6 +416,29 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL terraform fmt diff shape\n       ${e.message}`); fail++; }
 
+// git writes each kind of conflict as a sentence of its own, and only some of them say
+// "Merge conflict in". The rest were read as whatever followed their first " in " - the
+// branch, and the rest of the sentence - and named no file anyone has.
+try {
+  const files = (log) => analyse(log).failures.map((f) => f.file);
+  assert.deepEqual(files("CONFLICT (modify/delete): src/app.js deleted in HEAD and modified in topic.  Version topic of src/app.js left in tree.\n" +
+    "CONFLICT (modify/delete): lib/util.js deleted in topic and modified in HEAD. Version HEAD of lib/util.js left in tree.\n" +
+    "CONFLICT (rename/delete): old.txt renamed to new.txt in main, but deleted in topic.\n" +
+    "CONFLICT (rename/rename): a.txt renamed to b.txt in HEAD and to c.txt in topic.\n" +
+    'CONFLICT (rename/rename): Rename "x.txt"->"y.txt" in branch "HEAD" rename "x.txt"->"z.txt" in "topic"\n' +
+    "CONFLICT (file/directory): directory in the way of docs from topic; moving it to docs~topic instead.\n" +
+    "CONFLICT (add/add): Merge conflict in README.md\n" +
+    "Automatic merge failed; fix conflicts and then commit the result.\n"),
+  ["src/app.js", "lib/util.js", "new.txt", "a.txt", "x.txt", "docs", "README.md"]);
+  // A kind not read here names no file, and says what git said.
+  const other = analyse("CONFLICT (implicit dir rename): Cannot map more than one path to x; implicit directory renames tried to put these paths there: a, b\n" +
+    "Automatic merge failed; fix conflicts and then commit the result.\n").failures[0];
+  assert.equal(other.file, undefined);
+  assert.match(other.message, /^implicit dir rename conflict: Cannot map more than one path to x;/);
+  console.log("  ok   each kind of git conflict names the file it leaves");
+  pass++;
+} catch (e) { console.log(`  FAIL git conflict kinds\n       ${e.message}`); fail++; }
+
 // And a file's diff ends where another one begins, so a pipeline that formats and then
 // tests does not have the test runner's value diff read as more unformatted HCL.
 try {
@@ -442,6 +465,27 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL terraform fmt interleaving\n       ${e.message}`); fail++; }
 
+// Every terraform run in a log is read. An init error was looked for only after the last step
+// of init's narration in the whole log, and only where nothing else had been found; a refused
+// subcommand was read once, and only where nothing else had failed.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.title}: ${f.message}`).sort();
+  const union = (...texts) => texts.flatMap(read).sort();
+  const init = fx("terraform_init_fail.txt"), refused = fx("terraform_nocommand_fail.txt");
+  const another = init.split("example.com").join("registry.internal");
+  for (const [label, first, second] of [
+    ["two inits", init, another],
+    ["an init after a validate", fx("terraform_validate_fail.txt"), init],
+    ["two refused subcommands", refused, refused.split("notasubcommand").join("alsonot")],
+    ["a refused subcommand after an init", init, refused],
+  ]) {
+    assert.notEqual(first, second, label);
+    assert.deepEqual(read(`${first}\n${second}`), union(first, second), label);
+  }
+  console.log("  ok   every terraform run in a log is read");
+  pass++;
+} catch (e) { console.log(`  FAIL every terraform run\n       ${e.message}`); fail++; }
+
 // terraform names itself in the sentence, which is what makes it claimable at all.
 try {
   const { EXTRACTORS } = await import("../../src/index.js");
@@ -459,6 +503,23 @@ try {
   console.log("  ok   a refused subcommand is terraform's only when terraform says so");
   pass++;
 } catch (e) { console.log(`  FAIL terraform refused command\n       ${e.message}`); fail++; }
+
+// git's own `fatal:` is read beside a conflict, a rejected push or files that would be
+// overwritten. A log holding two git commands can hold a conflict from one and `fatal: not a
+// git repository` from the other, and the second was dropped because the first had said
+// something structural. What git says again about the conflict is still not a second failure.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.file ?? "-"} ${f.message}`).sort();
+  const norepo = fx("git_norepo_fail.txt");
+  for (const name of ["git_conflict_fail.txt", "git_reject_fail.txt", "git_overwrite_fail.txt"]) {
+    assert.deepEqual(read(`${fx(name)}\n${norepo}`), [...read(fx(name)), ...read(norepo)].sort(), name);
+  }
+  const rebase = `${fx("git_conflict_fail.txt")}\nerror: could not apply 1a2b3c4... merge the branch\n` +
+    "error: Committing is not possible because you have unmerged files.\nfatal: Exiting because of an unresolved conflict.";
+  assert.deepEqual(read(rebase), read(fx("git_conflict_fail.txt")), "the conflict said again was read as more");
+  console.log("  ok   git's own fatal is read beside a conflict");
+  pass++;
+} catch (e) { console.log(`  FAIL git fatal beside a conflict\n       ${e.message}`); fail++; }
 
 // git lists the files a checkout would overwrite one per line, and a long list in a long log
 // is cut by a capture's cap: the head of it kept with the error, the end of it in the tail.
@@ -478,6 +539,28 @@ try {
   console.log("  ok   git's list of files it would overwrite goes on past a gap in the capture");
   pass++;
 } catch (e) { console.log(`  FAIL git overwrite list cut by the cap\n       ${e.message}`); fail++; }
+
+// Each docker build in a log is read on its own. CI goes on to the next image after one fails,
+// and read as one build, the first build's message took the last build's Dockerfile line - and
+// a later build whose step 5 printed made an earlier silent step 5 look like it had said why it
+// failed, so the earlier build was not docker's at all.
+try {
+  const read = (text) => (analyse(text)?.failures ?? []).map((f) => `${f.file}:${f.line} ${f.message}`).sort();
+  for (const name of ["docker_copy_fail.txt", "docker_dockerfile_fail.txt", "docker_pull_fail.txt", "docker_run_silent_fail.txt"]) {
+    const first = fx(name), file = first.match(/^(Dockerfile\S*):\d+$/m)[1];
+    const second = first.split(file).join(`${file}.other`);
+    assert.deepEqual(read(`${first}\n${second}`), [...read(first), ...read(second)].sort(), name);
+  }
+  const silent = fx("docker_run_silent_fail.txt");
+  assert.deepEqual(read(`${silent}\n#5 [2/2] RUN echo ready\n#5 0.211 ready\n#5 DONE 0.2s`), read(silent),
+    "a later build's step 5 spoke for an earlier silent one");
+  // ...and a build whose failing step printed is still the tool's inside it, beside docker's own.
+  const both = analyse(`${fx("docker_buildkit_pytest_fail.txt")}\n${fx("docker_copy_fail.txt")}`);
+  assert.equal(both.tool, "pytest");
+  assert.deepEqual((both.others ?? []).map((o) => [o.tool, o.count]), [["docker", 1]]);
+  console.log("  ok   each docker build in a log is read on its own");
+  pass++;
+} catch (e) { console.log(`  FAIL each docker build\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

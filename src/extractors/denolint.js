@@ -1,4 +1,4 @@
-import { findJsonDocument, jsonDocumentsAt, pinnedMessage, pinnedStart } from "../util.js";
+import { jsonDocuments, jsonDocumentsAt, pinnedMessage, pinnedStart } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 // `deno lint` and `deno fmt --check` - deno's linter and formatter, as opposed to
@@ -76,10 +76,11 @@ function compact(lines) {
 
 function json(s, placed) {
   if (!s.includes('"diagnostics"')) return [];
-  let doc = null, where = () => ({ start: 0, end: 1 });
-  if (placed) { for (const found of jsonDocumentsAt(s, REPORT)) { ({ value: doc, where } = found); break; } }
-  else doc = findJsonDocument(s, REPORT);
-  return (doc?.diagnostics ?? []).filter((d) => SCRIPT.test(unfile(d.filename))).map((d) => {
+  // Every report: a workspace that lints each package on its own prints a document for each,
+  // and only the first was read.
+  const docs = placed ? [...jsonDocumentsAt(s, REPORT)]
+    : [...jsonDocuments(s, REPORT)].map((value) => ({ value, where: () => ({ start: 0, end: 1 }) }));
+  return docs.flatMap(({ value: doc, where }) => doc.diagnostics.filter((d) => SCRIPT.test(unfile(d.filename))).map((d) => {
     const { start, end } = where(d);
     return withSource({
       file: unfile(d.filename), line: d.range.start.line,
@@ -89,7 +90,7 @@ function json(s, placed) {
       title: d.code, code: d.code, severity: "error", message: String(d.message ?? "").trim(),
       ...(d.hint ? { hint: String(d.hint) } : {}),
     }, start, end);
-  });
+  }));
 }
 
 function findings(s, placed = false) {

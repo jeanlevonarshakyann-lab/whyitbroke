@@ -840,6 +840,14 @@ test("two tools writing into one pipe never crash it or double a diagnosis", () 
   // Filesystem enumeration order is platform-dependent. Sort so the PRNG reaches the
   // same weave on Linux, macOS, and Windows; named regressions above preserve any weave
   // that once exposed a bug instead of relying on accidental directory order.
+  // Each pair is woven from a seed of its own, made from its two names. One stream for every
+  // pair meant a new fixture changed the weave of each pair after it, and a contribution that
+  // touched nothing of theirs failed on weaves nobody had looked at.
+  const seedOf = (a, b) => {
+    let h = 20260910;
+    for (const ch of `${a}\u0000${b}`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) & 0x7fffffff;
+    return h;
+  };
   const names = readdirSync(join(here, "fixtures")).sort();
   const solo = new Map();
   for (const n of names) { try { solo.set(n, analyse(fx(n))); } catch { solo.set(n, null); } }
@@ -852,6 +860,7 @@ test("two tools writing into one pipe never crash it or double a diagnosis", () 
     for (let y = x + 1; y < names.length; y++) {
       if (!solo.get(names[x]) || !solo.get(names[y])) continue;
       pairs++;
+      seed = seedOf(names[x], names[y]);
       let r;
       try { r = analyse(weave(fx(names[x]), fx(names[y]))); }
       catch (e) { threw.push(`${names[x]} + ${names[y]}: ${e.message}`); continue; }
@@ -894,7 +903,7 @@ test("two tools writing into one pipe never crash it or double a diagnosis", () 
   assert.ok(pairs > 5000, `only ${pairs} interleavings exercised`);
   assert.deepEqual(threw.slice(0, 5), [], "a shredded log threw");
   assert.deepEqual(doubled.slice(0, 5), [], "a shredded log reported one diagnosis twice");
-  console.log(`       ${pairs} interleavings, seed ${20260910}, in ${secs(walk.took())}`);
+  console.log(`       ${pairs} interleavings, seeded per pair from ${20260910}, in ${secs(walk.took())}`);
 });
 
 test("a structured reader and its text reader agree after repeated lines collapse", () => {

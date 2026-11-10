@@ -71,3 +71,17 @@ export function agreeAcrossFormats(groups) {
   }
   return { pass, fail };
 }
+
+/** `file` read once `move` has moved the sources it names, held to `file` read as it is: the
+ *  same failures, each at the file `moved` says it is in now, and saying what it said - moved
+ *  too, where it names the file. A path is whatever the tool wrote - spaces, a drive and all -
+ *  and a reader has to take it as written. */
+export function readsMoved(file, move, moved) {
+  const text = fx(file), changed = move(text);
+  assert.notEqual(changed, text, `${file}: names nothing to move`);
+  const before = analyse(text), after = analyse(changed);
+  assert.equal(after?.tool, before.tool, `${file}: read as ${after?.tool} once moved`);
+  const read = (r, where, said) => r.failures.map((f) => [where(f.file), f.line, f.col, f.code, f.title, said(f.message)]);
+  assert.deepEqual(read(after, (f) => f, (m) => m), read(before, moved, (m) => (m === undefined ? m : move(m))),
+    `${file}: read otherwise once moved`);
+}

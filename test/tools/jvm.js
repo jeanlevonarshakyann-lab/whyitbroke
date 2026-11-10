@@ -218,6 +218,35 @@ for (const result of [runCases(CASES), agreeAcrossFormats([
 }
 
 
+// Every failure in a JVM build is read, beside whatever else failed. `mvn --fail-at-end` goes on
+// past a module that would not compile and fails the next one on a dependency or a test, and a
+// log can hold more than one Gradle run. Maven's failed goal, Surefire's rows and Gradle's
+// "What went wrong" were each read only where nothing before them had been found, and only the
+// first of each. Each failure here is put after another, and both have to come back - while a
+// goal or a section that only says again what was read already adds nothing.
+try {
+  const read = (text) => [...new Set((analyse(text)?.failures ?? [])
+    .map((f) => `${f.file ?? "-"}:${f.line ?? "-"} ${f.title} ${f.message.split("\n")[0]}`))].sort();
+  const union = (...texts) => [...new Set(texts.flatMap(read))].sort();
+  const dependency = fx("maven_dependency_fail.txt"), script = fx("gradle_script_fail.txt");
+  const another = (text, pairs) => pairs.reduce((t, [from, to]) => t.split(from).join(to), text);
+  for (const [label, first, second] of [
+    ["a dependency after a compile error", fx("maven_fail.txt"), dependency],
+    ["two dependencies", dependency, another(dependency, [["does-not-exist-xyz", "missing-too"], ["project demo", "project shop"]])],
+    ["a test after a compile error", fx("maven_fail.txt"), fx("maven_test_fail.txt")],
+    ["two build scripts", script, another(script, [["JSON-java", "other-java"], ["line: 55", "line: 7"]])],
+    ["a build script after failed tests", fx("gradle_tests_plain_fail.txt"), script],
+  ]) {
+    assert.deepEqual(read(`${first}\n${second}`), union(first, second), label);
+  }
+  // Maven's compiler goal and Gradle's compile and test sections say again what was read.
+  for (const name of ["maven_fail.txt", "gradle_fail.txt", "gradle_tests_plain_fail.txt", "maven_test_fail.txt"]) {
+    assert.ok(!analyse(fx(name)).failures.some((f) => /^(?:goal failed|build script)$/.test(f.label ?? "")), `${name} read a restatement`);
+  }
+  console.log("  ok   every failure in a JVM build is read, beside whatever else failed");
+  pass++;
+} catch (e) { console.log(`  FAIL every JVM failure\n       ${e.message}`); fail++; }
+
 // javac compiled both classes and warned four times, and exited 0. The generic reader
 // already skipped a line that starts with `warning:`, but not the same word after a
 // location - `Orders.java:8: warning: [rawtypes] found raw type: List` - and said
@@ -233,6 +262,19 @@ try {
   console.log("  ok   a warning after a location is not a failure");
   pass++;
 } catch (e) { console.log(`  FAIL located warnings\n       ${e.message}`); fail++; }
+
+// A class's source file can be named with a space in it, `Cart Test.java` for `CartTest`:
+// javac keeps the name for the stack, and Surefire finds the test by its class. Each
+// reader of a frame took a file only without spaces, and a test that failed in one was
+// not read.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("maven_surefire_xml_fail.txt", (t) => t.replaceAll("(CartTest.java:", "(Cart Test.java:"), (file) => (file === "CartTest.java" ? "Cart Test.java" : file));
+  readsMoved("gradle_tests_full_fail.txt", (t) => t.replaceAll("(InvoiceTest.java:", "(Invoice Test.java:"), (file) => (file === "InvoiceTest.java" ? "Invoice Test.java" : file));
+  readsMoved("gradle_tests_plain_fail.txt", (t) => t.replaceAll(" at InvoiceTest.java:", " at Invoice Test.java:"), (file) => (file === "InvoiceTest.java" ? "Invoice Test.java" : file));
+  console.log("  ok   a test whose source file has a space in its name is read from its frame");
+  pass++;
+} catch (e) { console.log(`  FAIL jvm frames with spaces\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

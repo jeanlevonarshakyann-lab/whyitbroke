@@ -305,6 +305,48 @@ test("a clipped structured record cannot invent a diagnosis", () => {
   }
 });
 
+// rubocop and jest write their JSON reports on one line, and the line grows with what they
+// found. A line still unended after 64KiB of it is skipped to its end, so that a minified
+// blob cannot hold the scan - and a report that outgrew it in the middle of a log past the
+// cap came back as the marker alone. So did one across the start of the tail, which the
+// tail does not keep a part of.
+test("a one-line report longer than the scan survives the cap", () => {
+  const report = (name, grow) => JSON.stringify(grow(JSON.parse(fx(name))));
+  const rubocop = report("rubocop_json_fail.txt", (r) => {
+    r.files = Array.from({ length: 120 }, (_, k) => ({ ...r.files[k % r.files.length], path: `app/models/m${k}.rb` }));
+    r.summary = { ...r.summary, offense_count: r.files.reduce((n, f) => n + f.offenses.length, 0),
+      target_file_count: r.files.length, inspected_file_count: r.files.length };
+    return r;
+  });
+  const jest = report("jest_json_assertions_fail.txt", (r) => {
+    r.testResults = Array.from({ length: 30 }, (_, k) => ({ ...r.testResults[0], name: `/home/dev/app/src/m${k}.test.js` }));
+    return r;
+  });
+  const MiB = 1024 * 1024, filler = (bytes) => "info: compiling module of the build graph\n".repeat(Math.ceil(bytes / 42));
+  for (const [tool, line] of [["rubocop", rubocop], ["jest", jest]]) {
+    assert.ok(line.length > 64 * 1024 && line.length < MiB / 4, `${tool}: a report of ${line.length} bytes`);
+    const alone = analyse(line);
+    assert.equal(alone?.tool, tool);
+    // In the middle, and across the start of the tail: 3/4MiB of a 1MiB cap.
+    for (const after of [MiB, MiB * 3 / 4 - 1000]) {
+      const text = filler(MiB / 2) + filler(MiB) + line + "\n" + filler(after);
+      for (const chunk of [16 * 1024, 65536]) {
+        const kept = capture(text, MiB, chunk);
+        assert.equal(kept.truncated, true);
+        assert.ok(kept.text.includes("\n" + line + "\n"), `${tool}, ${after} bytes after it, in chunks of ${chunk}: the report was not kept`);
+        const read = analyse(kept.text);
+        assert.equal(read?.tool, tool);
+        assert.deepEqual(read.failures.map((f) => [f.file, f.line, f.message]), alone.failures.map((f) => [f.file, f.line, f.message]));
+      }
+    }
+  }
+  // A long line that is no document is still skipped to its end: a minified bundle that
+  // says "Error" is not a diagnosis.
+  const bundle = "!function(){" + "var a=new Error(\"x\");".repeat(8000) + "}();";
+  const kept = capture(filler(MiB / 2) + filler(MiB) + bundle + "\n" + filler(MiB), MiB, 16 * 1024);
+  assert.ok(!kept.text.includes(bundle.slice(0, 1000)), "a minified bundle was kept");
+});
+
 test("output that is not UTF-8 stays within the cap", () => {
   // A byte that is not UTF-8 reads as U+FFFD, three bytes of text. Output under the cap
   // came back whole, so 1024 such bytes handed back 3072 under a cap of 1024.
@@ -407,6 +449,41 @@ test("a buried failure survives the cap, whatever tool wrote it", () => {
   assert.ok(checked > 100, `only ${checked} fixtures buried`);
   assert.deepEqual(lost.slice(0, 8), [], "a real failure disappeared under cleanup output");
   console.log(`       ${checked} fixtures buried in 3MB of chatter and capped to 120KB`);
+});
+
+// Some tools name what failed in rows with no failure word in them, under a footer with
+// one: the footer's eight lines of context kept the last rows of a long list, and nothing
+// kept the rest. Others write nothing an English failure word can find at all.
+test("rows that name a failure without a failure word survive the cap", () => {
+  const line = "  vite:build transforming src/components/Widget.tsx +2ms\n";
+  const chatter = line.repeat(Math.ceil(1_500_000 / line.length));
+  const files = Array.from({ length: 40 }, (_, k) => `src/module${k}.js`);
+  const logs = [
+    // A merge that conflicted in forty files...
+    ["git", files.map((f) => `Auto-merging ${f}\nCONFLICT (content): Merge conflict in ${f}\n`).join("") +
+      "Automatic merge failed; fix conflicts and then commit the result.\n"],
+    // ...and a push that had thirty refs refused.
+    ["git", "To github.com:acme/app.git\n" +
+      Array.from({ length: 30 }, (_, k) => ` ! [rejected]        release/${k} -> release/${k} (non-fast-forward)\n`).join("") +
+      "error: failed to push some refs to 'github.com:acme/app.git'\n"],
+    // Testing Platform in German, failing on an exception that names nothing in English.
+    ["dotnet test", ["fehlerhaft AppliesDiscount (7ms)", "  ShopTests.RabattFehlt: Rabatt fehlt",
+      "  von /home/dev/shop/ShopTests/bin/Debug/net10.0/ShopTests.dll (net10.0|arm64)", "  ShopTests.RabattFehlt: Rabatt fehlt",
+      "    um ShopTests.CartTests.AppliesDiscount() in /home/dev/shop/ShopTests/Test1.cs:15",
+      "    um System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)", ""].join("\n")],
+    // A recursive pnpm run with its prefixes hidden prints a package's failure as a bare row.
+    ["pnpm", ' ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND  No package.json (or package.yaml, or package.json5) was found in "/home/dev/app/packages/web".\n'],
+  ];
+  for (const [tool, log] of logs) {
+    const plain = analyse(log);
+    assert.equal(plain?.tool, tool);
+    const c = createCapture(120_000);
+    for (const part of [chatter, log, chatter]) c.push(Buffer.from(part));
+    const got = analyse(c.finish().text);
+    const read = (r) => r?.failures.map((f) => f.file ?? f.message);
+    assert.equal(got?.tool, tool, `buried, a ${tool} log was read as ${got?.tool}`);
+    assert.deepEqual(read(got), read(plain), `buried, a ${tool} log lost failures`);
+  }
 });
 
 console.log(`\n  ${pass} passed, ${fail} failed`);

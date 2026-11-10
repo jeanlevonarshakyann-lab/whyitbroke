@@ -156,6 +156,15 @@ const CASES = [
 ];
 
 let pass = 0, fail = 0;
+// PHPUnit runs any file with the suffix it is given, `ShopTest.php8` as well: a place was taken
+// only from a file whose extension is letters, and every other was read into the message.
+try {
+  const { readsMoved } = await import("./harness.js");
+  readsMoved("phpunit_fail.txt", (t) => t.replaceAll("ShopTest.php:", "ShopTest.php8:"), (file) => file?.replace("ShopTest.php", "ShopTest.php8"));
+  readsMoved("phpunit_teamcity_fail.txt", (t) => t.replaceAll("ArithmeticTest.php", "ArithmeticTest.php8"), (file) => file?.replace("ArithmeticTest.php", "ArithmeticTest.php8"));
+  console.log("  ok   a test file whose extension ends in a digit keeps its place");
+  pass++;
+} catch (e) { console.log(`  FAIL phpunit digit suffix\n       ${e.message}`); fail++; }
 for (const result of [runCases(CASES), agreeAcrossFormats([
   // --testdox renames every test on purpose, so the name is what differs there; it is
   // pinned in its own row above.
@@ -168,6 +177,24 @@ for (const result of [runCases(CASES), agreeAcrossFormats([
   fail += result.fail;
 }
 
+
+// A fatal names its file after an " in ", and its message can say "in" itself. Read at the
+// first one, the message stopped at "already" and the file was "use in /var/www/app/Foo.php" -
+// a file no one has. The file is the path after the last " in "; one with " in " in it is
+// still read whole.
+try {
+  const said = (log) => analyse(log).failures.map((f) => [f.file, f.line, f.message]);
+  assert.deepEqual(said("PHP Fatal error:  Cannot declare class Foo, because the name is already in use in /var/www/app/Foo.php on line 5\n"),
+    [["/var/www/app/Foo.php", 5, "Cannot declare class Foo, because the name is already in use"]]);
+  assert.deepEqual(said("PHP Fatal error:  Cannot redeclare helper() (previously declared in /app/a.php:3) in /app/b.php on line 7\n"),
+    [["/app/b.php", 7, "Cannot redeclare helper() (previously declared in /app/a.php:3)"]]);
+  assert.deepEqual(said(fx("php_fatal_fail.txt").replaceAll("on null in /home/dev/app/bad.php:2", "on null in setup in /home/dev/app/bad.php:2"))[0],
+    ["/home/dev/app/bad.php", 2, "Call to a member function method() on null in setup"]);
+  assert.deepEqual(said("PHP Fatal error:  Call to undefined function x() in /work in progress/a.php on line 3\n"),
+    [["/work in progress/a.php", 3, "Call to undefined function x()"]]);
+  console.log("  ok   a fatal whose message says \"in\" names the file after its last \" in \"");
+  pass++;
+} catch (e) { console.log(`  FAIL php message with in\n       ${e.message}`); fail++; }
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,0 +1,14 @@
+
+[1m[31mInsufficient number of arguments or no entry found.
+[1m[31mAlternatively, run 'webpack(-cli) --help' for usage info.[39m[22m
+
+Hash: 5a2842644613ae559f92
+Version: webpack 4.47.0
+Time: 35ms
+Built at: 10/13/2026 6:21:41 AM
+
+WARNING in configuration
+The 'mode' option has not been set, webpack will fallback to 'production' for this value. Set 'mode' option to 'development' or 'production' to enable defaults for each environment.
+You can also set it to 'none' to disable any default behavior. Learn more: https://webpack.js.org/configuration/mode/
+
+ERROR in Entry module not found: Error: Can't resolve './src' in '/home/dev/app'

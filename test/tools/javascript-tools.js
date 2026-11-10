@@ -156,6 +156,15 @@ const CASES = [
       // the loader advice is a suggestion, not what happened
       assert.doesNotMatch(JSON.stringify(r.failures), /appropriate loader|webpack\.js\.org/);
     } },
+  // Captured with webpack 4.47 and webpack-cli 3, run with nothing to build. webpack 4 writes
+  // an error that belongs to no module on its heading line, as a sentence, and nothing under
+  // it - and the sentence was read as the module: a file called "Entry module not found:
+  // Error: ...", and no explanation at all.
+  { file: "webpack4_entry_fail.txt", tool: "webpack", n: 1, check: (r) => {
+      assert.equal(r.failures[0].file, undefined);
+      assert.equal(r.failures[0].message, "Entry module not found: Can't resolve './src' in '/home/dev/app'");
+      assert.equal(r.summary, "1 error, 1 warning");
+    } },
   // Captured with prettier 3.6. A file that will not parse is followed by its code frame,
   // every line of it tagged [error] like the diagnosis - and each was read as another
   // unparsable file, so one such file counted as four.
@@ -689,6 +698,23 @@ const CASES = [
 ];
 
 let pass = 0, fail = 0;
+// Babel ends the file in its heading at the first colon a space follows. Ended at the first
+// colon, a file on a drive, `C:\work\bad.jsx`, was the file `C` - no path, so the error was not
+// read at all - and `/work/src/foo:bar.jsx`, a name POSIX allows, was `/work/src/foo`, with the
+// rest of the name read into the message.
+try {
+  const text = fx("babel_fail.txt"), was = "/home/dev/app/bad.jsx";
+  assert.ok(text.includes(was), `babel_fail.txt does not name ${was}`);
+  const read = (r) => r?.failures.map((f) => [f.file, f.line, f.col, f.code, f.message, f.stmt]);
+  const bare = read(analyse(text));
+  for (const file of ["C:\\work\\bad.jsx", "/work/src/foo:bar.jsx", "/work/My Project/bad.jsx"]) {
+    const r = analyse(text.replaceAll(was, file));
+    assert.equal(r?.tool, "babel", `${file}: read as ${r?.tool}`);
+    assert.deepEqual(read(r), bare.map(([, ...rest]) => [file, ...rest]), file);
+  }
+  console.log("  ok   babel's heading names a file on a drive, or with a colon in it, whole");
+  pass++;
+} catch (e) { console.log(`  FAIL babel heading paths\n       ${e.message}`); fail++; }
 for (const result of [runCases(CASES), agreeAcrossFormats([
   ["markdownlint", ["markdownlint_aliases_fail.txt", "markdownlint_json_fail.txt"]],
   // Unicode or ASCII, sass draws the same diagnostic.
@@ -722,6 +748,19 @@ for (const result of [runCases(CASES), agreeAcrossFormats([
 }
 
 
+// Less names a missing import in its message, quoted, and the file it was imported from after
+// " in ". An import named `theme in progress.less` cut the message at its "in", and the rest of
+// the sentence came back as the file.
+try {
+  const r = analyse("FileError: 'theme in progress.less' wasn't found. Tried - /app/theme in progress.less in /app/styles.less on line 3, column 1:\n" +
+    "3 @import \"theme in progress\";\n");
+  assert.equal(r?.tool, "less");
+  assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col, f.message]),
+    [["/app/styles.less", 3, 1, "'theme in progress.less' wasn't found. Tried - /app/theme in progress.less"]]);
+  console.log("  ok   a Less import named with \" in \" is the message, not the file");
+  pass++;
+} catch (e) { console.log(`  FAIL less import with in\n       ${e.message}`); fail++; }
+
 // The same eslint run captured both ways. As with cargo, the machine format is only
 // worth reading if it says the same thing as the human one - and here it can be held to
 // the stricter test, because eslint's stylish output is a table of the same fields
@@ -742,6 +781,21 @@ try {
   console.log("  ok   eslint -f json says what the table eslint printed says");
   pass++;
 } catch (e) { console.log(`  FAIL eslint json vs table\n       ${e.message}`); fail++; }
+
+// A mixin calling a mixin draws a frame for each call, and the trace ends where every sass
+// trace does, at `root stylesheet`. Read only so far past the heading, a deep trace was cut
+// before it, and an ASCII box - which has no Unicode cap to say it is sass's - was nobody's.
+try {
+  const fixture = fx("sass_ascii_fail.txt").trimEnd().split("\n");
+  const frames = Array.from({ length: 60 }, (_, k) => `  _mixins.scss ${k + 1}:3  level-${k}()`);
+  const log = [...fixture.slice(0, -1), ...frames, fixture.at(-1)].join("\n") + "\n";
+  const r = analyse(log);
+  assert.equal(r?.tool, "sass");
+  assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].col], ["_mixins.scss", 1, 3]);
+  assert.equal(r.failures[0].message, "Undefined variable.");
+  console.log("  ok   a sass error under a deep trace is read to the trace's end");
+  pass++;
+} catch (e) { console.log(`  FAIL sass deep trace\n       ${e.message}`); fail++; }
 
 // A refusal's range is where its sentence matched. The sentence was looked up as a whole
 // line, and a line break inside the quoted option - which `[^']*` steps over - made the

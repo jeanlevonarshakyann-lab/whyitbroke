@@ -20,12 +20,14 @@
 import { counted } from "../util.js";
 import { withSource } from "../ownership.js";
 
-const PARSE_HEAD_RE = /^go:[^\S\n]+errors parsing[^\S\n]+(\S+):[^\S\n]*$/;
+const PARSE_HEAD_RE = /^go:[^\S\n]+errors parsing[^\S\n]+(\S(?:[^\n]*?\S)?):[^\S\n]*$/;
 // The loader writes the path it was given, which is `go.mod` from the module root and an
-// absolute path from anywhere else.
+// absolute path from anywhere else - with every space in it, under a checkout named
+// `My Project`. Only a path that says where it starts - a drive, a separator, `./`, `../` -
+// is read with one, as in go's build errors: see BUILD_RE in gotest.js.
 // Each is read to its last character that is not a space, at once: read lazily, it stopped at each
 // space of a long stretch and read the rest of the stretch again from there.
-export const PARSE_LINE_RE = /^(\S*go\.mod):(\d+):[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
+export const PARSE_LINE_RE = /^((?:[A-Za-z]:[\\/]|[\\/]|\.\.?[\\/])[^:\n]*?go\.mod|\S*go\.mod):(\d+):[^\S\n]*(\S(?:.*\S)?)[^\S\n]*$/;
 const IMPORTS_HEAD_RE = /^go:[^\S\n]+(\S+)[^\S\n]+imports[^\S\n]*$/;
 // `go mod download` names the module and the version it wanted, with no chain above it.
 // The "@" is what separates this from `go: downloading <module> <version>`, which is
