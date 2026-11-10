@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, isNoise, lineAt, pinnedMessage, pinnedSource, pinnedStart, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, firstTag, githubAnnotations, isNoise, lineAt, pinnedMessage, pinnedSource, pinnedStart, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // The file ends where the whitespace before the chevron starts, and the test's name where the
 // trailing whitespace starts - see pinnedMessage in util.js.
@@ -212,7 +212,7 @@ function saidIn(body) {
 
 /** The failures of a --reporter=junit document, or none. */
 function vitestJunit(s) {
-  if (!VITEST_SUITES.test(s)) return [];
+  if (!firstTag(s, VITEST_SUITES)) return [];
   const out = [];
   for (const doc of elements(s, VITEST_DOC_RE, VITEST_DOC)) {
   for (const test of elements(doc[1], JUNIT_CASE_RE, JUNIT_CASE)) {

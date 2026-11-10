@@ -1,4 +1,4 @@
-import { elements, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
+import { elements, firstTag, jsonDocumentsAt, lineAt, pinnedStart, sarifArtifactUri, xmlAttributes } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 // A rule as ruff names it in its text: by its code, `F401`, or - with preview's
@@ -119,7 +119,7 @@ function reported(s, lines) {
         const inSuite = inDoc + suite.indices[2][0];
         for (const c of elements(suite[2], JUNIT_CASE_RE, JUNIT_CASE)) {
           const a = xmlAttributes(c[1]);
-          const failure = c[2].match(JUNIT_FAILURE_RE);
+          const failure = firstTag(c[2], JUNIT_FAILURE_RE);
           if (!failure || !file) continue;
           const code = String(a.name ?? "").replace(/^org\.ruff\./, "");
           // The finding is its test case, from the opening tag to the closing one.

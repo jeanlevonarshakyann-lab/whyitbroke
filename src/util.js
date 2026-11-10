@@ -207,19 +207,7 @@ export function* elements(text, re, { open, close, selfClosing = false }) {
       anchored.lastIndex = start.index;
       const match = anchored.exec(structure);
       if (match) {
-        // RegExp match arrays are ordinary arrays with a few properties. Rebuild one
-        // whose strings come from the original document while retaining structural
-        // indices for nested readers and evidence mapping.
-        const restored = match.map((value, index) => {
-          const span = match.indices[index];
-          return value === undefined || !span ? value : text.slice(span[0], span[1]);
-        });
-        restored.index = match.index;
-        restored.input = text;
-        restored.groups = match.groups && Object.fromEntries(Object.entries(match.indices.groups)
-          .map(([name, span]) => [name, span ? text.slice(span[0], span[1]) : undefined]));
-        restored.indices = match.indices;
-        yield restored;
+        yield restored(match, text);
         from = start.index + Math.max(match[0].length, 1);
         continue;
       }
@@ -228,9 +216,50 @@ export function* elements(text, re, { open, close, selfClosing = false }) {
   }
 }
 
+/** A match made in `xmlStructure(text)`, with its strings taken from `text`.
+ *
+ *  RegExp match arrays are ordinary arrays with a few properties. Rebuild one whose
+ *  strings come from the original document while retaining structural indices for nested
+ *  readers and evidence mapping. The pattern has to have been run with the `d` flag. */
+function restored(match, text) {
+  const out = match.map((value, index) => {
+    const span = match.indices[index];
+    return value === undefined || !span ? value : text.slice(span[0], span[1]);
+  });
+  out.index = match.index;
+  out.input = text;
+  out.groups = match.groups && Object.fromEntries(Object.entries(match.indices.groups)
+    .map(([name, span]) => [name, span ? text.slice(span[0], span[1]) : undefined]));
+  out.indices = match.indices;
+  return out;
+}
+
 /** The first match `elements` would give - what `text.match(re)` gives for the pattern. */
 export function firstElement(text, re, options) {
   for (const match of elements(text, re, options)) return match;
+  return null;
+}
+
+/** Every match of `re` in `text`, in the order and with the groups `text.matchAll(re)`
+ *  gives, for a pattern that reads one tag: `<error\b([^>]*?)\/?>`.
+ *
+ *  It is found where `elements` finds an element - in the copy of the document whose
+ *  comments, CDATA and quoted `>` are inert - so the tag ends where XML ends it, and is
+ *  not one a comment holds. A reader that asked the log itself, `s.match(...)`, ended a
+ *  tag at the first `>` of a value before the attributes it was reading for. */
+export function* tags(text, re) {
+  text = String(text);
+  const structure = xmlStructure(text);
+  const all = new RegExp(re.source, `${re.flags.replace(/[dgy]/g, "")}dg`);
+  for (let match; (match = all.exec(structure));) {
+    yield restored(match, text);
+    if (!match[0].length) all.lastIndex++;
+  }
+}
+
+/** The first match `tags` would give - what `text.match(re)` gives for the pattern. */
+export function firstTag(text, re) {
+  for (const match of tags(text, re)) return match;
   return null;
 }
 

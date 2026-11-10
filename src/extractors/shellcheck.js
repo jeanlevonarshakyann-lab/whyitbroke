@@ -1,4 +1,4 @@
-import { append, colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, pinnedMessage, tailFirst, xmlAttributes } from "../util.js";
+import { append, colonPlaces, elements, findJsonDocument, jsonDocumentsAt, lineAt, pinnedMessage, tags, tailFirst, xmlAttributes } from "../util.js";
 import { joinSources, preserveSourceRange, withSource } from "../ownership.js";
 // shellcheck writes two formats a CI job is likely to produce, and neither was read.
 // Its default is a block per location:
@@ -82,7 +82,7 @@ function machine(s, placed = false) {
   if (s.includes("ShellCheck.SC")) {
     for (const doc of elements(s, CHECKSTYLE_FILE, CHECKSTYLE_FILE_ELEMENT)) {
       const file = xmlAttributes(doc[1]).name;
-      for (const err of doc[2].matchAll(CHECKSTYLE_ERROR)) {
+      for (const err of tags(doc[2], CHECKSTYLE_ERROR)) {
         const a = xmlAttributes(err[1]);
         const source = SHELLCHECK_SOURCE.exec(a.source ?? "");
         if (!source || !file) continue;

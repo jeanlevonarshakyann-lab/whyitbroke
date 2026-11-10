@@ -1,4 +1,4 @@
-import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, RULE_NAME, sarifArtifactUri, xmlAttributes, xmlText } from "../util.js";
+import { elements, firstElement, githubAnnotations, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, RULE_NAME, sarifArtifactUri, tags, xmlAttributes, xmlText } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { locatedPrefix } from "../location.js";
 // oxlint prints one run ten ways, and it chooses among them itself: a terminal gets a
@@ -204,7 +204,7 @@ function findings(s, placed = false) {
   if (s.includes("<checkstyle")) {
     for (const f of elements(s, CHECKSTYLE_FILE_RE, CHECKSTYLE_FILE)) {
       const file = xmlAttributes(f[1]).name;
-      for (const e of f[2].matchAll(CHECKSTYLE_ERROR_RE)) {
+      for (const e of tags(f[2], CHECKSTYLE_ERROR_RE)) {
         const a = xmlAttributes(e[1]);
         const code = rule(a.source);
         if (!code || !file) continue;

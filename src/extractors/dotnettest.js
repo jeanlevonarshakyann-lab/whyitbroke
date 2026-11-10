@@ -17,7 +17,7 @@
 // Message and Stack Trace blocks. It may also print xUnit's prefixed copy first; the
 // labelled result is the stable cross-framework surface and is the one parsed below.
 import { joinSources, withSource } from "../ownership.js";
-import { append, elements, firstElement, lazyIn, lineAt, pinnedMessage, tailFirst, xmlAttributes, xmlContent } from "../util.js";
+import { append, elements, firstElement, firstTag, lazyIn, lineAt, pinnedMessage, tailFirst, xmlAttributes, xmlContent } from "../util.js";
 
 const MTP_FAILED_RE = /^failed[^\S\n]+(\S+)[^\S\n]+\((\d+(?:\.\d+)?)[^\S\n]*m?s\)[^\S\n]*$/;
 // Microsoft.Testing.Platform speaks the SDK's languages too, and translates more than
@@ -136,7 +136,7 @@ const TRX_COUNTERS_RE = /<Counters\b([^>]*?)\/?>/;
 
 /** The failed results of a trx document, or none. */
 function trx(s) {
-  if (!TRX_DOC.test(s)) return [];
+  if (!firstTag(s, TRX_DOC)) return [];
   const out = [];
   for (const result of elements(s, TRX_RESULT_RE, TRX_RESULT)) {
     const a = xmlAttributes(result[1]);
@@ -324,7 +324,7 @@ export default {
         return !earlier;
       });
       if (!failures.length && !vs) {
-        const c = s.match(TRX_COUNTERS_RE);
+        const c = firstTag(s, TRX_COUNTERS_RE);
         const counts = c ? xmlAttributes(c[1]) : {};
         const bits = [];
         for (const [key, word] of [["failed", "failed"], ["passed", "passed"]]) {
