@@ -1,4 +1,4 @@
-import { elements, firstElement, lineAt, xmlAttributes, xmlContent } from "../util.js";
+import { elements, firstElement, lineAt, xmlAttributes, xmlContent, xmlStructure } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 // The reports a JVM build leaves behind - Maven Surefire's target/surefire-reports and
 // Gradle's build/test-results - are what a CI job keeps and what every test dashboard
@@ -71,20 +71,22 @@ function xmlCases(s) {
   // being read - cases come in order. Each case searched all the log above it again.
   let roots = null, last = -1;
   const rootBefore = (at) => {
-    roots ??= [...s.matchAll(/<testsuite\b[^>]*>/g)];
+    roots ??= [...xmlStructure(s).matchAll(/<testsuite\b[^>]*>/g)];
     while (last + 1 < roots.length && roots[last + 1].index + roots[last + 1][0].length <= at) last++;
     return roots[last]?.[0] ?? "";
   };
   for (const test of elements(s, CASE_RE, CASE)) {
     if (!test[2]) continue;
     const testRaw = s.slice(test.index, test.index + test[0].length);
-    const testOpenEnd = testRaw.indexOf(">");
+    // Where each opening tag ends is where the pattern read it to end, not its first `>`:
+    // a value can hold one, `message="expected a => b"`, and the tag then ended inside it.
+    const testOpenEnd = "<testcase".length + test[1].length;
     const testBody = testRaw.slice(testOpenEnd + 1, -CASE.close().length);
     const outcome = firstElement(testBody, OUTCOME_RE, OUTCOME);
     if (!outcome) continue;
     const outcomeRaw = testBody.slice(outcome.index, outcome.index + outcome[0].length);
-    const outcomeOpenEnd = outcomeRaw.indexOf(">");
     const outcomeName = outcome[1];
+    const outcomeOpenEnd = "<".length + outcomeName.length + outcome[2].length;
     const outcomeBody = outcomeRaw.endsWith("/>")
       ? ""
       : outcomeRaw.slice(outcomeOpenEnd + 1, -OUTCOME.close(outcomeName).length);
