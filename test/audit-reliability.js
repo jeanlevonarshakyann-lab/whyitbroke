@@ -9,7 +9,7 @@ import { analyse } from "../src/index.js";
 import { fileReference } from "../src/location.js";
 import { render, setColor } from "../src/render.js";
 import { resetSnippetCache } from "../src/snippet.js";
-import { firstTag, tags, xmlStructure } from "../src/util.js";
+import { cutElements, firstTag, tags, xmlStructure } from "../src/util.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "bin", "whyitbroke.js");
@@ -168,6 +168,29 @@ test("a tag is found where an element is: whole, and not inside a comment", () =
     [[text.indexOf("<error note"), `<error note="a > b" line='2'/>`, ` note="a > b" line='2'`]]);
   assert.equal(firstTag(text, /<error\b([^>]*?)\/?>/)?.[1], ` note="a > b" line='2'`);
   assert.equal(firstTag("<a>", /<b\b[^>]*>/), null);
+});
+
+test("an element is read to its closing tag, or to the next one when it was cut", () => {
+  const all = (text, names) => [...cutElements(text, names)].map((e) => [e.name, e.attributes, e.body, e.closed]);
+  assert.deepEqual(all(`<a x="1">one</a><a x='2'/><a>cut<a y="a > b">two</a >`, ["a"]),
+    [["a", ` x="1"`, "one", true], ["a", ` x='2'`, "", true], ["a", "", "cut", false], ["a", ` y="a > b"`, "two", true]]);
+  assert.deepEqual(all(`<t><failure>f</failure></t><t><error m="1">e`, ["failure", "error"]),
+    [["failure", "", "f", true], ["error", ` m="1"`, "e", false]]);
+  // A tag a comment or CDATA holds is not one, and a closing tag of nothing open is nothing.
+  assert.deepEqual(all(`<!-- <a>no</a> --><a><![CDATA[</a>]]>yes</a>`, ["a"]), [["a", "", "<![CDATA[</a>]]>yes", true]]);
+  assert.deepEqual(all(`</a>stray<a>x</b></a>`, ["a", "b"]), [["a", "", "x</b>", true]]);
+  // Where each one is, in the text it was read from.
+  const text = `log\n<a k="v">body</a>\n`;
+  const [found] = cutElements(text, ["a"]);
+  assert.deepEqual([text.slice(found.at, found.end), text.slice(found.bodyAt, found.bodyAt + found.body.length)], [`<a k="v">body</a>`, "body"]);
+  for (const hostile of ["<a>x".repeat(200_000), "</a>".repeat(200_000), `<a x="`.repeat(200_000), "<a".repeat(200_000),
+    `${"<a ".repeat(200_000)}>`, `${"</a ".repeat(200_000)}>`, `>${"<a x='".repeat(200_000)}`]) {
+    const started = Date.now();
+    let count = 0;
+    for (const _ of cutElements(hostile, ["a"])) count++;
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `cutElements took ${elapsed}ms for ${count} elements of ${hostile.slice(0, 8)}`);
+  }
 });
 
 test("a `>` inside a tag's quoted value is masked, and only there, in linear time", () => {

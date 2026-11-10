@@ -263,6 +263,54 @@ export function firstTag(text, re) {
   return null;
 }
 
+// One pattern for every start and end tag of a set of element names, built once per set.
+const CUT_TAGS = new Map();
+
+/** The elements of `text` named in `names`, each read to its closing tag - or, where the
+ *  document was cut before that tag, to where the next of them starts or the text ends.
+ *
+ *  A long log is capped to the lines most likely to matter, which keeps a report's
+ *  failures and loses the lines between them, closing tags included. `elements` reads an
+ *  element only whole; a reader of a cut report read it a line at a time instead, and so
+ *  read a tag only when it was all on one line and its report only when each tag had a
+ *  line to itself. This reads what is there: an element that never closes is the text up
+ *  to the next one, and is said to be `closed: false`.
+ *
+ *  One pass over the document, in the copy `elements` reads - a tag inside a comment or
+ *  CDATA is not one, and a `>` inside a quoted value does not end one. Each element is
+ *  `{ name, attributes, body, at, bodyAt, end, closed }`: `attributes` and `body` are the
+ *  document's own text, `at` is where its start tag begins, `bodyAt` where its body does
+ *  and `end` where the element stops. The names are of elements that do not hold one
+ *  another - a case, its failure - since a start tag inside an open one cuts it. */
+export function* cutElements(text, names) {
+  text = String(text);
+  // No tag ends past the last `>`, so nothing past it is asked for one. A start tag with no
+  // `>` after it otherwise read to the end of the text to find that out, and so did the
+  // next: two hundred thousand of them, cut off mid-tag, took most of a minute.
+  const whole = xmlStructure(text);
+  const structure = whole.slice(0, whole.lastIndexOf(">") + 1);
+  const key = names.join("|");
+  if (!CUT_TAGS.has(key)) CUT_TAGS.set(key, new RegExp(`<(${key})\\b([^>]*?)(\\/?)>|<\\/(${key})[ \\t\\r\\n]*>`, "dg"));
+  const tag = new RegExp(CUT_TAGS.get(key));
+  let open = null;
+  const element = (end, bodyEnd, closed) => ({
+    name: open.name, attributes: text.slice(open.attributes[0], open.attributes[1]),
+    body: text.slice(open.bodyAt, bodyEnd), at: open.at, bodyAt: open.bodyAt, end, closed,
+  });
+  for (let match; (match = tag.exec(structure));) {
+    if (match[1] !== undefined) {
+      // A start tag while one is open: the open one was cut, and ends here.
+      if (open) yield element(match.index, match.index, false);
+      open = { name: match[1], attributes: match.indices[2], at: match.index, bodyAt: tag.lastIndex };
+      if (match[3]) { yield element(tag.lastIndex, tag.lastIndex, true); open = null; }
+    } else if (open && match[4] === open.name) {
+      yield element(tag.lastIndex, match.index, true);
+      open = null;
+    }
+  }
+  if (open) yield element(text.length, text.length, false);
+}
+
 /** XML with literal sections made structurally inert, without moving any offsets.
  *
  * Regex-based bounded element readers are sufficient for the small report dialects in
