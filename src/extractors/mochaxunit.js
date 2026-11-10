@@ -5,7 +5,7 @@
 //
 // mocha names itself in the root element - `<testsuite name="Mocha Tests">` - which is
 // what tells this apart from every other tool that writes a JUnit-shaped report.
-import { xmlText, xmlAttributes, isNoise } from "../util.js";
+import { cutElements, firstTag, isNoise, lineAt, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
 import { fileReference, v8Frame } from "../location.js";
 
@@ -24,54 +24,55 @@ export default {
   category: "test",
   commands: ["mocha"],
 
-  detect: (s) => ROOT_RE.test(s),
+  detect: (s) => !!firstTag(s, ROOT_RE),
 
+  // The report is read as the document it is: each of Mocha's roots, the cases inside it,
+  // and a case's failure inside the case. It was read a line at a time - the root on a
+  // line, the cases on the lines after it, a failure on its case's own line - so a report
+  // written without line breaks was no report, every case in the rest of the log was
+  // Mocha's once one root had been seen, and a failure that had lost its closing tag read
+  // on into the next case's. A report cut by a capture is still read: see cutElements.
   extract(s) {
-    const lines = s.split("\n");
     const failures = [];
-    let root;
-    for (let i = 0; i < lines.length; i++) {
-      if (!root && ROOT_RE.test(lines[i])) { root = xmlAttributes(lines[i]); continue; }
-      if (!root || !/<testcase\b/.test(lines[i])) continue;
-      const test = xmlAttributes(lines[i]);
-      // The body starts on the same line as the tag and runs until </failure>. A test
-      // that passed is written as a self-closing tag with no body at all.
-      const open = lines[i].match(/<(failure|error)\b[^>]*>([\s\S]*)$/);
-      if (!open) continue;
-      const closer = new RegExp(`</${open[1]}>`);
-      const body = [open[2]];
-      let end = i;
-      while (end < lines.length && !closer.test(body.at(-1))) body.push(lines[++end] ?? "");
-      const decoded = xmlText(body.join("\n").replace(new RegExp(`</${open[1]}>[\\s\\S]*$`), ""));
-      const text = decoded.split("\n");
-      let file, line, col;
-      const message = [];
-      for (const raw of text) {
-        const frame = frameAt(raw);
-        if (frame) {
-          if (!file && !isNoise(frame.file)) { file = frame.file; line = frame.line; col = frame.col; }
-          continue;
+    let failing = 0, passing = 0;
+    for (const suite of cutElements(s, ["testsuite"])) {
+      const root = xmlAttributes(suite.attributes);
+      if (root.name !== "Mocha Tests") continue;
+      const count = (key) => (/^\d+$/.test(root[key] ?? "") ? +root[key] : 0);
+      // mocha files an assertion under `errors` and a reporter failure under `failures`.
+      // Both are tests that did not pass, and the headline is what mocha's own reporters
+      // would have printed for the same run.
+      const failed = count("failures") + count("errors");
+      failing += failed;
+      passing += Math.max(0, count("tests") - failed - count("skipped"));
+      for (const test of cutElements(suite.body, ["testcase"])) {
+        // A test that passed is written as a self-closing tag with no body at all.
+        const [outcome] = cutElements(test.body, ["failure", "error"]);
+        if (!outcome) continue;
+        const a = xmlAttributes(test.attributes);
+        let file, line, col;
+        const message = [];
+        for (const raw of xmlText(outcome.body).split("\n")) {
+          const frame = frameAt(raw);
+          if (frame) {
+            if (!file && !isNoise(frame.file)) { file = frame.file; line = frame.line; col = frame.col; }
+            continue;
+          }
+          const t = raw.trim();
+          // The class and message are repeated below the diff; the first telling is enough.
+          if (t && message.length < MAX_MESSAGE_LINES && !message.includes(t)) message.push(t);
         }
-        const t = raw.trim();
-        // The class and message are repeated below the diff; the first telling is enough.
-        if (t && message.length < MAX_MESSAGE_LINES && !message.includes(t)) message.push(t);
+        const name = [a.classname, a.name].filter(Boolean).join(" ").trim() || "test";
+        // The test case, from its opening tag to where it ends.
+        const from = suite.bodyAt + test.at, to = suite.bodyAt + test.end;
+        failures.push(withSource({
+          file: file ?? a.file, line, col,
+          title: name, subject: name, severity: "error",
+          message: message.join("\n") || name,
+        }, lineAt(s, from), lineAt(s, Math.max(from, to - 1)) + 1));
       }
-      const name = [test.classname, test.name].filter(Boolean).join(" ").trim() || "test";
-      // The test case's tag, and its failure's body down to the closing tag.
-      failures.push(withSource({
-        file: file ?? test.file, line, col,
-        title: name, subject: name, severity: "error",
-        message: message.join("\n") || name,
-      }, i, Math.min(end, lines.length - 1) + 1));
-      i = end;
     }
     if (!failures.length) return null;
-    const count = (key) => (/^\d+$/.test(root?.[key] ?? "") ? +root[key] : 0);
-    // mocha files an assertion under `errors` and a reporter failure under `failures`.
-    // Both are tests that did not pass, and the headline is what mocha's own reporters
-    // would have printed for the same run.
-    const failing = count("failures") + count("errors");
-    const passing = Math.max(0, count("tests") - failing - count("skipped"));
     return {
       tool: "mocha",
       summary: `${failing || failures.length} failing, ${passing} passing`,

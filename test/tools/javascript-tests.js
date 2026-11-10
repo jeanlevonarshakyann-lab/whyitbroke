@@ -989,6 +989,40 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL mocha json vs xunit\n       ${e.message}`); fail++; }
 
+// Mocha's xunit report is read as the document it is. It was read a line at a time: the root
+// was looked for on a line and the cases on the lines after it, a case's failure on the
+// case's own line, and the body down to the next `</failure>` wherever that was.
+try {
+  const text = fx("mocha_xunit_fail.txt");
+  const read = (t) => { const r = analyse(t); return r && [r.tool, r.summary, r.failures.map((f) => [f.file, f.line, f.col, f.title, f.message])]; };
+  const expected = read(text);
+  assert.equal(expected[2].length, 1);
+  // A report with no line breaks between its tags is the same report: the cases on the
+  // root's own line were never looked at, and the report was no report.
+  assert.ok(text.includes(">\n<"));
+  assert.deepEqual(read(text.replaceAll(">\n<", "><")), expected, "the report on one line");
+  // ...and so is one with each tag on a line of its own.
+  assert.deepEqual(read(text.replace("><failure>", ">\n<failure>").replace("</failure></testcase>", "</failure>\n</testcase>")), expected, "a tag to a line");
+  // Another tool's report after Mocha's is not Mocha's. Once a root had been seen, every
+  // case in the rest of the log was read as one of its own.
+  const foreign = text.replace('name="Mocha Tests"', 'name="another tool"').replaceAll('name="invoice total"', 'name="not mocha\'s"');
+  assert.notEqual(foreign, text);
+  assert.deepEqual(read(`${text}\n${foreign}`), expected, "a report after it that is not Mocha's");
+  // Two runs are two reports, and both are read - the tally with them.
+  const second = text.replaceAll('name="invoice total"', 'name="second run"');
+  const both = read(`${text}\n${second}`);
+  assert.deepEqual([both[1], both[2].map((f) => f[3])], ["2 failing, 2 passing", ["shop invoice total", "shop second run"]]);
+  // A capture that kept the failures and lost the lines between them has no closing tags.
+  // A case then ends where the next one starts: its failure read on to the next
+  // `</failure>`, took that case's text for its own, and that case was never read.
+  const failing = text.slice(text.indexOf("<testcase"), text.indexOf("</failure></testcase>"));
+  const cut = `${text.slice(0, text.indexOf("<testcase"))}${failing}\n${failing.replace('name="invoice total"', 'name="second case"')}\n`;
+  assert.deepEqual(read(cut)?.[2].map((f) => [f[3], f[4]]),
+    [["shop invoice total", expected[2][0][4]], ["shop second case", expected[2][0][4]]], "a report cut before its closing tags");
+  console.log("  ok   mocha's xunit report is read as a document, whole or cut");
+  pass++;
+} catch (e) { console.log(`  FAIL mocha xunit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+
 // Three reporters, one run. They differ only in how the path is written.
 try {
   const text = analyse(fx("vitest_text_same_fail.txt"));
