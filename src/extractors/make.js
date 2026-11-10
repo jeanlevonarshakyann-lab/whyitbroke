@@ -18,7 +18,13 @@ import { pinnedMessage } from "../util.js";
 const QUOTED = /[`'"]([^`'"]+)['"]/;
 // `Makefile:2: *** missing separator.  Stop.` - a makefile make could not parse.
 // Each message ends where the whitespace before `Stop.` starts - see pinnedMessage in util.js.
-export const AT_LINE = pinnedMessage(String.raw`^([^\s:]+):(\d+):[^\S\n]+\*\*\*`,
+// The makefile is named as make was given it, and under `/workspace/My Project` that path
+// has a space in it: from a drive, a separator or `..`, it is anything up to its `:line:` but
+// a colon. Any other has no space in it. Read with one, a runner's prefix in front of the line,
+// kubectl's `pod/api-7d9 `, was taken as the start of the path, and was never taken off: a
+// prefix that could be a directory is left on - see absorbedIntoFiles in src/index.js.
+const MAKEFILE = String.raw`((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/])[^:\n]*?|[^\s:]+)`;
+export const AT_LINE = pinnedMessage(String.raw`^${MAKEFILE}:(\d+):[^\S\n]+\*\*\*`,
   { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`Stop\.[^\S\n]*$`, flags: "m" });
 // `make: *** No rule to make target 'missing.o', needed by 'all'.  Stop.`
 export const SELF = pinnedMessage(String.raw`^make(?:\[\d+\])?:[^\S\n]+\*\*\*`,
@@ -34,7 +40,7 @@ export const SELF = pinnedMessage(String.raw`^make(?:\[\d+\])?:[^\S\n]+\*\*\*`,
 const NAME = "([^\\s:]+)";
 const MISSING = new RegExp(`^make(?:\\[\\d+\\])?:[^\\S\\n]+${NAME}:[^\\S\\n]+(No such file or directory|Permission denied|Command not found)[^\\S\\n]*$`, "m");
 // `Makefile:1: nope.mk: No such file or directory` - an include that is not there.
-const MISSING_AT_LINE = new RegExp(`^([^\\s:]+):(\\d+):[^\\S\\n]+${NAME}:[^\\S\\n]+(No such file or directory|Permission denied)[^\\S\\n]*$`, "m");
+const MISSING_AT_LINE = new RegExp(`^${MAKEFILE}:(\\d+):[^\\S\\n]+${NAME}:[^\\S\\n]+(No such file or directory|Permission denied)[^\\S\\n]*$`, "m");
 
 export default {
   name: "make",

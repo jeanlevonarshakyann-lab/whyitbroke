@@ -9,7 +9,10 @@ import { joinSources, withSource } from "../ownership.js";
 // place in it, and the rest of the line read again from each - a line of 32,000 spaces took
 // a second to refuse. A file can start one space early only when it is nothing but its
 // extension, and that one match is kept.
-export const DIAGNOSTIC_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]\.(?:cs|fs|vb)\())(.+?\.(?:cs|fs|vb))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m;
+//
+// The extension is the file's, in whatever case: a project can compile `Foo.CS`, and Roslyn
+// names it so. Read only in lower case, its errors were a build with no diagnosis.
+export const DIAGNOSTIC_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]\.(?:[cC][sS]|[fF][sS]|[vV][bB])\())(.+?\.(?:[cC][sS]|[fF][sS]|[vV][bB]))\((\d+),(\d+)\):[^\S\n]+(error|warning)[^\S\n]+([A-Z][A-Z0-9]*):[^\S\n]+(.+)$/m;
 // Not every .NET failure comes from the compiler. A missing project file and a package
 // that will not restore are both reported by MSBuild or NuGet with a code but no
 // position - "app.csproj : error NU1101: ..." , "MSBUILD : error MSB1003: ..." - and
@@ -30,7 +33,7 @@ export const PROJECT_SUFFIX = /(?<![^\S\n])[^\S\n]+\[[^\]]+\.csproj\][^\S\n]*$/;
 export default {
   name: "dotnet",
   // Strings a log has to hold for this parser to read anything from it - see src/router.js.
-  signals: ["cs(", "fs(", "vb(", "MSB", "NU", "NETSDK"],
+  signals: ["cs(", "fs(", "vb(", "CS(", "FS(", "VB(", "MSB", "NU", "NETSDK"],
   category: "compile",
   commands: ["dotnet", "msbuild"],
   // A --no-restore build has no restore banner. Source extensions distinguish

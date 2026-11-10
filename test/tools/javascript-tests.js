@@ -8,7 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 
 const CASES = [
   // Captured with @playwright/test. Playwright heads a failure with the location of the
@@ -854,6 +854,15 @@ try {
   console.log(`  FAIL vitest message silence\n       ${e.message}`);
   fail++;
 }
+
+// AVA names a test file as it was given it. A file that would not load under `My Project`
+// had no failure of its own, under a tally that counted one.
+try {
+  readsMoved("ava_load_fail.txt", (t) => t.replaceAll("av/syn.test.js", "My Project/av/syn.test.js"),
+    (file) => (file === "av/syn.test.js" ? "My Project/av/syn.test.js" : file));
+  console.log("  ok   AVA reads a test file whose path has a space in it");
+  pass++;
+} catch (e) { console.log(`  FAIL AVA spaced paths\n       ${e.message}`); fail++; }
 
 // A truncated log can contain only the parent failure. Keep that diagnosis, and
 // ensure failures in a previous, unrelated suite do not cause it to be dropped.

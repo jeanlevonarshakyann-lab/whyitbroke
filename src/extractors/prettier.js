@@ -16,6 +16,8 @@ const CHECKING_RE = /^Checking formatting\.\.\./m;
 // Read to its last character that is not a space, at once: read lazily, it stopped at each space of
 // a long stretch and read the rest of the stretch again from there.
 export const ERROR_RE = /^\[error\][^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+// ...and a file it could not parse, named before the error the parser threw.
+const PARSE_FAILED_RE = /^((?:[A-Za-z]:[\\/])?(?![^\S\n])[^:\n]+?):[^\S\n]*([A-Z]\w*Error:.*)$/;
 // A file prettier cannot parse is followed by its code frame, and prettier prefixes
 // every line of the frame with the same [error] tag as the diagnosis:
 //
@@ -50,8 +52,11 @@ export default {
       if (FRAME_RE.test(lines[i])) continue;
       const bad = lines[i].match(ERROR_RE);
       if (bad) {
-        // "[error] file.js: SyntaxError: ..." - a file prettier could not even parse
-        const at = bad[1].match(/^(\S+?):[^\S\n]*(.+)$/);
+        // "[error] file.js: SyntaxError: ..." - a file prettier could not even parse. The
+        // file is written as it was given: with spaces, under `My Project`, and on another
+        // drive than the one prettier ran from, from its drive on - `D:/work/bad.js`. Up to
+        // the first colon, the first was not read as a file and the second as the file `D`.
+        const at = bad[1].match(PARSE_FAILED_RE) ?? bad[1].match(/^(\S+?):[^\S\n]*(.+)$/);
         const where = at ? at[2].match(AT_RE) : null;
         // The frame under it, when there is one: the marked line is the source.
         let stmt, end = i + 1;

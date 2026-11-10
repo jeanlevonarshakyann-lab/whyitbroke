@@ -5,9 +5,14 @@
 //
 // The pattern is greedy on the message so it binds to the LAST "at FILE line N" - a
 // message can contain the word "at", and the location is always last.
+//
+// The file is written as perl was given it, and a script named `My Script.pl` was a die
+// nothing read. Its words are any but `at` and `line`, so where the file starts and ends
+// is still where the location's own words are, and each place the message could end reads
+// only as far as the next `at`.
 import { withSource } from "../ownership.js";
 
-const DIAGNOSTIC_RE = /^(.+)[^\S\n]at[^\S\n](\S+)[^\S\n]line[^\S\n](\d+)(?:,[^\S\n]*(.+?))?\.?$/;
+const DIAGNOSTIC_RE = /^(.+)[^\S\n]at[^\S\n](\S+(?:[^\S\n]+(?!(?:at|line)[^\S\n])\S+)*)[^\S\n]line[^\S\n](\d+)(?:,[^\S\n]*(.+?))?\.?$/;
 // Test::More reports where a test failed in a TAP comment - "#   at shop.t line 5." -
 // which is the shape above with a hash in front of it. Reading those as dies turned a
 // failing Perl suite into failures whose entire message was "#", and hid the test names

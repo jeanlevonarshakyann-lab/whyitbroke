@@ -8,7 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 
 const CASES = [
   // Captured with Swift 6.2.3 on macOS. `swift test` runs XCTest and swift-testing, and a
@@ -334,6 +334,37 @@ try {
   console.log("  ok   a compiler's missing header is not read as make's missing include");
   pass++;
 } catch (e) { console.log(`  FAIL compiler header vs make include\n       ${e.message}`); fail++; }
+
+// make names a makefile as it was given it, and under `/workspace/My Project` that path has
+// a space in it: a makefile that would not parse, or one with an include that was not
+// there, was read from no such path.
+try {
+  readsMoved("make_separator_fail.txt", (t) => t.replace("Makefile:2:", "/workspace/My Project/Makefile:2:"),
+    (file) => (file === "Makefile" ? "/workspace/My Project/Makefile" : file));
+  readsMoved("make_include_fail.txt", (t) => t.replace("Makefile:1:", "/workspace/My Project/rules.mk:1:"),
+    (file) => (file === "Makefile" ? "/workspace/My Project/rules.mk" : file));
+  console.log("  ok   make reads a makefile whose path has a space in it");
+  pass++;
+} catch (e) { console.log(`  FAIL make spaced paths\n       ${e.message}`); fail++; }
+
+// Only a path from a drive, a separator or `..` has a space in it there. Read with one from
+// anywhere, a runner's prefix in front of the line - kubectl's pod, pnpm's package - was taken
+// as the start of the makefile's path, and never taken off.
+try {
+  for (const name of ["make_separator_fail.txt", "make_function_fail.txt", "make_include_fail.txt"]) {
+    const read = (r) => [r?.tool, r?.failures.map((f) => [f.file, f.line, f.col, f.message])];
+    const bare = read(analyse(fx(name)));
+    // A prefix is found from the lines a runner relays, and a makefile that will not parse
+    // is one of them: the build's other lines are what it is found on.
+    const lines = ["building api", "building web", "building docs", ...fx(name).split("\n")];
+    for (const prefix of ["pod/api-7d9 ", "packages/api test$ ", "api-7d9f8c4b6-x2klm "]) {
+      const wrapped = lines.map((l) => (l.trim() ? prefix + l : l)).join("\n");
+      assert.deepEqual(read(analyse(wrapped)), bare, `${name} under ${JSON.stringify(prefix)}`);
+    }
+  }
+  console.log("  ok   a runner's prefix in front of a makefile is not read as part of its path");
+  pass++;
+} catch (e) { console.log(`  FAIL runner prefix before a makefile\n       ${e.message}`); fail++; }
 
 // clang's own count is a claim whyitbroke can be checked against, so it is. Every log
 // where the two agree must keep agreeing, and any log where they do not must say so in

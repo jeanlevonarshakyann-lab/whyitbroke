@@ -25,8 +25,10 @@ import { fileReference, nodeFrame } from "../location.js";
 // It ends where the trailing whitespace starts - see pinnedMessage in util.js.
 export const ROLL_RE = pinnedMessage(String.raw`^[^\S\n]*✘[^\S\n]+\[fail\]:`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
 const TALLY_RE = /^[^\S\n]*(\d+) tests? failed\b/m;
-const UNCAUGHT_RE = /^[^\S\n]*Uncaught exception in[^\S\n]+(\S+)[^\S\n]*$/;
-const EXITED_RE = /^[^\S\n]*✘[^\S\n]+(\S+) exited with a non-zero exit code/m;
+// The test file is named as AVA was given it, spaces and all: a file in `My Project` had no
+// failure of its own, under a tally that counted one.
+const UNCAUGHT_RE = /^[^\S\n]*Uncaught exception in[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+const EXITED_RE = /^[^\S\n]*✘[^\S\n]+(\S(?:[^\n]*?\S)?) exited with a non-zero exit code/m;
 // "av/sum.test.js:3" on its own line, under the repeated test name
 // The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
 // matches only when it begins with what follows it, and that one match is kept.

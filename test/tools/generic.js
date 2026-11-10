@@ -96,6 +96,20 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL unix error shape\n       ${e.message}`); fail++; }
 
+// A path the tool was given with a space in it is still a path. Read only up to a space, the
+// last resort lost where a script said it broke, and a frame's path came back cut short.
+try {
+  const said = (log) => analyse(log).failures.map((f) => [f.file, f.line, f.col, f.message]);
+  assert.deepEqual(said("/work/My Project/tools/check.sh:12: Error: the build broke\n"),
+    [["/work/My Project/tools/check.sh", 12, undefined, "Error: the build broke"]]);
+  assert.deepEqual(said("something: error: boom\n    at file:///work/My Project/app.ts:1:32\n"),
+    [["/work/My Project/app.ts", 1, 32, "something: error: boom"]]);
+  // Prose before a colon names no directory and no file, and is still not a location.
+  assert.equal(analyse("Something went badly wrong:12: Error: x\n").failures[0].file, undefined);
+  console.log("  ok   the last resort reads a path with a space in it");
+  pass++;
+} catch (e) { console.log(`  FAIL generic spaced paths\n       ${e.message}`); fail++; }
+
 // A tool that exits 0 having only warned did not fail, and the fallback saying it did
 // three times is the worst thing this parser can do. The severity word after a location
 // is what says so - but the colon behind it is not always the next character, because a

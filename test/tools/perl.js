@@ -8,7 +8,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { analyse } from "../../src/index.js";
-import { agreeAcrossFormats, cli, fx, here, runCases } from "./harness.js";
+import { agreeAcrossFormats, cli, fx, here, readsMoved, runCases } from "./harness.js";
 
 const CASES = [
   // Captured on the system perl, 5.34. Perl puts the location at the end of the message,
@@ -99,6 +99,15 @@ try {
   console.log("  ok   raw TAP, prove -v and plain prove say the same thing");
   pass++;
 } catch (e) { console.log(`  FAIL prove -v vs raw TAP\n       ${e.message}`); fail++; }
+
+// perl names a script as it was given it, and a die in `My Script.pl` was read as nothing.
+try {
+  readsMoved("perl_die_fail.txt", (t) => t.replace("p_die.pl", "My Script.pl"), (file) => (file === "p_die.pl" ? "My Script.pl" : file));
+  readsMoved("perl_undef_fail.txt", (t) => t.replace("p_undef.pl", "/work/My Project/p undef.pl"),
+    (file) => (file === "p_undef.pl" ? "/work/My Project/p undef.pl" : file));
+  console.log("  ok   perl reads a script whose name has a space in it");
+  pass++;
+} catch (e) { console.log(`  FAIL perl spaced paths\n       ${e.message}`); fail++; }
 
 // Test::More does not make a test's name unique, and prove prints its diagnostics away
 // from the results, so the name is the only thing tying the two together. Two failing
