@@ -64,7 +64,7 @@ export default {
         }
         const name = [a.classname, a.name].filter(Boolean).join(" ").trim() || "test";
         // The test case, from its opening tag to where it ends.
-        const from = suite.bodyAt + test.at, to = suite.bodyAt + test.end;
+        const from = suite.bodyAt + test.at, to = suite.bodyAt + test.textEnd;
         failures.push(withSource({
           file: file ?? a.file, line, col,
           title: name, subject: name, severity: "error",

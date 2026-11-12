@@ -278,10 +278,13 @@ const CUT_TAGS = new Map();
  *
  *  One pass over the document, in the copy `elements` reads - a tag inside a comment or
  *  CDATA is not one, and a `>` inside a quoted value does not end one. Each element is
- *  `{ name, attributes, body, at, bodyAt, end, closed }`: `attributes` and `body` are the
- *  document's own text, `at` is where its start tag begins, `bodyAt` where its body does
- *  and `end` where the element stops. The names are of elements that do not hold one
- *  another - a case, its failure - since a start tag inside an open one cuts it. */
+ *  `{ name, attributes, body, at, bodyAt, end, textEnd, closed }`: `attributes` and `body`
+ *  are the document's own text, `at` is where its start tag begins, `bodyAt` where its
+ *  body does and `end` where the element stops. `textEnd` is where what it holds stops -
+ *  `end`, or for a cut element the end of its last character that is not space, so the
+ *  lines it is said to be on do not run into the next element's. The names are of elements
+ *  that do not hold one another - a case, its failure - since a start tag inside an open
+ *  one cuts it. */
 export function* cutElements(text, names) {
   text = String(text);
   // No tag ends past the last `>`, so nothing past it is asked for one. A start tag with no
@@ -293,10 +296,13 @@ export function* cutElements(text, names) {
   if (!CUT_TAGS.has(key)) CUT_TAGS.set(key, new RegExp(`<(${key})\\b([^>]*?)(\\/?)>|<\\/(${key})[ \\t\\r\\n]*>`, "dg"));
   const tag = new RegExp(CUT_TAGS.get(key));
   let open = null;
-  const element = (end, bodyEnd, closed) => ({
-    name: open.name, attributes: text.slice(open.attributes[0], open.attributes[1]),
-    body: text.slice(open.bodyAt, bodyEnd), at: open.at, bodyAt: open.bodyAt, end, closed,
-  });
+  const element = (end, bodyEnd, closed) => {
+    const body = text.slice(open.bodyAt, bodyEnd);
+    return {
+      name: open.name, attributes: text.slice(open.attributes[0], open.attributes[1]), body,
+      at: open.at, bodyAt: open.bodyAt, end, textEnd: closed ? end : open.bodyAt + body.trimEnd().length, closed,
+    };
+  };
   for (let match; (match = tag.exec(structure));) {
     if (match[1] !== undefined) {
       // A start tag while one is open: the open one was cut, and ends here.

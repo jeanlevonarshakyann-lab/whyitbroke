@@ -1,4 +1,4 @@
-import { xmlText, xmlAttributes } from "../util.js";
+import { cutElements, lineAt, tags, xmlAttributes, xmlText } from "../util.js";
 // `deno test` gathers its failures under an ERRORS banner:
 //
 //    ERRORS
@@ -172,77 +172,50 @@ function precededByItsOwnRun(lines, rootAt, firstDiagnostic) {
  *  - diff and all - in the failure's `message`. A reader that wanted the tag on one line
  *  found no tag at all there, so the first failure of every deno JUnit run was skipped
  *  and only the ones whose message happened to be one line were read. */
-function startTag(lines, from, until) {
-  let text = "";
-  // The quote carries across the line break - that is the whole point of a value that
-  // spans lines. Starting each line outside a quote read the closing `"` as an opening
-  // one, so the tag appeared to run on until the `>` of its own closing tag.
-  let quote = null;
-  for (let i = from; i < until; i++) {
-    const line = i === from ? lines[i].slice(lines[i].search(/<(?:failure|error)\b/)) : lines[i];
-    for (let c = 0; c < line.length; c++) {
-      const ch = line[c];
-      if (quote) { if (ch === quote) quote = null; continue; }
-      if (ch === '"' || ch === "'") { quote = ch; continue; }
-      // ...and the tag ends at the first `>` that is not inside a value.
-      if (ch === ">") return { tag: text + line.slice(0, c + 1), at: i, rest: line.slice(c + 1) };
-    }
-    text += `${line}\n`;
-  }
-  return null;
-}
-
-/** Deno's JUnit reporter, bounded by its own `testsuites name="deno test"` root. */
+/** Deno's JUnit reporter, bounded by its own `testsuites name="deno test"` root.
+ *
+ *  It is read as the document it is: each of deno's roots, the cases inside it and a
+ *  case's failure inside the case. It was read a line at a time - the root when its tag and
+ *  name were on one line, the cases on the lines after the root's, a case's attributes from
+ *  the line its tag started - so a report compacted onto one line, or reflowed with an
+ *  attribute to a line, was no report of deno's. A report cut by a capture is still read:
+ *  see cutElements. */
 function denoJunit(text) {
-  const lines = text.split("\n");
   const failures = [];
   let passed = 0;
+  let lines;
   // The first line of deno's own TAP, found once. Every report root after a TAP plan asked
   // every line above that plan again.
   let first;
   const firstDiagnostic = () => (first ??= lines.findIndex((l) => DENO_TAP_DIAGNOSTIC.test(l)));
-  for (let rootAt = 0; rootAt < lines.length; rootAt++) {
-    if (!/<testsuites\b[^>]*\bname="deno test"/.test(lines[rootAt])) continue;
-    const root = xmlAttributes(lines[rootAt]);
-    let rootEnd = rootAt + 1;
-    while (rootEnd < lines.length && !/<\/testsuites>/.test(lines[rootEnd])) rootEnd++;
+  for (const doc of cutElements(text, ["testsuites"])) {
+    const root = xmlAttributes(doc.attributes);
+    if (root.name !== "deno test") continue;
+    lines ??= text.split("\n");
     // The same run, already reported above in another form. It has nothing to add.
-    if (precededByItsOwnRun(lines, rootAt, firstDiagnostic)) { rootAt = rootEnd; continue; }
-    for (let i = rootAt + 1; i < rootEnd; i++) {
-      if (!/<testcase\b/.test(lines[i])) continue;
-      const test = xmlAttributes(lines[i]);
+    if (precededByItsOwnRun(lines, lineAt(text, doc.at), firstDiagnostic)) continue;
+    for (const test of cutElements(doc.body, ["testcase"])) {
       // A case runs to its closing tag - or, in a report cut off before that tag, to where
-      // the next case starts. Reading on past it gave the next case's failure this case's
-      // name, and read the rest of the report again from every case that never closed.
-      for (let j = i + 1; j < rootEnd && !/<\/testcase>/.test(lines[j]) && !/<testcase\b/.test(lines[j]); j++) {
-        const kind = lines[j].match(/<(failure|error)\b/);
-        if (!kind) continue;
-        const open = startTag(lines, j, rootEnd);
-        if (!open) continue;
-        const close = new RegExp(`</${kind[1]}>`);
-        const body = [open.rest];
-        let end = open.at;
-        while (end < rootEnd && !close.test(body.at(-1))) body.push(lines[++end] ?? "");
-        const decoded = xmlText(body.join("\n").replace(new RegExp(`</${kind[1]}>[\\s\\S]*$`), ""));
-        failures.push(withSource({
-          file: test.classname, line: /^\d+$/.test(test.line) ? +test.line : undefined,
-          col: /^\d+$/.test(test.col) ? +test.col : undefined,
-          title: test.name || "test", subject: test.name || "test", severity: "error",
-          message: blockMessage(decoded) || usefulMessage(decoded),
-          // A document cut off before its closing tag reads to the end of the log, and no
-          // further.
-        }, i, Math.min(end, lines.length - 1) + 1));
-        i = end;
-        break;
-      }
+      // the next case starts, and its failure no further than the case does.
+      const [outcome] = cutElements(test.body, ["failure", "error"]);
+      if (!outcome) continue;
+      const a = xmlAttributes(test.attributes);
+      const decoded = xmlText(outcome.body);
+      // The case's opening tag, down to where its failure ends.
+      const from = doc.bodyAt + test.at, to = doc.bodyAt + test.bodyAt + outcome.textEnd;
+      failures.push(withSource({
+        file: a.classname, line: /^\d+$/.test(a.line) ? +a.line : undefined,
+        col: /^\d+$/.test(a.col) ? +a.col : undefined,
+        title: a.name || "test", subject: a.name || "test", severity: "error",
+        message: blockMessage(decoded) || usefulMessage(decoded),
+      }, lineAt(text, from), lineAt(text, Math.max(from, to - 1)) + 1));
     }
     const tests = /^\d+$/.test(root.tests) ? +root.tests : 0;
     const failed = (/^\d+$/.test(root.failures) ? +root.failures : 0) +
       (/^\d+$/.test(root.errors) ? +root.errors : 0);
-    const skipped = lines.slice(rootAt + 1, rootEnd)
-      .filter((line) => /<skipped\b/.test(line)).length;
+    let skipped = 0;
+    for (const _ of tags(doc.body, /<skipped\b/g)) skipped++;
     passed += Math.max(0, tests - failed - skipped);
-    rootAt = rootEnd;
   }
   return { failures, passed };
 }
