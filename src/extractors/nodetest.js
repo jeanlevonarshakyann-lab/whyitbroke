@@ -13,7 +13,7 @@
 //
 // Everything worth showing is in there; the trick is that `error: |-` is a YAML
 // block scalar, so its content is the following lines indented one level deeper.
-import { isNoise, pinnedMessage, pinnedStart, xmlAttributes, xmlText } from "../util.js";
+import { cutElements, isNoise, lineAt, pinnedMessage, pinnedStart, tags, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
 import { fileReference } from "../location.js";
 
@@ -207,51 +207,46 @@ function nodeDot(text) {
   return { failures, failed: failures.length, passed: 0 };
 }
 
+/** node's JUnit reporter: a bare `<testsuites>` root, a `<failure type="testCodeFailure">`
+ *  somewhere in it, and its tallies written as comments at its end.
+ *
+ *  It is read as the document it is, with cutElements. It was read a line at a time - the
+ *  root a line reading `<testsuites>`, a case a line holding `<testcase` with its
+ *  attributes those on that line, a failure the lines between one holding `<failure` and
+ *  one holding `</failure>` - so a report compacted onto one line, or reflowed with an
+ *  attribute to a line, was no report of node's. */
 function nodeJunit(text) {
-  const lines = text.split("\n");
   const failures = [];
   let failed = 0, passed = 0;
-  for (let rootAt = 0; rootAt < lines.length; rootAt++) {
-    if (!/<testsuites>/.test(lines[rootAt])) continue;
-    let rootEnd = rootAt + 1;
-    while (rootEnd < lines.length && !/<\/testsuites>/.test(lines[rootEnd])) rootEnd++;
-    const document = lines.slice(rootAt, rootEnd + 1).join("\n");
-    if (!/<failure[^>]+type="testCodeFailure"/.test(document) ||
-        !/<!--[^\n]*\bfail[^\S\n]+\d+[^\S\n]*-->/.test(document)) {
-      rootAt = rootEnd;
-      continue;
+  for (const doc of cutElements(text, ["testsuites"])) {
+    if (doc.attributes.trim()) continue;
+    const document = text.slice(doc.at, doc.end);
+    let own = false;
+    for (const failure of tags(doc.body, /<failure\b([^>]*?)\/?>/g)) {
+      if (xmlAttributes(failure[1]).type === "testCodeFailure") { own = true; break; }
     }
-    for (let i = rootAt + 1; i < rootEnd; i++) {
-      if (!/<testcase\b/.test(lines[i])) continue;
-      if (/\/>[^\S\n]*$/.test(lines[i])) continue;
-      const test = xmlAttributes(lines[i]);
-      // A case runs to its closing tag - or, in a report cut off before that tag, to where
-      // the next case starts, whose failure is that case's and not this one's.
-      let testcaseEnd = i + 1;
-      while (testcaseEnd < rootEnd && !/<\/testcase>/.test(lines[testcaseEnd]) && !/<testcase\b/.test(lines[testcaseEnd])) testcaseEnd++;
-      const cut = testcaseEnd < rootEnd && !/<\/testcase>/.test(lines[testcaseEnd]);
-      const next = cut ? testcaseEnd - 1 : testcaseEnd;
-      // Its failure is under it. Searching from the top of the log read every line above
-      // the case again, for each case.
-      let failureAt = i + 1;
-      while (failureAt < testcaseEnd && !/<failure\b/.test(lines[failureAt])) failureAt++;
-      if (failureAt === testcaseEnd) { i = next; continue; }
-      let failureEnd = failureAt + 1;
-      while (failureEnd < testcaseEnd && !/<\/failure>/.test(lines[failureEnd])) failureEnd++;
-      const location = userFrame(lines, failureAt + 1, failureEnd);
-      const opaqueFile = !location && FILE_TITLE_RE.test(test.name ?? "") ? test.name : undefined;
+    if (!own || !/<!--[^\n]*\bfail[^\S\n]+\d+[^\S\n]*-->/.test(document)) continue;
+    // A case runs to its closing tag - or, in a report cut off before that tag, to where
+    // the next case starts, whose failure is that case's and not this one's.
+    for (const test of cutElements(doc.body, ["testcase"])) {
+      const [failure] = cutElements(test.body, ["failure"]);
+      if (!failure) continue;
+      const a = xmlAttributes(test.attributes);
+      const body = failure.body.split("\n");
+      const location = userFrame(body, 0, body.length);
+      const opaqueFile = !location && FILE_TITLE_RE.test(a.name ?? "") ? a.name : undefined;
+      // The test case, from its opening tag to where it ends.
+      const from = doc.bodyAt + test.at, to = doc.bodyAt + test.textEnd;
       failures.push(rangedFailure({
         file: location?.file ?? opaqueFile, line: location?.line, col: location?.col,
-        title: test.name || "test", subject: test.name || "test", severity: "error",
-        message: alternateMessage(lines, failureAt + 1, failureEnd),
-      }, i, Math.min(cut ? testcaseEnd : testcaseEnd + 1, lines.length)));
-      i = next;
+        title: a.name || "test", subject: a.name || "test", severity: "error",
+        message: alternateMessage(body, 0, body.length),
+      }, lineAt(text, from), lineAt(text, Math.max(from, to - 1)) + 1));
     }
     const count = (kind) => [...document.matchAll(new RegExp(String.raw`<!--[^\n]*\b${kind}[^\S\n]+(\d+)[^\S\n]*-->`, "g"))]
       .reduce((total, match) => total + Number(match[1]), 0);
     failed += count("fail");
     passed += count("pass");
-    rootAt = rootEnd;
   }
   return { failures, failed, passed };
 }
