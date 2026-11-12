@@ -195,11 +195,21 @@ export default {
 
     // ...and the document, when a job kept that as well as - or instead of - the
     // console output. A test already read from the console is not read again.
+    //
+    // The same test, that is: its name in its file. Two packages of a workspace each have a
+    // `cart > totals an invoice`, and a test known by its name alone made the second
+    // package's report the first one said again - every failure in it was nothing. The
+    // console names a file as it was run and the document as it was found, so one may be
+    // the end of the other; a failure that names no file is the one of that name.
+    const sameFile = (a, b) => !a || !b || a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
     const said = new Map();
-    failures.forEach((f, i) => { if (!said.has(f.subject)) said.set(f.subject, i); });
+    const told = (f) => (said.get(f.subject) ?? []).find((i) => sameFile(failures[i].file, f.file));
+    const tell = (f, i) => { if (said.has(f.subject)) said.get(f.subject).push(i); else said.set(f.subject, [i]); };
+    failures.forEach(tell);
     for (const f of junitCases(s)) {
-      if (said.has(f.subject)) { failures[said.get(f.subject)] = joinSources(failures[said.get(f.subject)], f); continue; }
-      said.set(f.subject, failures.length);
+      const earlier = told(f);
+      if (earlier !== undefined) { failures[earlier] = joinSources(failures[earlier], f); continue; }
+      tell(f, failures.length);
       failures.push(f);
     }
 
