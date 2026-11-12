@@ -831,7 +831,7 @@ try {
   // file whole on the line that places a failure and from the project on the line that
   // lists it, and a report with one of those renamed is not a report about another file.
   const other = (name) => { const dot = name.lastIndexOf("."); return dot > 0 ? `${name.slice(0, dot)}_two${name.slice(dot)}` : `${name}_two`; };
-  const unread = new Set(["ava_fail.txt", "ava_throw_fail.txt", "nodetest_reporter_spec_crash_fail.txt", "nodetest_reporter_spec_syntax_fail.txt"]);
+  const unread = new Set(["ava_fail.txt", "ava_throw_fail.txt"]);
   let read = 0;
   const lost = [];
   for (const name of readdirSync(join(here, "fixtures")).filter((n) => /_fail\.(?:txt|xml)$/.test(n)).sort()) {
