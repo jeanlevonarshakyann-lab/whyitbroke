@@ -39,7 +39,7 @@
       "items": { "$ref": "#/$defs/other" }
     },
     "exitCode": {
-      "description": "whyitbroke's own exit code: the wrapped command's, 0 for piped input it processed, 127 for a command that could not be started.",
+      "description": "whyitbroke's own exit code: the wrapped command's, 0 for piped input it processed, 1 for piped input that could not be read to its end, 127 for a command that could not be started.",
       "type": "integer",
       "minimum": 0
     },

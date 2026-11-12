@@ -524,6 +524,33 @@ setTimeout(() => {
   pass++;
 } catch (e) { console.log(`  FAIL live streaming backpressure\n       ${e.message}`); fail++; }
 
+// A log that cannot be read to its end. A disk that fails under a redirected file, or a
+// share that goes away, ends standard input with an error - and an error nothing listens
+// for is one node throws: the run ended in node's own stack trace, and what had already
+// been read, failures and all, was not reported. The failure is made here by a module
+// loaded ahead of the command line, which breaks the stream after its first chunk.
+try {
+  const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { pathToFileURL } = await import("node:url");
+  const { REPORT_SCHEMA, validate } = await import("./schema.js");
+  const dir = mkdtempSync(join(tmpdir(), "whyitbroke-stdin-"));
+  try {
+    const broken = join(dir, "broken-stdin.mjs");
+    writeFileSync(broken, 'process.stdin.once("data", () => setImmediate(() => process.stdin.destroy(Object.assign(new Error("EIO: i/o error, read"), { code: "EIO" }))));\n');
+    const r = spawnSync(process.execPath, ["--import", pathToFileURL(broken).href, cli, "--json"],
+      { input: "FAILED tests/test_shop.py::test_total - assert 1 == 2\n", encoding: "utf8" });
+    assert.doesNotMatch(r.stderr, /Unhandled 'error' event|\n\s+at /, "node's own stack trace");
+    assert.match(r.stderr, /^whyitbroke: the log could not be read to its end \(EIO\)/m);
+    assert.equal(r.status, 1, "a log read in part is not a log read");
+    const report = JSON.parse(r.stdout);
+    assert.deepEqual(validate(report, REPORT_SCHEMA), []);
+    assert.deepEqual([report.exitCode, report.inputMode, report.failures.length > 0], [1, "pipe", true]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  console.log("  ok   a log that fails to read is reported as far as it was read");
+  pass++;
+} catch (e) { console.log(`  FAIL stdin read error\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+
 const cliResults = await (await import("./cli.js")).runCliTests();
 pass += cliResults.pass;
 fail += cliResults.fail;
