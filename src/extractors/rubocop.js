@@ -1,4 +1,4 @@
-import { githubAnnotations, jsonDocumentsAt, pinnedMessage, xmlAttributes, xmlText } from "../util.js";
+import { cutElements, githubAnnotations, jsonDocumentsAt, lineAt, pinnedMessage, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
 // RuboCop is what a Ruby CI job usually fails on, and its output had no parser: the
 // fallback scraped the lines but dropped the column, the cop name and the severity, and
@@ -55,12 +55,12 @@ const JSON_MARK = (v) => !!v && typeof v === "object" && typeof v.metadata?.rubo
 //       /app/cart.rb:4:13
 //     </failure>
 //
-// It is read a line at a time rather than as a document. A long log capped to its
-// interesting lines keeps each failure and its location and loses the thousand passing
-// cases around them, closing tags included. It records no severity.
-const JUNIT_SUITE_LINE = /<testsuite\b[^>]*\bname=(['"])rubocop\1/;
-const JUNIT_END_LINE = /<\/testsuites>|<testsuite\b/;
-const JUNIT_FAILURE_LINE = /<failure\b([^>]*)>[^\S\n]*$/;
+// A long log capped to its interesting lines keeps each failure and its location and
+// loses the thousand passing cases around them, closing tags included. So it is read with
+// cutElements: a failure is its opening tag and what follows, to its closing tag or - where
+// that was lost - to the next failure. It was read a line at a time for the same reason,
+// which read a suite only when a line named it, a failure only when its tag ended a line,
+// and its place only on a line of its own. It records no severity.
 // The leading spaces are taken whole, as with .NET's diagnostics: a path starting one space early
 // matches only when it begins with what follows it, and that one match is kept.
 export const WHERE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]:\d+:\d+[^\S\n]*$))(.+):(\d+):(\d+)[^\S\n]*$/;
@@ -136,25 +136,27 @@ function offenses(s) {
     }
   }
 
-  if (JUNIT_SUITE_LINE.test(s)) {
+  if (s.includes("<testsuite")) {
     const cop = new RegExp(String.raw`^${COP}$`);
-    let inSuite = false;
-    for (let i = 0; i < lines.length; i++) {
-      if (JUNIT_SUITE_LINE.test(lines[i])) { inSuite = true; continue; }
-      if (JUNIT_END_LINE.test(lines[i])) { inSuite = false; continue; }
-      const failure = inSuite && lines[i].match(JUNIT_FAILURE_LINE);
-      if (!failure) continue;
-      const a = xmlAttributes(failure[1]);
-      // The location is the failure's body. Another tool writing to the same log can put
-      // a line of its own in between, so the body is looked for up to its closing tag.
-      let where = null, j = i + 1;
-      for (; j <= i + 3 && j < lines.length && !/<\/?(?:failure|testcase)\b/.test(lines[j]); j++) {
-        where = xmlText(lines[j]).match(WHERE);
-        if (where) break;
+    for (const suite of cutElements(s, ["testsuite"])) {
+      if (xmlAttributes(suite.attributes).name !== "rubocop") continue;
+      for (const failure of cutElements(suite.body, ["failure"])) {
+        const a = xmlAttributes(failure.attributes);
+        // The location is the failure's body. Another tool writing to the same log can put
+        // a line of its own in between, so it is looked for on the tag's own line and the
+        // three under it, up to where another case or failure starts.
+        const body = failure.body.split("\n");
+        let where = null, under = 0;
+        for (; under <= 3 && under < body.length && !/<\/?(?:failure|testcase)\b/.test(body[under]); under++) {
+          where = xmlText(body[under]).match(WHERE);
+          if (where) break;
+        }
+        if (!where || !cop.test(a.type ?? "")) continue;
+        // The failure's opening tag and the location that is its body.
+        const from = lineAt(s, suite.bodyAt + failure.at);
+        const to = lineAt(s, suite.bodyAt + failure.bodyAt) + under + 1;
+        found.push({ file: where[1], line: +where[2], col: +where[3], code: a.type, message: unnamed(a.message, a.type), from, to });
       }
-      if (!where || !cop.test(a.type ?? "")) continue;
-      // The failure's opening tag and the location that is its body.
-      found.push({ file: where[1], line: +where[2], col: +where[3], code: a.type, message: unnamed(a.message, a.type), from: i, to: j + 1 });
     }
   }
 

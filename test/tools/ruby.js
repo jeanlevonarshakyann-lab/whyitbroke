@@ -378,5 +378,27 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL bundler conflict cut short\n       ${e.message}`); fail++; }
 
+// RuboCop's JUnit report is read as the document it is. Its suite was a line naming
+// rubocop, a failure a line that ended with its opening tag, and its place one of the
+// three lines under that.
+try {
+  const read = (t) => { const r = analyse(t); return r && [r.tool, r.failures.map((f) => [f.file, f.line, f.col, f.code, f.message])]; };
+  const text = fx("rubocop_junit_fail.txt"), expected = read(text);
+  assert.equal(expected?.[1].length, 6);
+  // Compacted: no line breaks between its tags, nor around a failure's place.
+  assert.deepEqual(read(text.replace(/>\n[^\S\n]*</g, "><").replace(/>\n[^\S\n]*(\/[^\n]*)\n[^\S\n]*</g, ">$1<")), expected, "the report on one line");
+  // Reflowed: an attribute to a line, in the suite and in each failure.
+  const reflowed = text.replace(/<(testsuite|failure)\b[^>]*>/g, (tag) => tag.replace(/[^\S\n]+(?=[\w:.-]+=')/g, "\n        "));
+  assert.notEqual(reflowed, text);
+  assert.deepEqual(read(reflowed), expected, "an attribute to a line");
+  // A capture keeps each failure and its place and loses the lines around them, closing
+  // tags included: what this report was read by line for, and still reads.
+  const kept = text.split("\n").filter((line) => /<testsuite\b|<failure\b|^[^\S\n]*\/[^<\n]*:\d+:\d+[^\S\n]*$/.test(line)).join("\n");
+  assert.ok(!kept.includes("</failure>") && kept.includes("<failure"));
+  assert.deepEqual(read(kept), expected, "a report cut to its failures");
+  console.log("  ok   rubocop's junit report is read as a document, whole or cut");
+  pass++;
+} catch (e) { console.log(`  FAIL rubocop junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

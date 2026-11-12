@@ -784,11 +784,6 @@ try {
 //
 // A root that names its tool - `<testsuites name="Biome">` - is left with its `=` as that
 // tool writes it: it is how the report is known for that tool's.
-//
-// `unread` is what does not hold yet, by report and spelling: these two readers take their
-// report a line at a time, where a tag still ends at its first `>`, an attribute is still
-// `name="value"`, and a tag is all on one line. Each is held to still being unread, so a
-// reader that learns a spelling has to come off the list.
 try {
   const read = (text) => { const report = analyse(text); return report && [report.tool, report.failures.map((f) => [f.file, f.line, f.title, f.message])]; };
   const tag = /<[A-Za-z_][\w:.-]*(?:[^\S\n]+[\w:.-]+=(?:"[^"<>]*"|'[^'<>]*'))+[^\S\n]*\/?>/g;
@@ -801,12 +796,6 @@ try {
     ["a first attribute holding `>`", every((t) => t.replace(/^(<[\w:.-]+)/, '$1 note="a => b"'))],
     ["a last attribute holding `>`", every((t) => t.replace(/[^\S\n]*\/?>$/, (end) => ` note="a => b"${end}`))],
   ];
-  const unread = {
-    "space around `=`": /^nodetest_reporter_/,
-    "a line break after `=`": /^(?:nodetest_reporter_|rubocop_junit)/,
-    "a first attribute holding `>`": /^(?:nodetest_reporter_|rubocop_junit)/,
-    "a last attribute holding `>`": /^rubocop_junit/,
-  };
   const reports = readdirSync(join(here, "fixtures")).filter((name) => /<(?:testsuites?|checkstyle|TestRun)\b/.test(fx(name)));
   assert.ok(reports.length >= 20, `only ${reports.length} XML reports among the fixtures`);
   const held = new Map(spellings.map(([spelling]) => [spelling, 0]));
@@ -816,10 +805,6 @@ try {
     for (const [spelling, respell] of spellings) {
       const respelled = respell(text);
       if (respelled === text) continue;
-      if (unread[spelling]?.test(name)) {
-        assert.notDeepEqual(read(respelled), expected, `${name} reads ${spelling} now: take it off the list`);
-        continue;
-      }
       assert.deepEqual(read(respelled), expected, `${name} with ${spelling}`);
       held.set(spelling, held.get(spelling) + 1);
     }

@@ -1056,6 +1056,33 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL deno junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
 
+// ...and node's JUnit report. Its root was a line reading `<testsuites>`, a case a line
+// holding `<testcase`, with its attributes those on that line, and its failure the lines
+// between one holding `<failure` and one holding `</failure>`.
+try {
+  const read = (t) => { const r = analyse(t); return r && [r.tool, r.summary, r.failures.map((f) => [f.file, f.line, f.col, f.title, f.message])]; };
+  for (const name of ["nodetest_reporter_junit_fail.txt", "nodetest_reporter_junit_no_skip_fail.txt", "nodetest_reporter_junit_crash_fail.txt"]) {
+    const text = fx(name), expected = read(text);
+    assert.ok(expected?.[2].length, `${name} reads as nothing`);
+    // Compacted: no line breaks between its tags.
+    assert.match(text, />\n[^\S\n]*</);
+    assert.deepEqual(read(text.replace(/>\n[^\S\n]*</g, "><")), expected, `${name} on one line`);
+    // Reflowed: an attribute to a line, in each case and each failure.
+    const reflowed = text.replace(/<(testcase|failure)\b[^>]*>/g, (tag) => tag.replace(/[^\S\n]+(?=[\w:.-]+=")/g, "\n    "));
+    assert.notEqual(reflowed, text);
+    assert.deepEqual(read(reflowed), expected, `${name} with an attribute to a line`);
+  }
+  // A report cut before a failure's closing tags: the case ends where the next starts.
+  const text = fx("nodetest_reporter_junit_no_skip_fail.txt"), expected = read(text);
+  const failing = text.slice(text.indexOf('<testcase name="fails second"'), text.indexOf("</failure>"));
+  assert.ok(failing.includes("<failure"));
+  const cut = text.replace(failing, `${failing.replace('name="fails second"', 'name="fails first"')}\n\t${failing}`);
+  assert.deepEqual(read(cut)?.[2].map((f) => [f[3], f[0], f[1]]),
+    [["fails first", expected[2][0][0], expected[2][0][1]], ["fails second", expected[2][0][0], expected[2][0][1]]], "a report cut before a closing tag");
+  console.log("  ok   node's junit report is read as a document, whole or cut");
+  pass++;
+} catch (e) { console.log(`  FAIL node junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+
 // Three reporters, one run. They differ only in how the path is written.
 try {
   const text = analyse(fx("vitest_text_same_fail.txt"));
