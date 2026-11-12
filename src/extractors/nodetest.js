@@ -129,9 +129,15 @@ function nodeSpec(text) {
     return { failures: [], failed: 0, passed: 0 };
   }
   const lines = text.split("\n");
-  const section = lines.findIndex((line) => /^✖[^\S\n]+failing tests:[^\S\n]*$/.test(line));
+  const listed = (line) => /^✖[^\S\n]+failing tests:[^\S\n]*$/.test(line);
+  // Each run lists its failing tests under a heading of its own, and what a crashed file
+  // threw is above the heading of the run that crashed. It was looked for above the first
+  // heading in the log, so a second run's crash - another package of a workspace - was
+  // never found: its file came back as `test failed`, by the name the list gave it.
+  let section = lines.findIndex(listed);
   const failures = [];
   for (let i = section + 1; i < lines.length; i++) {
+    if (listed(lines[i])) { section = i; continue; }
     const location = lines[i].match(ALT_LOCATION_RE);
     if (!location) continue;
     let at = i + 1;
