@@ -785,7 +785,7 @@ try {
 // A root that names its tool - `<testsuites name="Biome">` - is left with its `=` as that
 // tool writes it: it is how the report is known for that tool's.
 //
-// `unread` is what does not hold yet, by report and spelling: these three readers take their
+// `unread` is what does not hold yet, by report and spelling: these two readers take their
 // report a line at a time, where a tag still ends at its first `>`, an attribute is still
 // `name="value"`, and a tag is all on one line. Each is held to still being unread, so a
 // reader that learns a spelling has to come off the list.
@@ -803,8 +803,8 @@ try {
   ];
   const unread = {
     "space around `=`": /^nodetest_reporter_/,
-    "a line break after `=`": /^(?:denotest_junit_multiline|denotest_reporter_|nodetest_reporter_|rubocop_junit)/,
-    "a first attribute holding `>`": /^(?:denotest_junit_multiline|denotest_reporter_|nodetest_reporter_|rubocop_junit)/,
+    "a line break after `=`": /^(?:nodetest_reporter_|rubocop_junit)/,
+    "a first attribute holding `>`": /^(?:nodetest_reporter_|rubocop_junit)/,
     "a last attribute holding `>`": /^rubocop_junit/,
   };
   const reports = readdirSync(join(here, "fixtures")).filter((name) => /<(?:testsuites?|checkstyle|TestRun)\b/.test(fx(name)));

@@ -183,6 +183,10 @@ test("an element is read to its closing tag, or to the next one when it was cut"
   const text = `log\n<a k="v">body</a>\n`;
   const [found] = cutElements(text, ["a"]);
   assert.deepEqual([text.slice(found.at, found.end), text.slice(found.bodyAt, found.bodyAt + found.body.length)], [`<a k="v">body</a>`, "body"]);
+  // What a cut element holds stops at its last character that is not space, so the lines
+  // it is on do not run into the next element's.
+  const run = `<a>first\n  \n  <a>second</a>`;
+  assert.deepEqual([...cutElements(run, ["a"])].map((e) => run.slice(e.at, e.textEnd)), ["<a>first", "<a>second</a>"]);
   for (const hostile of ["<a>x".repeat(200_000), "</a>".repeat(200_000), `<a x="`.repeat(200_000), "<a".repeat(200_000),
     `${"<a ".repeat(200_000)}>`, `${"</a ".repeat(200_000)}>`, `>${"<a x='".repeat(200_000)}`]) {
     const started = Date.now();

@@ -1023,6 +1023,39 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL mocha xunit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
 
+// Deno's JUnit report is read as the document it is, too. Its root was known only when
+// its tag and name were on one line, its cases were looked for on the lines after the
+// root's, and a case's attributes were those on the line its tag started.
+try {
+  const read = (t) => { const r = analyse(t); return r && [r.tool, r.summary, r.failures.map((f) => [f.file, f.line, f.col, f.title, f.message])]; };
+  for (const name of ["denotest_junit_multiline_fail.txt", "denotest_reporter_junit_fail.txt", "denotest_reporter_skipped_junit_fail.txt"]) {
+    const text = fx(name), expected = read(text);
+    assert.ok(expected?.[2].length, `${name} reads as nothing`);
+    // Compacted: no line breaks between its tags.
+    assert.match(text, />\n[^\S\n]*</);
+    assert.deepEqual(read(text.replace(/>\n[^\S\n]*</g, "><")), expected, `${name} on one line`);
+    // Reflowed: an attribute to a line, in the root and in each case.
+    const reflowed = text.replace(/<(testsuites|testcase)\b[^>]*>/g, (tag) => tag.replace(/[^\S\n]+(?=[\w:.-]+=")/g, "\n    "));
+    assert.notEqual(reflowed, text);
+    assert.deepEqual(read(reflowed), expected, `${name} with an attribute to a line`);
+  }
+  // A capture that kept the failures and lost the lines between them: a case then ends
+  // where the next one starts. The first failure read on to the second's closing tag and
+  // took its text, and the second case was never read.
+  const text = fx("denotest_junit_multiline_fail.txt"), expected = read(text);
+  const cut = text.replace(/<\/failure>\n[^\S\n]*<\/testcase>\n/, "\n");
+  assert.notEqual(cut, text);
+  assert.deepEqual(read(cut)?.[2].map((f) => [f[3], f[4]]), expected[2].map((f) => [f[3], f[4]]), "a report cut before a closing tag");
+  // A failure with nothing in it still has what its tag says. For that the reader called a
+  // function it no longer had: the error was taken for a parser that read nothing, and the
+  // whole report was dropped.
+  const bare = text.replace(/(<failure\b[^>]*>)[\s\S]*?<\/failure>/g, "$1</failure>");
+  assert.notEqual(bare, text);
+  assert.deepEqual(read(bare), expected, "failures with no text of their own");
+  console.log("  ok   deno's junit report is read as a document, whole or cut");
+  pass++;
+} catch (e) { console.log(`  FAIL deno junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+
 // Three reporters, one run. They differ only in how the path is written.
 try {
   const text = analyse(fx("vitest_text_same_fail.txt"));
