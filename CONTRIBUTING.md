@@ -120,6 +120,13 @@ bounded.
   installed and reaches the network - but it is how a claim about what whyitbroke reads
   gets re-made on another machine instead of quoted from whenever it was last measured.
   A tool that is not installed is skipped and said so.
+- `npm run accuracy` runs the tools too, and asks whether what was read is true - by two
+  things nobody here wrote. A file a failure names has to be a file of the project, with
+  that line in it; and the same project under a directory with a space in its name, under
+  one with letters outside ASCII, named to the tool by its full path, and with its file in
+  a folder with a space, has to read as it did under a plain name. A tool that does not
+  print the same thing twice is not held to what differs. Commands that fetch from a
+  registry are skipped unless it is run with `--network`.
 - Run `npm test` before submitting changes. `test/guarantees.js` runs first and pins the
   two promises everything else is subordinate to: the exit code is the command's own,
   and a command that failed is never presented as anything else. If a change makes those

@@ -21,6 +21,7 @@
     "test:heavy": "node test/mixed.js && node test/bounds.js && node test/router.js",
     "bench": "node bench/speed.js",
     "coverage": "node bench/coverage.js",
+    "accuracy": "node bench/accuracy.js",
     "prepublishOnly": "npm test"
   },
   "keywords": [
