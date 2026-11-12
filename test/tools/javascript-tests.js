@@ -1046,6 +1046,12 @@ try {
   const cut = text.replace(/<\/failure>\n[^\S\n]*<\/testcase>\n/, "\n");
   assert.notEqual(cut, text);
   assert.deepEqual(read(cut)?.[2].map((f) => [f[3], f[4]]), expected[2].map((f) => [f[3], f[4]]), "a report cut before a closing tag");
+  // A failure with nothing in it still has what its tag says. For that the reader called a
+  // function it no longer had: the error was taken for a parser that read nothing, and the
+  // whole report was dropped.
+  const bare = text.replace(/(<failure\b[^>]*>)[\s\S]*?<\/failure>/g, "$1</failure>");
+  assert.notEqual(bare, text);
+  assert.deepEqual(read(bare), expected, "failures with no text of their own");
   console.log("  ok   deno's junit report is read as a document, whole or cut");
   pass++;
 } catch (e) { console.log(`  FAIL deno junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }

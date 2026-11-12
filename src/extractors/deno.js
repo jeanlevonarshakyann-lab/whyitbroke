@@ -201,13 +201,18 @@ function denoJunit(text) {
       if (!outcome) continue;
       const a = xmlAttributes(test.attributes);
       const decoded = xmlText(outcome.body);
+      // What deno said is the failure's text, read as its pretty reporter shows it. A
+      // failure that holds none - written empty, or cut off at its tag - still has the
+      // message its tag carries, `message="Uncaught Error: ..."`.
+      const said = blockMessage(decoded) ||
+        blockMessage(String(xmlAttributes(outcome.attributes).message ?? "").replace(/^Uncaught[^\S\n]+/, ""));
       // The case's opening tag, down to where its failure ends.
       const from = doc.bodyAt + test.at, to = doc.bodyAt + test.bodyAt + outcome.textEnd;
       failures.push(withSource({
         file: a.classname, line: /^\d+$/.test(a.line) ? +a.line : undefined,
         col: /^\d+$/.test(a.col) ? +a.col : undefined,
         title: a.name || "test", subject: a.name || "test", severity: "error",
-        message: blockMessage(decoded) || usefulMessage(decoded),
+        message: said || a.name || "test",
       }, lineAt(text, from), lineAt(text, Math.max(from, to - 1)) + 1));
     }
     const tests = /^\d+$/.test(root.tests) ? +root.tests : 0;
