@@ -1055,6 +1055,24 @@ try {
   console.log("  ok   deno's junit report is read as a document, whole or cut");
   pass++;
 } catch (e) { console.log(`  FAIL deno junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
+// A frame of deno's is read to its line and column, whatever its path holds. deno writes a
+// folder named `my folder` into the frame's URL as it is - `file:///app/my folder/d.ts:1:7` -
+// and its reader took a path only up to a space: the frame was no frame, the crash was
+// nobody's, and the last resort guessed at it. `npm run accuracy` found it, running deno on
+// a file in such a folder.
+try {
+  const text = fx("denorun_crash_fail.txt");
+  const read = (t) => { const r = analyse(t); return r && [r.tool, !!r.guessed, r.failures.map((f) => [f.file, f.line, f.col, f.message])]; };
+  const expected = read(text);
+  assert.deepEqual([expected[0], expected[1], expected[2].length], ["deno", false, 1]);
+  assert.ok(text.includes("file:///home/dev/app/"));
+  for (const folder of ["my app", "the shop app", "caf\u00e9 app"]) {
+    assert.deepEqual(read(text.replaceAll("file:///home/dev/app/", `file:///home/dev/${folder}/`)),
+      [expected[0], expected[1], expected[2].map(([file, ...rest]) => [file.replace("/home/dev/app/", `/home/dev/${folder}/`), ...rest])], folder);
+  }
+  console.log("  ok   a deno frame is read whatever its path holds");
+  pass++;
+} catch (e) { console.log(`  FAIL deno frame paths\n       ${e.message.split("\n").slice(0, 8).join("\n       ")}`); fail++; }
 
 // Three reporters, one run. They differ only in how the path is written.
 try {
