@@ -26,6 +26,48 @@ const MESSAGE_RE = /^[^\S\n]*Message:[^\S\n]*$/;
 const STACK_RE = /^[^\S\n]*Stack:[^\S\n]*$/;
 const MAX_MESSAGE_LINES = 4;
 
+/** The numbered blocks between one run's "Failures:" heading and its tally. */
+function blocks(lines, from, to, failures) {
+  for (let i = from + 1; i < to; i++) {
+    const head = lines[i].match(HEAD_RE);
+    if (!head) continue;
+
+    const message = [];
+    const frames = [];
+    let inMessage = false, inStack = false;
+    // The heading, its Message: and Stack: sections, down to the last line in them.
+    let end = i + 1;
+    for (let j = i + 1; j < to && j <= i + 40; j++) {
+      if (HEAD_RE.test(lines[j])) break;
+      if (TALLY_RE.test(lines[j])) break;
+      if (MESSAGE_RE.test(lines[j])) { inMessage = true; inStack = false; end = j + 1; continue; }
+      if (STACK_RE.test(lines[j])) { inStack = true; inMessage = false; end = j + 1; continue; }
+      if (inStack) {
+        const f = nodeFrame(lines[j]);
+        // jasmine's own frames say "<Jasmine>" and name no file, so they never match
+        if (f && !isNoise(f.file)) {
+          frames.push({ fn: f.fn ?? "<anonymous>", file: f.file, line: f.line, col: f.col });
+        }
+        if (lines[j].trim()) end = j + 1;
+        continue;
+      }
+      if (inMessage && lines[j].trim() && message.length < MAX_MESSAGE_LINES) { message.push(lines[j].trim()); end = j + 1; }
+    }
+
+    // Only a numbered block that said something is a failure; the summary line at the
+    // top of a run repeats the numbers with nothing under them.
+    if (!message.length && !frames.length) continue;
+    const at = frames[0];
+    failures.push(withSource({
+      file: at?.file, line: at?.line, col: at?.col,
+      title: head[2], subject: head[2], severity: "error",
+      message: message.join("\n") || head[2],
+      trace: frames.length ? frames.slice(0, 4).map((f) => `${f.fn} (${f.file}:${f.line}:${f.col})`) : undefined,
+    }, i, end));
+    i += 1;
+  }
+}
+
 export default {
   name: "jasmine",
   // Strings a log has to hold for this parser to read anything from it - see src/router.js.
@@ -43,55 +85,25 @@ export default {
     // else. "N) name" belongs to rspec, mocha, PHPUnit and Playwright too, so a scan of
     // the whole log read their blocks as jasmine's the moment both tools were present -
     // twelve ordered pairs, all of them jasmine against mocha or PHPUnit.
-    const from = lines.findIndex((l) => /^[^\S\n]*Failures:[^\S\n]*$/.test(l));
-    if (from < 0) return null;
-    let to = lines.findIndex((l, i) => i > from && TALLY_RE.test(l));
-    if (to < 0) to = lines.length;
-
-    for (let i = from + 1; i < to; i++) {
-      const head = lines[i].match(HEAD_RE);
-      if (!head) continue;
-
-      const message = [];
-      const frames = [];
-      let inMessage = false, inStack = false;
-      // The heading, its Message: and Stack: sections, down to the last line in them.
-      let end = i + 1;
-      for (let j = i + 1; j < to && j <= i + 40; j++) {
-        if (HEAD_RE.test(lines[j])) break;
-        if (TALLY_RE.test(lines[j])) break;
-        if (MESSAGE_RE.test(lines[j])) { inMessage = true; inStack = false; end = j + 1; continue; }
-        if (STACK_RE.test(lines[j])) { inStack = true; inMessage = false; end = j + 1; continue; }
-        if (inStack) {
-          const f = nodeFrame(lines[j]);
-          // jasmine's own frames say "<Jasmine>" and name no file, so they never match
-          if (f && !isNoise(f.file)) {
-            frames.push({ fn: f.fn ?? "<anonymous>", file: f.file, line: f.line, col: f.col });
-          }
-          if (lines[j].trim()) end = j + 1;
-          continue;
-        }
-        if (inMessage && lines[j].trim() && message.length < MAX_MESSAGE_LINES) { message.push(lines[j].trim()); end = j + 1; }
-      }
-
-      // Only a numbered block that said something is a failure; the summary line at the
-      // top of a run repeats the numbers with nothing under them.
-      if (!message.length && !frames.length) continue;
-      const at = frames[0];
-      failures.push(withSource({
-        file: at?.file, line: at?.line, col: at?.col,
-        title: head[2], subject: head[2], severity: "error",
-        message: message.join("\n") || head[2],
-        trace: frames.length ? frames.slice(0, 4).map((f) => `${f.fn} (${f.file}:${f.line}:${f.col})`) : undefined,
-      }, i, end));
-      i += 1;
+    //
+    // Each run has a heading and a tally of its own, and every one of them is read: two
+    // packages of a workspace are two runs, and the first heading's blocks were all that
+    // was looked at - the second package's failures were nothing.
+    let specs = 0, failed = 0, tallies = 0;
+    for (let from = 0; from < lines.length; from++) {
+      if (!/^[^\S\n]*Failures:[^\S\n]*$/.test(lines[from])) continue;
+      let to = from + 1;
+      while (to < lines.length && !TALLY_RE.test(lines[to])) to++;
+      const tally = lines[to]?.match(TALLY_RE);
+      if (tally) { specs += +tally[1]; failed += +tally[2]; tallies++; }
+      blocks(lines, from, to, failures);
+      from = to;
     }
 
     if (!failures.length) return null;
-    const t = s.match(TALLY_RE);
     return {
       tool: "jasmine",
-      summary: t ? `${t[2]} of ${t[1]} spec${t[1] === "1" ? "" : "s"} failed` : undefined,
+      summary: tallies ? `${failed} of ${specs} spec${specs === 1 ? "" : "s"} failed` : undefined,
       failures,
     };
   },

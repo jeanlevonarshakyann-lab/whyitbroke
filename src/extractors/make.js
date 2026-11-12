@@ -61,8 +61,15 @@ export default {
     let at = 0;
     const push = (f) => {
       const failure = withSource({ severity: "error", ...f }, at, at + 1);
-      // ...and it was read in both places.
-      if (f.subject && named.has(f.subject)) { failures[named.get(f.subject)] = joinSources(failures[named.get(f.subject)], failure); return; }
+      // ...and it was read in both places. The second telling names no makefile, and is
+      // the last one of that name; one that names another makefile, or another line of
+      // it, is another include that is not there - two directories of a build can each
+      // be missing a `config.mk`, and the second was the first said again.
+      const earlier = f.subject ? failures[named.get(f.subject)] : undefined;
+      if (earlier && (!f.file || (earlier.file === f.file && earlier.line === f.line))) {
+        failures[named.get(f.subject)] = joinSources(earlier, failure);
+        return;
+      }
       if (f.subject) named.set(f.subject, failures.length);
       failures.push(failure);
     };
