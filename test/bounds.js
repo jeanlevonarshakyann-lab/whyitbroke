@@ -156,11 +156,15 @@ const fastest = (text, runs) => Math.min(...Array.from({ length: runs }, () => t
 /** The fastest times of `small` and of `big`. The smaller input is read twice and the
  *  larger once; while their ratio is past `bound` they are read again in turn, up to five
  *  rounds, so a slow stretch of the machine lands on both. A reader that has gone
- *  quadratic is slow on every round. */
-function alternate(time, small, big, bound) {
+ *  quadratic is slow on every round.
+ *
+ *  `rounds` is more than five where a read is a fraction of a millisecond and a round costs
+ *  forty: a machine with more to do than it has cores gives such a read a clean run only
+ *  now and then, and twelve rounds find one where five did not. */
+function alternate(time, small, big, bound, rounds = 5) {
   let fast = Math.min(time(small), time(small));
   let slow = time(big);
-  for (let round = 1; round < 5 && slow >= fast * bound; round++) {
+  for (let round = 1; round < rounds && slow >= fast * bound; round++) {
     fast = Math.min(fast, time(small));
     slow = Math.min(slow, time(big));
   }
@@ -1114,7 +1118,7 @@ test("each pattern pinned to where whitespace starts matches what it matched", (
 
 test("lines with long stretches of whitespace, read by each pinned pattern", () => {
   // The lines each pattern found slowest - a stretch inside, at the start, at the end, or
-  // the whole line - fifty of them a read, so that a read is long enough to time.
+  // the whole line.
   const shapes = (n) => {
     const s = " ".repeat(n);
     return ["x" + s + "y", s, s + "y", "x" + s + "[y", "  x" + s + "[y", "  x" + s + "y", "x" + s.slice(n / 2) + "y" + s.slice(n / 2),
@@ -1123,20 +1127,39 @@ test("lines with long stretches of whitespace, read by each pinned pattern", () 
   };
   const slow = [];
   for (const [name, , pattern] of PINNED) {
+    // What is timed is the fastest of many short reads, and a read has to be short for
+    // that to mean anything: one that outlasts the time a busy machine gives a process
+    // before the next has its turn is never read in one go, however often it is tried. Fifty
+    // passes over the lines made a read of the longer ones 90 to 140ms for the slowest
+    // patterns against 10 to 16 for the shorter, and on a machine with more to do than it
+    // has cores those read as nine times slower. So a read is as many passes as take the
+    // shorter lines a fifth of a millisecond - one, for those patterns - and never fifty.
+    const passes = (() => {
+      const lines = shapes(2000);
+      let best = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const start = performance.now();
+        for (const line of lines) pattern.test(line);
+        best = Math.min(best, performance.now() - start);
+      }
+      return Math.max(1, Math.min(50, Math.ceil(0.2 / best)));
+    })();
     const once = (n) => {
       const lines = shapes(n);
       let best = Infinity;
       const at = performance.now();
       do {
         const start = performance.now();
-        for (let k = 0; k < 50; k++) for (const line of lines) pattern.test(line);
+        for (let k = 0; k < passes; k++) for (const line of lines) pattern.test(line);
         best = Math.min(best, performance.now() - start);
       } while (performance.now() - at < FLOOR_MS);
       return best;
     };
-    const small = once(2000);
-    let large = once(8000);
-    if (large >= small * 8) large = Math.min(large, once(8000), once(8000));
+    // Read in turn, as every other growth here is: a slow stretch of the machine that
+    // landed on the longer lines alone read a pattern that takes a third of a millisecond
+    // as eight and a half times slower on lines four times as long, and failed an
+    // unchanged main.
+    const [small, large] = alternate(once, 2000, 8000, 8, 12);
     if (large >= small * 8) slow.push(`${name}: ${ms(small)}ms for the lines, ${ms(large)}ms for lines four times as long - x${(large / small).toFixed(1)}`);
   }
   assert.deepEqual(slow, []);
@@ -1442,9 +1465,7 @@ test("lines of each held pattern's own shape with long stretches of whitespace i
       } while (performance.now() - at < FLOOR_MS);
       return best;
     };
-    const small = once(2000);
-    let large = once(8000);
-    if (large >= small * 8) large = Math.min(large, once(8000), once(8000));
+    const [small, large] = alternate(once, 2000, 8000, 8, 12);
     if (large >= small * 8) slow.push(`${name}: ${ms(small)}ms for the lines, ${ms(large)}ms for lines four times as long - x${(large / small).toFixed(1)}`);
   }
   assert.deepEqual(slow, []);
