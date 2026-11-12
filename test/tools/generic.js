@@ -215,5 +215,24 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL relayed exit status\n       ${e.message}`); fail++; }
 
+// What stopped a run is not always among its first twelve lines that look like errors. A
+// step that is retried says the same thing each time round, and what ended it is said once,
+// after the last of them. The first twelve such lines were all that was read, so twelve
+// tellings of one failure were one failure and the thing that stopped the run was nothing.
+try {
+  const retried = "curl: (7) Failed to connect to registry.internal port 443: Connection refused";
+  const stopped = "error: deployment aborted: disk quota exceeded writing /var/out.bin";
+  const messages = (log) => analyse(log)?.failures.map((f) => f.message);
+  assert.deepEqual(messages(`${`${retried}\n`.repeat(14)}${stopped}\n`), [retried, stopped], "said once after fourteen retries");
+  // However many times it is said, and whatever is said between.
+  assert.deepEqual(messages(`${`step 3 of 9\n${retried}\nretrying in 5s\n`.repeat(500)}${stopped}\nexit status 1\n`), [retried, stopped], "after five hundred");
+  // Eight failures are still what is shown at most, and a log of nothing but one line is one.
+  const many = Array.from({ length: 40 }, (_, n) => `error: step ${String.fromCharCode(97 + (n % 26))}${n} failed`);
+  assert.equal(messages(`${`${retried}\n`.repeat(20)}${many.join("\n")}\n`).length, 8);
+  assert.deepEqual(messages(`${retried}\n`.repeat(3001)), [retried]);
+  console.log("  ok   what stopped a run is read after any number of tellings of something else");
+  pass++;
+} catch (e) { console.log(`  FAIL later distinct errors\n       ${e.message.split("\n").slice(0, 8).join("\n       ")}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
