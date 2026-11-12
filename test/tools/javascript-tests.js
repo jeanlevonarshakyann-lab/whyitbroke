@@ -1101,6 +1101,24 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL node junit document\n       ${e.message.split("\n").slice(0, 6).join("\n       ")}`); fail++; }
 
+// A failure of AVA's is the one its own details are about. AVA lists what failed and then
+// details each failure under its title, and a title was looked up once for the whole log:
+// two tests of one title - in two files of a run, or in two runs - were both given the
+// first one's details, and so its file and line, and were then one failure.
+try {
+  const text = fx("ava_fail.txt");
+  const read = (t) => analyse(t)?.failures.map((f) => [f.file, f.line, f.title]);
+  const expected = read(text);
+  assert.equal(expected.length, 2);
+  // The second test of the run, given the first one's title, in another file.
+  const [first, second] = expected;
+  const retitled = text.replaceAll(second[2], first[2]).replace(/(file:\/\/av\/)sum(\.test\.js:4:)/, "$1other$2").replace("av/sum.test.js:4", "av/other.test.js:4");
+  assert.notEqual(retitled, text);
+  assert.deepEqual(read(retitled).map(([file, line]) => [file.replace(/^.*\//, ""), line]), [["sum.test.js", 3], ["other.test.js", 4]], "two tests of one title");
+  console.log("  ok   an ava failure is read from its own details");
+  pass++;
+} catch (e) { console.log(`  FAIL ava details\n       ${e.message.split("\n").slice(0, 8).join("\n       ")}`); fail++; }
+
 // Three reporters, one run. They differ only in how the path is written.
 try {
   const text = analyse(fx("vitest_text_same_fail.txt"));

@@ -822,8 +822,7 @@ try {
 // failure in the second package was nothing.
 //
 // Every capture here that names its files is followed by itself with those files renamed,
-// and both have to come back. `unread` is the captures whose second report is still lost,
-// each held to still being lost, so that a reader that learns to read it comes off the list.
+// and both have to come back.
 try {
   const all = (report) => (report ? [...report.failures, ...(report.others ?? []).flatMap((o) => o.failures ?? [])] : []);
   const key = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? null, f.message ?? null]);
@@ -831,7 +830,6 @@ try {
   // file whole on the line that places a failure and from the project on the line that
   // lists it, and a report with one of those renamed is not a report about another file.
   const other = (name) => { const dot = name.lastIndexOf("."); return dot > 0 ? `${name.slice(0, dot)}_two${name.slice(dot)}` : `${name}_two`; };
-  const unread = new Set(["ava_fail.txt", "ava_throw_fail.txt", "nodetest_reporter_spec_crash_fail.txt", "nodetest_reporter_spec_syntax_fail.txt"]);
   let read = 0;
   const lost = [];
   for (const name of readdirSync(join(here, "fixtures")).filter((n) => /_fail\.(?:txt|xml)$/.test(n)).sort()) {
@@ -849,8 +847,7 @@ try {
     read++;
     const both = new Set(all(analyse(`${text}\n${second}`)).map(key));
     const missing = [...first, ...renamed].filter((f) => !both.has(key(f))).length;
-    if (unread.has(name)) assert.ok(missing, `${name} reads its second report now: take it off the list`);
-    else if (missing) lost.push(`${name}: ${missing} of ${first.length * 2} failures lost`);
+    if (missing) lost.push(`${name}: ${missing} of ${first.length * 2} failures lost`);
   }
   assert.ok(read >= 300, `only ${read} captures could be read twice over`);
   assert.deepEqual(lost, []);
