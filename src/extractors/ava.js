@@ -80,17 +80,32 @@ export default {
     // per name made this quadratic - and cubic with the inner loop's own lookup - so a
     // log with a few thousand roll-call lines took seconds. The fuzzer builds exactly
     // that by duplicating lines, and it hung CI for half an hour.
+    //
+    // Every place, not the first: a title is not one test's alone. Two files of a run can
+    // each have a `totals an invoice`, and so do two runs in one log - two packages of a
+    // workspace. With one block to a title, both were given the first one's details, its
+    // file and its line with them, and were then one failure. Each line of the roll-call
+    // takes the next block of its title that is below it and not yet taken.
     const nameSet = new Set(names);
-    const blockAt = new Map();
+    const blocksOf = new Map(), blockStarts = new Set(), taken = new Map();
     lines.forEach((l, i) => {
       if (i === 0 || ROLL_RE.test(l)) return;
       const t = l.trim();
-      if (nameSet.has(t) && !blockAt.has(t)) blockAt.set(t, i);
+      if (!nameSet.has(t)) return;
+      blockStarts.add(i);
+      if (blocksOf.has(t)) blocksOf.get(t).push(i); else blocksOf.set(t, [i]);
     });
+    const blockFor = (name, below) => {
+      const places = blocksOf.get(name) ?? [];
+      let next = taken.get(name) ?? 0;
+      while (next < places.length && places[next] <= below) next++;
+      taken.set(name, next + 1);
+      return places[next] ?? -1;
+    };
 
     for (const [index, name] of names.entries()) {
       // The detail block repeats the name alone on a line, after the rule.
-      const at = blockAt.get(name) ?? -1;
+      const at = blockFor(name, rolled[index]);
       if (at < 0) {
         failures.push(withSource({ title: name, subject: name, severity: "error", message: name }, rolled[index], rolled[index] + 1));
         continue;
@@ -102,8 +117,7 @@ export default {
       let end = at + 1;
       for (let j = at + 1; j < lines.length && j <= at + 40; j++) {
         if (RULE_RE.test(lines[j])) break;
-        const here = lines[j].trim();
-        if (here !== name && nameSet.has(here)) break;   // the next failure's block
+        if (blockStarts.has(j)) break;   // the next failure's block, whatever its title
 
         if (SOURCE_RE.test(lines[j])) continue;
 
