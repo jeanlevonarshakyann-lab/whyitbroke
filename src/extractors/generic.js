@@ -164,10 +164,16 @@ export default {
       });
     };
     const failures = [];
-    for (const h of hits.slice(0, 12)) {
-      // A line told twice is read from both places.
+    /** What one line says, as a failure - or, for a line already read and said again,
+     *  nothing but where it was said again, when `sources` asks for that. Returns whether
+     *  it was a failure with no place of its own, which is what counts towards enough. */
+    const take = (h, sources) => {
       const earlier = repeats(h.text);
-      if (earlier >= 0) { failures[earlier] = joinSources(failures[earlier], withSource({}, h.i, h.i + 1)); continue; }
+      if (earlier >= 0) {
+        // A line told twice is read from both places.
+        if (sources) failures[earlier] = joinSources(failures[earlier], withSource({}, h.i, h.i + 1));
+        return false;
+      }
       said.push(h.text.replace(/\s+/g, " ").trim());
       const loc = h.text.match(/^([^\s:]+):(\d+)(?::(\d+))?:[^\S\n]*(.*)$/) ?? spacedLocation(h.text);
       if (loc) {
@@ -177,12 +183,33 @@ export default {
         const line = +loc[2] || undefined;
         const col = line && +loc[3] ? +loc[3] : undefined;
         failures.push(withSource({ file: loc[1], line, col, title: "", severity: "error", message: loc[4] }, h.i, h.i + 1));
-        continue;
+        return false;
       }
       const { frame, ...at } = locate(lines, h.i, h.text) ?? {};
       // The line, and the frame under it that said where.
       failures.push(withSource({ ...at, title: "", severity: "error", message: h.text }, h.i, frame === undefined ? h.i + 1 : frame + 1));
-      if (failures.length >= 8) break;
+      return true;
+    };
+    const FIRST = 12, ENOUGH = 8;
+    let next = 0;
+    while (next < hits.length && next < FIRST) {
+      if (take(hits[next++], true) && failures.length >= ENOUGH) break;
+    }
+    // What stopped a run is not always among the first of its lines that look like errors.
+    // A step that is retried says the same thing each time round, and the line after the
+    // last of them that says why the run ended is said once. Those first lines were all
+    // that was read - and a line said again word for word is a failure each time here,
+    // told apart only later, so eight tellings of one thing were already enough.
+    //
+    // So the lines after are read too, for what has not been said yet, until eight
+    // different things have been. A line that repeats one is passed over without keeping
+    // where: a log of a hundred thousand tellings holds one failure, not their places.
+    const told = new Set(said);
+    for (; next < hits.length && told.size < ENOUGH; next++) {
+      const flat = hits[next].text.replace(/\s+/g, " ").trim();
+      if (told.has(flat) || repeats(flat) >= 0) continue;
+      take(hits[next], false);
+      told.add(flat);
     }
     // A launcher relaying the exit status of what it ran is a consequence, not a cause.
     // It is the same thing make's `*** [all] Error 1` is, and make's own parser has never
