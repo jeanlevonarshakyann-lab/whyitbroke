@@ -1,6 +1,6 @@
 import { isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
-import { fileReference } from "../location.js";
+import { fileReference, v8Frame } from "../location.js";
 
 // `deno run` and `deno check`, as opposed to `deno test` - which has its own parser and
 // its own shape. Deno writes the word in lower case and puts its frames on file:// URLs:
@@ -20,7 +20,18 @@ const ERR_RE = /^error: (?:Uncaught(?: \(in promise\))? )?(?:([\w$]*(?:Error|Exc
 // `deno check` writes tsc's code in its own shape - "TS2322 [ERROR]: ..." - where tsc
 // itself writes "error TS2322: ...".
 const CHECK_RE = /^(TS\d+) \[ERROR\]: (.+)$/;
-const FRAME_RE = /^[^\S\n]+at (?:(.+?) \()?(file:\/\/\S+?|\/\S+?):(\d+):(\d+)\)?[^\S\n]*$/;
+/** One of deno's frames: `at fn (file:///abs/d.ts:3:11)` or `at file:///abs/d.ts:6:15`, on
+ *  a URL or on a path from the root.
+ *
+ *  Its location is read from the end of the line, as V8 writes one - see v8Frame - so the
+ *  path is what the frame holds up to its line and column, whatever that holds. deno writes
+ *  a folder named `my folder` into the URL as it is, and the pattern this replaces took a
+ *  path only up to a space: the frame was no frame, so the crash was not deno's, and the
+ *  last resort guessed at it. */
+const frameOf = (line) => {
+  const frame = v8Frame(line, { indented: true, unclosed: "split" });
+  return frame && /^(?:file:\/\/|\/)/.test(frame.file) ? frame : null;
+};
 // deno draws the offending source under a syntax error, gutter-first.
 // The spaces, then the digits and the spaces after them: two runs of spaces side by side split a long
 // line of spaces every way before refusing it.
@@ -86,11 +97,11 @@ export default {
         // concatenated, which is well inside any sane window - but deno's own message
         // is in between, and that is what settles it.
         if (ERR_RE.test(lines[j]) || CHECK_RE.test(lines[j])) break;
-        const f = lines[j].match(FRAME_RE);
+        const f = frameOf(lines[j]);
         if (f) {
           if (!frames.length && j - i > FIRST_FRAME) break;
-          frames.push({ fn: f[1] ?? "<anonymous>", file: unfile(f[2]), line: +f[3], col: +f[4],
-            url: f[2].startsWith("file://") });
+          frames.push({ fn: f.fn ?? "<anonymous>", file: unfile(f.file), line: f.line, col: f.col,
+            url: f.file.startsWith("file://") });
           end = j + 1;
           continue;
         }
