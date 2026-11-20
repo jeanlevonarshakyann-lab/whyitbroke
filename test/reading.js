@@ -883,7 +883,8 @@ try {
     // The folders the failures' files are in, as the log writes them.
     const folders = [...new Set(first.map((f) => f.file).filter((file) => typeof file === "string" && text.includes(file) && /[\\/]/.test(file))
       .map((file) => file.split(/[\\/]/).slice(-2, -1)[0]).filter((folder) => /^[\w.-]{2,}$/.test(folder ?? "") && folder !== ".."))];
-    // A URL's host is not a folder: `file://av/sum.test.js` has none to move.
+    // AVA writes `file://av/sum.test.js` only where the working directory has no space; with
+    // one, it writes the whole URL with %20 in it - see ava_spaced_folder_fail.txt.
     if (!folders.length || /file:\/\/(?!\/)/.test(text)) continue;
     const segment = new RegExp(`(^|[\\\\/\\s"'(\\[=:])(${folders.map(escaped).join("|")})(?=[\\\\/])`, "gm");
     const move = (value) => (typeof value === "string" ? value.replace(segment, "$1my $2") : value);

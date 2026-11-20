@@ -38,6 +38,14 @@ export const THROWN_IN_TEST = /(?<![^\S\n])[^\S\n]+\w*(?:Error|Exception) thrown
 export const WHERE_RE = /^[^\S\n]*(?:(?![^\S\n])|(?=[^\S\n]\.\w+:\d+[^\S\n]*$))(.+?\.\w+):(\d+)[^\S\n]*$/;
 // "› file:///abs/av/sum.test.js:3:38" - the frame ava points at. Where its place starts is held -
 // see pinnedStart in util.js.
+// AVA cuts the working directory off a frame's URL, so `file:///app/test/a.js` is written
+// `file://test/a.js`: a URL with a host named `test`, read as one, put the failure in
+// `//test/a.js` - a file on no machine. AVA names no remote machine; a `file://` with no third
+// slash is a path from the working directory.
+const avaFile = (url) => {
+  if (!/^file:\/\/(?!\/)/.test(url)) return fileReference(url);
+  try { return decodeURIComponent(url.slice(7)); } catch { return url.slice(7); }
+};
 export const FRAME_RE = pinnedStart(String.raw`^[^\S\n]*›`, { tail: String.raw`:(\d+):(\d+)[^\S\n]*$` });
 const CLASS_RE = /^[^\S\n]*(\w*(?:Error|Exception)):[^\S\n]*(.*)$/;
 const THREW_RE = /^[^\S\n]*(\w*(?:Error|Exception)) thrown in test:?[^\S\n]*$/;
@@ -124,7 +132,7 @@ export default {
         const f = lines[j].match(FRAME_RE);
         // The earlier "file:line" heading is useful as a fallback; this pointer names
         // the same site with its exact column, so let it complete the location.
-        if (f && !isNoise(fileReference(f[1]))) { where = { file: fileReference(f[1]), line: +f[2], col: +f[3] }; end = j + 1; continue; }
+        if (f && !isNoise(avaFile(f[1]))) { where = { file: avaFile(f[1]), line: +f[2], col: +f[3] }; end = j + 1; continue; }
         const a = nodeFrame(lines[j]);
         if (a) { if (!where && !isNoise(a.file)) { where = { file: a.file, line: a.line, col: a.col }; end = j + 1; } continue; }
         const w = lines[j].match(WHERE_RE);

@@ -19,6 +19,26 @@
     ],
     "shadow": {}
   },
+  "ava_relative_url_fail.txt": {
+    "winner": "ava",
+    "parser": "ava",
+    "failures": 1,
+    "claimants": [
+      "ava",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "ava_spaced_folder_fail.txt": {
+    "winner": "ava",
+    "parser": "ava",
+    "failures": 1,
+    "claimants": [
+      "ava",
+      "generic"
+    ],
+    "shadow": {}
+  },
   "ava_throw_fail.txt": {
     "winner": "ava",
     "parser": "ava",
