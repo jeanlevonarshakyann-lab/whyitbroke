@@ -540,7 +540,7 @@ try {
     writeFileSync(broken, 'process.stdin.once("data", () => setImmediate(() => process.stdin.destroy(Object.assign(new Error("EIO: i/o error, read"), { code: "EIO" }))));\n');
     const r = spawnSync(process.execPath, ["--import", pathToFileURL(broken).href, cli, "--json"],
       { input: "FAILED tests/test_shop.py::test_total - assert 1 == 2\n", encoding: "utf8" });
-    assert.doesNotMatch(r.stderr, /Unhandled 'error' event|\n\s+at /, "node's own stack trace");
+    assert.doesNotMatch(r.stderr, /Unhandled 'error' event|\n\s+at /, `node's own stack trace:\n${r.stderr}`);
     assert.match(r.stderr, /^whyitbroke: the log could not be read to its end \(EIO\)/m);
     assert.equal(r.status, 1, "a log read in part is not a log read");
     const report = JSON.parse(r.stdout);
