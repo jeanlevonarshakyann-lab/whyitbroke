@@ -268,6 +268,19 @@ const CASES = [
   { file: "playwright_spaced_folder_fail.txt", tool: "playwright", n: 2, check: (r) => {
       assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col]), [["/home/dev/pw/my tests/b.spec.js", 3, 17], ["/home/dev/pw/tests/a.spec.js", 3, 17]]);
     } },
+  // A real jest 30 run whose test file will not parse, in a folder with a space in its name.
+  // `FAIL my tests/t.test.js` reads as a display name in front of a path, and the suite was
+  // put in `tests/t.test.js`; the block names the file whole, and that says which it is.
+  { file: "jest_suite_spaced_folder_fail.txt", tool: "jest", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].title], ["my tests/t.test.js", "Test suite failed to run"]);
+    } },
+  // A real node-tap 21 run in a folder with a space in its name. Its roll-up names the file as
+  // tap was given it, `not ok 1 - my taptest/sum.test.cjs # time=10ms`, and read as no file it
+  // was a third failure beside the two it rolls up.
+  { file: "tap_spaced_folder_fail.txt", tool: "tap", n: 2, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.title]),
+        [["my taptest/sum.test.cjs", 2, "totals an invoice"], ["my taptest/sum.test.cjs", 3, "finds an expiry claim"]]);
+    } },
   { file: "node_import_fail.txt", tool: "node", n: 1, check: (r) => {
       // Here even the header is node's own file. No location at all beats a location
       // inside the runtime, which reads as though the bug were in node.

@@ -862,8 +862,7 @@ try {
 // moved paths.
 //
 // `impossible` is the captures whose moved log no tool writes, each with why, as the real
-// tool was found to write it. `unread` is what is not read yet, each held to still being
-// unread, so that a reader that learns to read it comes off the list.
+// tool was found to write it.
 try {
   const impossible = {
     // deno writes the file into a URL, and a URL writes a space as %20 - which is read.
@@ -874,7 +873,6 @@ try {
     "golangci_tab_fail.txt": "a Go package", "gotest_build_and_tests_fail.txt": "a Go package",
     "gotest_build_and_tests_json_fail.txt": "a Go package", "gotest_build_and_tests_verbose_fail.txt": "a Go package",
   };
-  const unread = new Set(["jest_json_suite_fail.txt", "phpunit_load_fail.txt", "tap_fail.txt"]);
   const all = (report) => (report ? [...report.failures, ...(report.others ?? []).flatMap((o) => o.failures ?? [])] : []);
   const key = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? null, f.message ?? null]);
   const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -895,8 +893,7 @@ try {
     const got = all(analyse(log)), have = new Set(got.map(key));
     const same = got.length === first.length && first.every((f) => have.has(key({ ...f, file: move(f.file), title: move(f.title), message: move(f.message) })));
     if (name in impossible) continue;
-    if (unread.has(name)) assert.ok(!same, `${name} is read with a space in its folders now: take it off the list`);
-    else if (!same) differ.push(name);
+    if (!same) differ.push(name);
   }
   assert.ok(moved >= 200, `only ${moved} captures had a folder to move`);
   assert.deepEqual(differ, []);

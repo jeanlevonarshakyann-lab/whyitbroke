@@ -34,6 +34,13 @@ const MARKER_RE = /^[^\S\n]*-+\^/;
 const END_RE = /^[^\S\n]*\.\.\.[^\S\n]*$/;
 // A subtest's own roll-up repeats a failure that its members already reported.
 const SUBTEST_RE = /^[^\S\n]*not ok[^\S\n]+\d+[^\S\n]*-[^\S\n]*\S+\.[cm]?[jt]s\b/;
+// ...and node-tap names the file as it was given it: under `my taptest/` the roll-up is
+// `not ok 1 - my taptest/sum.test.cjs # time=10ms`, which named no file read up to a space -
+// so it was a failure of its own, a third beside the two it rolls up. A description that is
+// a path with a folder in it, ending in a script's extension before its directive, is one.
+const DIRECTIVE = /[^\S\n]+#.*$/;
+const SPACED_FILE = /^\S.*\/.*\.[cm]?[jt]s$/;
+const rollsUp = (line, description) => SUBTEST_RE.test(line) || SPACED_FILE.test(String(description ?? "").replace(DIRECTIVE, ""));
 
 /** Whether a file's roll-up at `i` follows a failure of its own members: a `not ok` indented
  *  under it, back to the line that opens its subtest - past a gap a capture left in it, where
@@ -86,7 +93,7 @@ export default {
       // The line naming a test FILE is tap reporting that the file had failures in it,
       // which its own members have already said - where they have. A file that would not
       // load failed before it declared any, and its roll-up is the only record of it.
-      const rollUp = SUBTEST_RE.test(lines[i]);
+      const rollUp = rollsUp(lines[i], m[2]);
       if (rollUp && membersFailed(lines, i)) continue;
 
       // A result with no YAML block under it is bare TAP - TAP 12, what `mocha

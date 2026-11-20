@@ -2443,6 +2443,20 @@
       "generic": 2
     }
   },
+  "jest_suite_spaced_folder_fail.txt": {
+    "winner": "jest",
+    "parser": "jest",
+    "failures": 1,
+    "claimants": [
+      "jest",
+      "go",
+      "node",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 2
+    }
+  },
   "jest_text_statuses_fail.txt": {
     "winner": "jest",
     "parser": "jest",
@@ -5006,6 +5020,16 @@
     "shadow": {}
   },
   "tap_fail.txt": {
+    "winner": "tap",
+    "parser": "tap",
+    "failures": 2,
+    "claimants": [
+      "tap",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "tap_spaced_folder_fail.txt": {
     "winner": "tap",
     "parser": "tap",
     "failures": 2,

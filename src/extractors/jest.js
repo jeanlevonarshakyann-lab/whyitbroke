@@ -2,8 +2,45 @@ import { githubAnnotations, pinnedMessage } from "../util.js";
 import { joinSources, withSource } from "../ownership.js";
 import { nodeFrame } from "../location.js";
 // With multiple jest projects the display name comes first: "FAIL jsdom src/a.js".
-// Take the last token, which is always the path.
+// Take the last token, which is always the path - unless the block under it names a longer
+// one: see headerFile.
 const FILE_RE = /^[^\S\n]*(?:FAIL|PASS)[^\S\n]+(?:\S+[^\S\n]+)*?(\S+)[^\S\n]*$/;
+const HEADER_WORDS = /^[^\S\n]*(?:FAIL|PASS)[^\S\n]+(\S(?:.*\S)?)[^\S\n]*$/;
+const HEADER_END = /^Test Suites:/;
+
+/** The file a `FAIL` header at line `i` names.
+ *
+ *  jest writes the file as it was given it, and a test under `my tests/` is
+ *  `FAIL my tests/t.test.js` - which reads exactly as a project's display name in front of a
+ *  path does, `FAIL jsdom src/a.js`. Taking the last word made the first `tests/t.test.js`,
+ *  and a suite that failed to run - no frame of its own to say better - was put in a file
+ *  that is not there. What tells them apart is the block under the header: a suite that
+ *  will not parse names its file whole, `SyntaxError: /app/my tests/t.test.js: ...`, and a
+ *  frame names it whole too. So the header's longest ending that the block names as a file,
+ *  followed by its `:`, is the file; with none, the last word, as before. */
+function headerFile(lines, i) {
+  const words = lines[i].match(HEADER_WORDS)?.[1];
+  if (!words) return null;
+  const starts = [0];
+  for (let k = 1; k < words.length && starts.length < 8; k++) {
+    if (/\s/.test(words[k - 1]) && !/\s/.test(words[k])) starts.push(k);
+  }
+  const last = words.match(/\S+$/).index;
+  const named = (line, file) => {
+    for (let at = line.indexOf(`${file}:`); at !== -1; at = line.indexOf(`${file}:`, at + 1)) {
+      if (at === 0 || /[\s(/\\]/.test(line[at - 1])) return true;
+    }
+    return false;
+  };
+  for (const start of starts) {
+    if (start >= last) break;
+    const file = words.slice(start);
+    for (let j = i + 1; j < lines.length && !FILE_RE.test(lines[j]) && !HEADER_END.test(lines[j]); j++) {
+      if (named(lines[j], file)) return file;
+    }
+  }
+  return words.slice(last);
+}
 // jest uses the same bullet for config complaints as for failed tests. The check reads past all of
 // the whitespace after the bullet: made after it, with two spaces or more the pattern started the
 // name on the last of them, and "●  Validation Warning:" came back as a failed test.
@@ -108,7 +145,7 @@ export default {
 
     for (let i = 0; i < lines.length; i++) {
       const fm = lines[i].match(FILE_RE);
-      if (fm) { file = fm[1].replace(/^\.\//, ""); continue; }
+      if (fm) { file = headerFile(lines, i).replace(/^\.\//, ""); continue; }
       const tm = lines[i].match(TEST_RE);
       if (!tm) continue;
 
