@@ -874,9 +874,7 @@ try {
     "golangci_tab_fail.txt": "a Go package", "gotest_build_and_tests_fail.txt": "a Go package",
     "gotest_build_and_tests_json_fail.txt": "a Go package", "gotest_build_and_tests_verbose_fail.txt": "a Go package",
   };
-  const unread = new Set(["cargo_fmt_parse_fail.txt", "clippy_fail.txt", "gofmt_fail.txt", "gofmt_hunks_fail.txt", "jest_json_suite_fail.txt",
-    "node_syntax_fail.txt", "nodetest_reporter_dot_fail.txt", "nodetest_reporter_junit_fail.txt", "nodetest_reporter_junit_no_skip_fail.txt",
-    "nodetest_reporter_spec_crash_fail.txt", "nodetest_reporter_spec_syntax_fail.txt", "phpunit_load_fail.txt", "playwright_dot_fail.txt",
+  const unread = new Set(["gofmt_fail.txt", "gofmt_hunks_fail.txt", "jest_json_suite_fail.txt", "phpunit_load_fail.txt", "playwright_dot_fail.txt",
     "playwright_fail.txt", "playwright_github_fail.txt", "playwright_junit_fail.txt", "playwright_list_same_fail.txt", "tap_fail.txt"]);
   const all = (report) => (report ? [...report.failures, ...(report.others ?? []).flatMap((o) => o.failures ?? [])] : []);
   const key = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? null, f.message ?? null]);

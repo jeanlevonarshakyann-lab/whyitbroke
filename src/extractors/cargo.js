@@ -108,7 +108,11 @@ export default {
   // result tally, or a rust panic.
   detect: (s) =>
     /^error\[E\d+\]: /m.test(s) ||
-    (/^error: /m.test(s) && /^[^\S\n]*-->[^\S\n]+\S+:\d+:\d+[^\S\n]*$/m.test(s)) ||
+    // ...read by the arrow every reading of one uses. A path after it is the file as
+    // rustc was given it, and a module under `src/my mod/` has a space in it: asked for a
+    // path with none, a lint or a parse error - which carry no code - was not cargo's, and
+    // came back as a guess.
+    (/^error: /m.test(s) && s.split("\n").some((l) => ARROW_RE.test(l))) ||
     /^test result: /m.test(s) ||
     RESOLVE_RE.test(s) ||
     s.split("\n").some((l) => SHORT_RE.test(l)) ||

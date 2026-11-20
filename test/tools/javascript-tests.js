@@ -248,6 +248,15 @@ const CASES = [
       assert.doesNotMatch(String(r.failures[0].file), /^file:\/\//, "a URL is not a path");
       assert.doesNotMatch(String(r.failures[0].file), /node:internal/);
     } },
+  // A syntax error at the end of the file: node writes the header, then blank lines where
+  // the source and its caret would be - there is no source left to show. The header was
+  // read only above a caret, so the file was nowhere.
+  { file: "node_syntax_eof_fail.txt", tool: "node", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].message], ["/home/dev/app/eof.js", 2, "Unexpected end of input"]);
+    } },
+  { file: "node_syntax_eof_esm_fail.txt", tool: "node", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].message], ["/home/dev/app/eof.mjs", 2, "Unexpected end of input"]);
+    } },
   { file: "node_import_fail.txt", tool: "node", n: 1, check: (r) => {
       // Here even the header is node's own file. No location at all beats a location
       // inside the runtime, which reads as though the bug were in node.
