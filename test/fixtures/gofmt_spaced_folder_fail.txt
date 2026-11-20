@@ -1,0 +1,9 @@
+diff my pkg/c.go.orig my pkg/c.go
+--- my pkg/c.go.orig
++++ my pkg/c.go
+@@ -1,4 +1,4 @@
+ package main
+ 
+-func  main( ) {
++func main() {
+ }

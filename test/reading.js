@@ -855,5 +855,51 @@ try {
   pass++;
 } catch (e) { console.log(`  FAIL a second report\n       ${e.message.split("\n").slice(0, 10).join("\n       ")}`); fail++; }
 
+// A folder with a space in its name is a folder. A tool names a file as it was given it, so
+// a test in `my tests/` is written `my tests/cart.test.js` wherever the tool writes it. Every
+// capture here is read again with each folder its failures are in given a space - wherever
+// the log writes that folder as a segment of a path - and has to read as it did, at the
+// moved paths.
+//
+// `impossible` is the captures whose moved log no tool writes, each with why, as the real
+// tool was found to write it.
+try {
+  const impossible = {
+    // deno writes the file into a URL, and a URL writes a space as %20 - which is read.
+    "deno_import_fail.txt": "a URL",
+    // A Go package's folder is part of its import path, and an import path holds no space:
+    // go refuses the package. Files named on the command line are read - see test/tools/go.js.
+    "go_windows_build_fail.txt": "a Go package", "go_windows_vet_fail.txt": "a Go package",
+    "golangci_tab_fail.txt": "a Go package", "gotest_build_and_tests_fail.txt": "a Go package",
+    "gotest_build_and_tests_json_fail.txt": "a Go package", "gotest_build_and_tests_verbose_fail.txt": "a Go package",
+  };
+  const all = (report) => (report ? [...report.failures, ...(report.others ?? []).flatMap((o) => o.failures ?? [])] : []);
+  const key = (f) => JSON.stringify([f.file ?? null, f.line ?? null, f.col ?? null, f.title ?? null, f.message ?? null]);
+  const escaped = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let moved = 0;
+  const differ = [];
+  for (const name of readdirSync(join(here, "fixtures")).filter((n) => /_fail\.(?:txt|xml)$/.test(n)).sort()) {
+    const text = fx(name), first = all(analyse(text));
+    // The folders the failures' files are in, as the log writes them.
+    const folders = [...new Set(first.map((f) => f.file).filter((file) => typeof file === "string" && text.includes(file) && /[\\/]/.test(file))
+      .map((file) => file.split(/[\\/]/).slice(-2, -1)[0]).filter((folder) => /^[\w.-]{2,}$/.test(folder ?? "") && folder !== ".."))];
+    // A URL's host is not a folder: `file://av/sum.test.js` has none to move.
+    if (!folders.length || /file:\/\/(?!\/)/.test(text)) continue;
+    const segment = new RegExp(`(^|[\\\\/\\s"'(\\[=:])(${folders.map(escaped).join("|")})(?=[\\\\/])`, "gm");
+    const move = (value) => (typeof value === "string" ? value.replace(segment, "$1my $2") : value);
+    const log = move(text);
+    if (log === text) continue;
+    moved++;
+    const got = all(analyse(log)), have = new Set(got.map(key));
+    const same = got.length === first.length && first.every((f) => have.has(key({ ...f, file: move(f.file), title: move(f.title), message: move(f.message) })));
+    if (name in impossible) continue;
+    if (!same) differ.push(name);
+  }
+  assert.ok(moved >= 200, `only ${moved} captures had a folder to move`);
+  assert.deepEqual(differ, []);
+  console.log(`  ok   a folder with a space in its name is a folder (${moved} captures)`);
+  pass++;
+} catch (e) { console.log(`  FAIL spaced folders\n       ${e.message.split("\n").slice(0, 10).join("\n       ")}`); fail++; }
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

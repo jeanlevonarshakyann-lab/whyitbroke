@@ -1,6 +1,6 @@
 import { isNoise } from "../util.js";
 import { withSource } from "../ownership.js";
-import { fileReference, v8Frame } from "../location.js";
+import { fileReference, SOURCE_HEADER, v8Frame } from "../location.js";
 
 // A frame is `at fn (file:line:col)`: `/^[^\S\n]+at .+\(.+:\d+:\d+\)$/m`. As `.+\(.+`, a
 // line holding many parentheses was split at each of them in turn, reading to the end of
@@ -98,9 +98,18 @@ export default {
           // so node read that whole sentence as the file its error came from.
           //
           // Colons cannot be what rules it out: node writes "file:///abs/syn.mjs:1".
-          // Whitespace can - a path has none, and a sentence has plenty.
-          const h = lines[i - 2]?.match(/^(\S+):(\d+)$/);
+          // See SOURCE_HEADER for what does.
+          const h = lines[i - 2]?.match(SOURCE_HEADER);
           if (h) { header = { file: unfile(h[1]), line: +h[2] }; start = i - 2; }
+          break;
+        }
+        // An error at the end of the file has no source left to show: node writes the
+        // header and then blank lines where the source and its caret would be. Only blank
+        // lines may stand between that header and the error, so nothing else's line is
+        // taken for one.
+        if (lines[i].trim()) {
+          const h = lines[i].match(SOURCE_HEADER);
+          if (h && lines.slice(i + 1, errIdx).every((l) => !l.trim())) { header = { file: unfile(h[1]), line: +h[2] }; start = i; }
           break;
         }
         if (ERR_RE.test(lines[i]) || OTHER_DIAGNOSTIC.test(lines[i])) break;

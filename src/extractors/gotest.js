@@ -55,6 +55,28 @@ const LOC_RE = /^[^\S\n]+([\w./\\-]+\.go):(\d+):[^\S\n]*(.*)$/;
 // file's own name in a package below could have one there - an import path has none - and it
 // reads exactly as a prefix does.
 const BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?((?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?\.go|[\w./\\-]+\.go):(\d+):(\d+): (.+)$/;
+// ...except under `# command-line-arguments`. That is the package go makes of files named on
+// its command line, `go build "my pkg/b.go"`, and there the folder is whatever the files are
+// in: go writes `my pkg/b.go:3:15: declared and not used: x`, and read without spaces that
+// was no build of go's at all - nothing for go build and go vet, a guess for go test. Under
+// that header, and only until something that is not one of its errors, a path is anything
+// up to its `.go:line:col: ` but a colon, past a drive's. A runner's prefix would stand in
+// front of the header as well, which is then no header, so it never opens one of these.
+const SPACED_BUILD_RE = /^(vet(?:\.exe)?: )?(?:\.[\\/])?((?:[A-Za-z]:[\\/])?[^\s:][^:\n]*?\.go):(\d+):(\d+): (.+)$/;
+const COMMAND_LINE_HEADER = /^#[^\S\n]+\[?command-line-arguments\]?(?:[^\S\n]+\[command-line-arguments\.test\])?[^\S\n]*$/;
+/** The lines of `lines` that stand under a `# command-line-arguments` header, among its
+ *  errors: each one of them, an indented line under one, or another such header. */
+function commandLineErrors(lines) {
+  const under = new Set();
+  let open = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (COMMAND_LINE_HEADER.test(lines[i])) { open = true; continue; }
+    if (!open) continue;
+    if (SPACED_BUILD_RE.test(lines[i])) under.add(i);
+    else if (!/^[^\S\n]/.test(lines[i])) open = false;
+  }
+  return under;
+}
 const BUILD_ANY = /^(?:vet(?:\.exe)?: )?(?:\.[\\/])?(?:(?:[A-Za-z]:[\\/]|[\\/]|\.\.[\\/]|(?<=\.[\\/]))[^:\n]*?|[\w./\\-]+)\.go:\d+:\d+: /m;   // same, but scans a whole blob
 // golangci-lint prints its findings in exactly go's shape and names the linter in
 // brackets at the end. Go writes no such tag - its messages end "in variable
@@ -337,6 +359,7 @@ export default {
   // nothing went wrong. What follows go's dashes is one of its own words.
   detect: (s) =>
     /^[^\S\n]*--- (?:FAIL|PASS|SKIP|BENCH)\b/m.test(s) || /^(ok|FAIL)[^\S\n]+\S+\s/m.test(s) || BUILD_ANY.test(s) ||
+    (s.includes("command-line-arguments") && commandLineErrors(s.split("\n")).size > 0) ||
     // A binary that panics outside a test run has none of the above: no test tally, no
     // --- FAIL line, nothing but the panic and its goroutine dump. `go run` produces
     // exactly that, and it is the commonest way a Go program fails.
@@ -350,8 +373,9 @@ export default {
 
     // --- compile errors: "./file.go:4:17: cannot use 42 ..." ---
     let vetted = false;
+    const commandLine = s.includes("command-line-arguments") ? commandLineErrors(lines) : new Set();
     lines.forEach((l, i) => {
-      const m = l.match(BUILD_RE);
+      const m = l.match(BUILD_RE) ?? (commandLine.has(i) ? l.match(SPACED_BUILD_RE) : null);
       if (m && !/^\s/.test(l) && !LINTER_TAG.test(l)) {
         if (m[1]) vetted = true;
         // Go writes no severity word at all, so there is no constant of its own to put

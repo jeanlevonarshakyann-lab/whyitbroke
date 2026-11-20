@@ -52,8 +52,12 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   // No package.json ... was found". In a recursive run with its prefixes hidden, nothing
   // near it has one either.
   "\\bERR_PNPM_[A-Z0-9_]+",
-  // a location is a diagnostic by shape, whatever words follow it
-  "^\\s*\\.?[\\w./\\\\-]+\\.\\w+:\\d+(?::\\d+)?:",
+  // a location is a diagnostic by shape, whatever words follow it - and its path can hold
+  // a space, as a file under `my pkg/` does, which go writes `my pkg/b.go:3:15: ...`
+  "^\\s*\\.?[\\w./\\\\-][\\w./\\\\ -]*\\.\\w+:\\d+(?::\\d+)?:",
+  // ...under a header that says which package it is, the only thing that lets a path with a
+  // space in it be read there at all: see SPACED_BUILD_RE in src/extractors/gotest.js
+  "^#[^\\S\\n]+\\[?command-line-arguments\\b",
   "\\bat [\\w./\\\\-]+\\.\\w+ line \\d+",
   // TAP says it with two words that are not otherwise failure vocabulary at all
   "^[^\\S\\n]*not ok\\b",
@@ -122,7 +126,8 @@ const PROBABLE_DIAGNOSTIC = new RegExp([
   // header with no failure word in it either, and every place it found is an @@ line
   // underneath. Losing the header loses every place in that file, because nothing else
   // in the diff says which file it is about.
-  "^diff [^\\s]+\\.orig [^\\s]+[^\\S\\n]*$",
+  // The path can hold a space: `diff my pkg/c.go.orig my pkg/c.go`.
+  "^diff [^\\s][^\\n]*\\.orig [^\\s][^\\n]*$",
   // `terraform fmt -check -diff` is the same problem a third time. Its header is the pair
   // `--- old/<path>` / `+++ new/<path>`, and the file is named nowhere else in the diff.
   "^--- old/[^\\n]*\\S",

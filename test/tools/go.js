@@ -39,6 +39,27 @@ const CASES = [
       assert.match(r.failures[0].message, /^cannot use 42 \(untyped int constant\)/);
       assert.doesNotMatch(r.failures[0].message, /^vet: /, "the prefix is not part of the message");
     } },
+  // A real `gofmt -d` on a file in a folder with a space in its name. Its header names the
+  // file twice, `diff my pkg/c.go.orig my pkg/c.go`, and read as two paths with no space in
+  // them it was no header, and the diff went unread.
+  { file: "gofmt_spaced_folder_fail.txt", tool: "gofmt", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line], ["my pkg/c.go", 3]);
+    } },
+  // Real runs of go 1.27 on files named on the command line, in a folder with a space in its
+  // name. go heads them `# command-line-arguments` and writes each path as it was given it,
+  // `my pkg/b.go:3:15:`. A relative path was read with no space in it, so the build was no
+  // build of go's: nothing at all for go build and go vet, a guess for go test.
+  { file: "go_build_spaced_folder_fail.txt", tool: "go build", n: 2, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col, f.message]),
+        [["my pkg/b.go", 3, 15, "declared and not used: x"], ["my pkg/b.go", 4, 23, "undefined: undefinedThing"]]);
+    } },
+  { file: "go_vet_spaced_folder_fail.txt", tool: "go vet", n: 1, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col]), [["my pkg/b.go", 3, 15]]);
+    } },
+  // A test build that failed is read as the build it is, as it is with a path with no space.
+  { file: "go_test_spaced_folder_fail.txt", tool: "go build", n: 1, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col, f.message]), [["my pkg/a_test.go", 6, 28, "undefined: undefinedThing"]]);
+    } },
   { file: "govet_printf_fail.txt", tool: "go build", n: 2, check: (r) => {
       // Vet's own findings are written exactly like a compile error and carry no prefix,
       // so a piped log gives no way to tell them apart. Reported as the compiler's is
@@ -544,7 +565,7 @@ try {
   assert.equal(gofmt.detect(`diff x.go.orig x.go\n${hunk}`), true);
   const claimed = readdirSync(join(here, "fixtures")).sort()
     .filter((n) => { try { return gofmt.detect(fx(n)); } catch { return false; } });
-  assert.deepEqual(claimed, ["gofmt_fail.txt", "gofmt_hunks_fail.txt"]);
+  assert.deepEqual(claimed, ["gofmt_fail.txt", "gofmt_hunks_fail.txt", "gofmt_spaced_folder_fail.txt"]);
   console.log("  ok   gofmt reads its own diffs and nobody else's");
   pass++;
 } catch (e) { console.log(`  FAIL gofmt diff shape\n       ${e.message}`); fail++; }

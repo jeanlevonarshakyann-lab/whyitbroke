@@ -23,15 +23,32 @@ import { withSource } from "../ownership.js";
 
 // "diff <path>.orig <path>", and the two have to be the same path - which is what keeps
 // this off `git diff`'s "diff --git a/x b/x" and off a plain `diff a b`.
-const HEAD_RE = /^diff[^\S\n]+(\S+)\.orig[^\S\n]+(\S+)[^\S\n]*$/;
+//
+// The path is written as gofmt was given it, and a file under `my pkg/` has a space in it:
+// `diff my pkg/c.go.orig my pkg/c.go`. Read as two paths with no space in them, that was no
+// header and the whole diff went unread. That the two are one path is what says where it
+// ends: the header is `diff `, the path, `.orig`, a space and the path again, so it is split
+// at the `.orig` whose two sides are the same, and nowhere else.
+const DIFF = /^diff[^\S\n]+/;
 const HUNK_RE = /^@@[^\S\n]+-(\d+)(?:,(\d+))?[^\S\n]+\+\d+(?:,\d+)?[^\S\n]+@@/;
 // A hunk body is removed, added and context lines. "---" and "+++" belong to the file
 // header above the first hunk, never inside one.
 const BODY_RE = /^[-+ ]/;
 
 const named = (line) => {
-  const m = line.match(HEAD_RE);
-  return m && m[1] === m[2] ? m[1] : null;
+  const lead = line.match(DIFF);
+  if (!lead) return null;
+  const rest = line.slice(lead[0].length).replace(/[^\S\n]+$/, "");
+  for (let at = rest.indexOf(".orig"); at > 0; at = rest.indexOf(".orig", at + 1)) {
+    const gap = rest.slice(at + 5).match(/^[^\S\n]+/);
+    if (!gap) continue;
+    // Only where both sides can be the same length are they compared, so a line of many
+    // `.orig`s costs what it is long.
+    if (rest.length - (at + 5 + gap[0].length) !== at) continue;
+    const path = rest.slice(0, at);
+    if (path === rest.slice(at + 5 + gap[0].length) && !/^[^\S\n]/.test(path)) return path;
+  }
+  return null;
 };
 
 export default {
