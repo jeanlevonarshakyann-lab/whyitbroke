@@ -537,7 +537,18 @@ try {
   const dir = mkdtempSync(join(tmpdir(), "whyitbroke-stdin-"));
   try {
     const broken = join(dir, "broken-stdin.mjs");
-    writeFileSync(broken, 'process.stdin.once("data", () => setImmediate(() => process.stdin.destroy(Object.assign(new Error("EIO: i/o error, read"), { code: "EIO" }))));\n');
+    // The stream breaks on the first chunk it hands to whyitbroke's own listener. Reading it
+    // here instead set it flowing before whyitbroke had started: node 18 and 20 load the
+    // command's modules more slowly than that, so the error came before anything listened.
+    writeFileSync(broken, [
+      "const { stdin } = process, emit = stdin.emit;",
+      "let broke = false;",
+      "stdin.emit = function (event, ...rest) {",
+      "  const handled = emit.call(this, event, ...rest);",
+      "  if (event === 'data' && !broke) { broke = true; process.nextTick(() => stdin.destroy(Object.assign(new Error('EIO: i/o error, read'), { code: 'EIO' }))); }",
+      "  return handled;",
+      "};",
+    ].join("\n") + "\n");
     const r = spawnSync(process.execPath, ["--import", pathToFileURL(broken).href, cli, "--json"],
       { input: "FAILED tests/test_shop.py::test_total - assert 1 == 2\n", encoding: "utf8" });
     assert.doesNotMatch(r.stderr, /Unhandled 'error' event|\n\s+at /, `node's own stack trace:\n${r.stderr}`);
