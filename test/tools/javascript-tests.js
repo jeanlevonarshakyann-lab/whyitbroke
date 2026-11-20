@@ -257,6 +257,17 @@ const CASES = [
   { file: "node_syntax_eof_esm_fail.txt", tool: "node", n: 1, check: (r) => {
       assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].message], ["/home/dev/app/eof.mjs", 2, "Unexpected end of input"]);
     } },
+  // Real runs of Playwright 1.63: one with a project, as its starter config always has -
+  // `[chromium] › tests/a.spec.js:2:1 › adds up` - and one without, each with a test in a
+  // folder with a space in its name. With a project, no heading was read and the run was a
+  // guess; without one, the test under `my tests/` was lost.
+  { file: "playwright_projects_fail.txt", tool: "playwright", n: 2, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col, f.title]),
+        [["/home/dev/pw/my tests/b.spec.js", 3, 17, "adds up"], ["/home/dev/pw/tests/a.spec.js", 3, 17, "adds up"]]);
+    } },
+  { file: "playwright_spaced_folder_fail.txt", tool: "playwright", n: 2, check: (r) => {
+      assert.deepEqual(r.failures.map((f) => [f.file, f.line, f.col]), [["/home/dev/pw/my tests/b.spec.js", 3, 17], ["/home/dev/pw/tests/a.spec.js", 3, 17]]);
+    } },
   { file: "node_import_fail.txt", tool: "node", n: 1, check: (r) => {
       // Here even the header is node's own file. No location at all beats a location
       // inside the runtime, which reads as though the bug were in node.

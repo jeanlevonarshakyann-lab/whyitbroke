@@ -1,0 +1,41 @@
+
+Running 2 tests using 1 worker
+FF
+
+  1) my tests/b.spec.js:2:1 › adds up ──────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 2
+
+      1 | const { test, expect } = require("playwright/test");
+      2 | test("adds up", () => {
+    > 3 |   expect(1 + 1).toBe(3);
+        |                 ^
+      4 | });
+      5 |
+        at /home/dev/pw/my tests/b.spec.js:3:17
+
+    Error Context: test-results/my tests-b-adds-up/error-context.md
+
+  2) tests/a.spec.js:2:1 › adds up ─────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 2
+
+      1 | const { test, expect } = require("playwright/test");
+      2 | test("adds up", () => {
+    > 3 |   expect(1 + 1).toBe(3);
+        |                 ^
+      4 | });
+      5 |
+        at /home/dev/pw/tests/a.spec.js:3:17
+
+    Error Context: test-results/tests-a-adds-up/error-context.md
+
+  2 failed
+    my tests/b.spec.js:2:1 › adds up ───────────────────────────────────────────────────────────────
+    tests/a.spec.js:2:1 › adds up ──────────────────────────────────────────────────────────────────
