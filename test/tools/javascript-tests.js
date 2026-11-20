@@ -170,6 +170,17 @@ const CASES = [
       // the echoed source around the failing line is context, never the diagnosis
       assert.doesNotMatch(JSON.stringify(r.failures), /reduce\(/);
     } },
+  // Real runs of AVA 8. AVA cuts the working directory off a frame's URL, so in a plain
+  // project `file:///home/dev/shop/test/a.js` is written `file://test/a.js` - which read as a
+  // URL with a host named `test`, and the failure was put in `//test/a.js`, a file on no
+  // machine. Where the directory has a space, the cut misses the URL's `%20`, and the whole
+  // path is left.
+  { file: "ava_relative_url_fail.txt", tool: "ava", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].col], ["test/a.js", 2, 23]);
+    } },
+  { file: "ava_spaced_folder_fail.txt", tool: "ava", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line, r.failures[0].col], ["/home/dev/My Project/shop app/test/a.js", 2, 23]);
+    } },
   { file: "ava_throw_fail.txt", tool: "ava", n: 1, check: (r) => {
       // a throw is located from its stack; ava's own pointer is not written for one
       assert.match(r.failures[0].file, /throw\.test\.js$/);
