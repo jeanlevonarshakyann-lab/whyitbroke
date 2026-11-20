@@ -158,10 +158,16 @@ test("a mixed log only pays for ownership where two parsers agree", () => {
   // single-tool baseline.
   const alone = `${noise}\n${fx("eslint_bulk_fail.txt")}`;
   const time = (t) => { const at = Date.now(); analyse(t); return Math.max(Date.now() - at, 1); };
-  const baseline = time(alone);
-  const started = Date.now();
+  // Each is read in turn, and its time is its fastest read. One read of each put whatever
+  // the machine did during either into the ratio: the nightly run of 19 November read the
+  // mixed log in 1064ms against 476ms on macOS, on a main that reads it in 310 against 300.
+  // A ratio past the bound on every round is the cost this is here for, which was 3.5x.
+  let baseline = time(alone), took = time(log);
+  for (let round = 1; round < 5 && took >= baseline * 2; round++) {
+    baseline = Math.min(baseline, time(alone));
+    took = Math.min(took, time(log));
+  }
   const r = analyse(log);
-  const took = Date.now() - started;
 
   // jest owns it - which parser wins is not the point here, that three are present is
   assert.equal(r.others.length, 2, "three tools are in this log");

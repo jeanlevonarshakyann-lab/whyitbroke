@@ -160,7 +160,9 @@ export default {
   commands: ["phpunit"],
   detect: (s) =>
     (TALLY_RE.test(s) && /^\d+\)[^\S\n]+[\w\\]+::\w+/m.test(s)) ||
-    (INTERNAL_RE.test(s) && /^Location:[^\S\n]+\S+:\d+$/m.test(s)) ||
+    // ...asked by the pattern that reads it. A test under `my tests/` has a space in its path,
+    // and asked for a path with none, PHPUnit's own error was not PHPUnit's and read as nothing.
+    (INTERNAL_RE.test(s) && INTERNAL_LOCATION.test(s)) ||
     junitResults(s).length > 0 || teamcityResults(s).results.length > 0 ||
     (TESTDOX_ANY.test(s) && /^Tests:[^\S\n]+\d/m.test(s)),
 

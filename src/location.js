@@ -188,6 +188,18 @@ export function locatedPrefix(value, readRest, { column = true } = {}) {
   return null;
 }
 
+/** `path:line` alone on a line, as node and the tools built on it write a file above the
+ *  source line and caret of an error it could not run.
+ *
+ *  A path, not a sentence. Black's `error: cannot format cantparse.py: Cannot parse: 1:7`
+ *  ends in a number too, and under a caret and a source line it is node's exact shape - so
+ *  a path was held to holding no whitespace, which a sentence has plenty of. A path can hold
+ *  spaces, though: node writes the file whole, from the root, `/work/My Project/syn.js:2`,
+ *  and that came back with no file at all. So a path written whole - from a root, a drive or
+ *  a scheme - is read with its spaces, as long as it holds no `: `, which a sentence's
+ *  clauses are joined by and a path is not; any other is read as before, without them. */
+export const SOURCE_HEADER = /^((?:[\\/]|[A-Za-z]:[\\/]|[a-z][\w+.-]*:\/\/)(?:[^:\n]|:(?![^\S\n]))*?|\S+):(\d+)$/;
+
 // What a path written whole starts with: a root, a drive, or a scheme.
 const WHOLE_PATH = /(?:[\\/]|[A-Za-z]:[\\/]|[a-z][\w+.-]*:\/\/)/y;
 const IN = /[^\S\n]+in[^\S\n]+/g;

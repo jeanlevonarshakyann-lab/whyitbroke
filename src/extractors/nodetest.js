@@ -15,7 +15,7 @@
 // block scalar, so its content is the following lines indented one level deeper.
 import { cutElements, isNoise, lineAt, pinnedMessage, pinnedStart, tags, xmlAttributes, xmlText } from "../util.js";
 import { alsoFrom, withSource } from "../ownership.js";
-import { fileReference } from "../location.js";
+import { fileReference, nodeFrame, SOURCE_HEADER } from "../location.js";
 
 // It ends where the trailing whitespace starts - see pinnedMessage in util.js.
 export const NOT_OK_RE = pinnedMessage(String.raw`^([^\S\n]*)not ok[^\S\n]+\d+[^\S\n]+-`, { separator: String.raw`[^\S\n]*`, least: 0, tail: "$" });
@@ -59,6 +59,11 @@ function userFrame(lines, start, end) {
   const frames = [];
   for (let i = start; i < end; i++) {
     const decoded = xmlText(lines[i]);
+    // A frame is read from its end, as V8 writes one - see nodeFrame - so its path is read
+    // whole, spaces and all: a test under `my tests/` was `tests/t.test.js`. A line that is
+    // not a frame can still end in a place, `... (file.js:1:2)`, and is read as it was.
+    const v8 = nodeFrame(decoded);
+    if (v8) { frames.push({ file: v8.file, line: v8.line, col: v8.col }); continue; }
     const frame = decoded.match(/(?:\(|[^\S\n])((?:file:\/\/)?[^()\s]+?):(\d+):(\d+)\)?[^\S\n]*$/);
     if (!frame) continue;
     const location = { file: unfile(frame[1]), line: +frame[2], col: +frame[3] };
@@ -106,7 +111,7 @@ function runtimeCause(lines, target, before) {
     let stmt, start = i;
     for (let j = i - 1; j >= 0 && j >= i - 5; j--) {
       if (!/^[^\S\n]*\^+[^\S\n]*$/.test(lines[j])) continue;
-      const header = lines[j - 2]?.match(/^(\S+):(\d+)$/);
+      const header = lines[j - 2]?.match(SOURCE_HEADER);
       if (!header || !sameFile(header[1], target)) continue;
       if (!location || !sameFile(location.file, target)) {
         location = { file: unfile(header[1]), line: +header[2] };

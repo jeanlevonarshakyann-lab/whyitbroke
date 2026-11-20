@@ -619,7 +619,7 @@
       "generic"
     ],
     "shadow": {
-      "generic": 8
+      "generic": 9
     }
   },
   "cmake_configure_fail.txt": {
@@ -1124,7 +1124,7 @@
       "generic"
     ],
     "shadow": {
-      "generic": 8
+      "generic": 9
     }
   },
   "dotnettest_locale_de_fail.txt": {
@@ -1647,6 +1647,16 @@
     ],
     "shadow": {}
   },
+  "go_build_spaced_folder_fail.txt": {
+    "winner": "go build",
+    "parser": "go",
+    "failures": 2,
+    "claimants": [
+      "go",
+      "generic"
+    ],
+    "shadow": {}
+  },
   "go_nogomod_fail.txt": {
     "winner": "go",
     "parser": "go",
@@ -1669,8 +1679,30 @@
     ],
     "shadow": {}
   },
+  "go_test_spaced_folder_fail.txt": {
+    "winner": "go build",
+    "parser": "go",
+    "failures": 1,
+    "claimants": [
+      "go",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 2
+    }
+  },
   "go_unknowncmd_fail.txt": {
     "winner": "go",
+    "parser": "go",
+    "failures": 1,
+    "claimants": [
+      "go",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "go_vet_spaced_folder_fail.txt": {
+    "winner": "go vet",
     "parser": "go",
     "failures": 1,
     "claimants": [
@@ -1741,6 +1773,16 @@
     "winner": "gofmt",
     "parser": "gofmt",
     "failures": 2,
+    "claimants": [
+      "gofmt",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "gofmt_spaced_folder_fail.txt": {
+    "winner": "gofmt",
+    "parser": "gofmt",
+    "failures": 1,
     "claimants": [
       "gofmt",
       "generic"
@@ -2012,7 +2054,7 @@
       "generic"
     ],
     "shadow": {
-      "generic": 6
+      "generic": 8
     }
   },
   "gotest_fail.txt": {
@@ -2398,6 +2440,20 @@
     }
   },
   "jest_suite_fail.txt": {
+    "winner": "jest",
+    "parser": "jest",
+    "failures": 1,
+    "claimants": [
+      "jest",
+      "go",
+      "node",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 2
+    }
+  },
+  "jest_suite_spaced_folder_fail.txt": {
     "winner": "jest",
     "parser": "jest",
     "failures": 1,
@@ -3039,6 +3095,26 @@
     "shadow": {
       "generic": 1
     }
+  },
+  "node_syntax_eof_esm_fail.txt": {
+    "winner": "node",
+    "parser": "node",
+    "failures": 1,
+    "claimants": [
+      "node",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "node_syntax_eof_fail.txt": {
+    "winner": "node",
+    "parser": "node",
+    "failures": 1,
+    "claimants": [
+      "node",
+      "generic"
+    ],
+    "shadow": {}
   },
   "node_syntax_fail.txt": {
     "winner": "node",
@@ -3718,6 +3794,32 @@
     ],
     "shadow": {
       "generic": 3
+    }
+  },
+  "playwright_projects_fail.txt": {
+    "winner": "playwright",
+    "parser": "playwright",
+    "failures": 2,
+    "claimants": [
+      "playwright",
+      "node",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 4
+    }
+  },
+  "playwright_spaced_folder_fail.txt": {
+    "winner": "playwright",
+    "parser": "playwright",
+    "failures": 2,
+    "claimants": [
+      "playwright",
+      "node",
+      "generic"
+    ],
+    "shadow": {
+      "generic": 4
     }
   },
   "pnpm_boxed_fail.txt": {
@@ -4928,6 +5030,16 @@
     "shadow": {}
   },
   "tap_fail.txt": {
+    "winner": "tap",
+    "parser": "tap",
+    "failures": 2,
+    "claimants": [
+      "tap",
+      "generic"
+    ],
+    "shadow": {}
+  },
+  "tap_spaced_folder_fail.txt": {
     "winner": "tap",
     "parser": "tap",
     "failures": 2,

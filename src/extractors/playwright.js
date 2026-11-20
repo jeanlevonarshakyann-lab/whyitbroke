@@ -1,5 +1,6 @@
 import { append, elements, jsonDocuments, jsonDocumentsAt, lineAt, pinnedMessage, stripAnsi, xmlAttributes, xmlText } from "../util.js";
 import { withSource } from "../ownership.js";
+import { v8Frame } from "../location.js";
 // Playwright numbers each failure and heads it with the location of the TEST, then the
 // error, then an excerpt of the source with the offending line marked, then the location
 // of the THROW, then a path to an artifact:
@@ -18,10 +19,23 @@ import { withSource } from "../ownership.js";
 // pinnedMessage in util.js - and the whitespace on both sides of a missing rule is one stretch. It
 // could end anywhere in a long stretch of spaces, and the stretch be divided every way between the
 // two as well: 8,000 spaces at the end of one heading took three minutes.
-export const HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*(\d+)\)[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]+›`,
+// The file is what the heading writes before its `:line:col`, as Playwright was given it:
+// a test under `my tests/` is `my tests/a.spec.js`, and read as a path with no space in it,
+// its heading was no heading and the failure was lost. Playwright puts the project in front
+// of it when there is one - `[chromium] › tests/a.spec.js:2:1 › adds up` - which its own
+// starter config always has, and then no heading was read and the run was a guess. A path
+// holds no `:` past its drive and no `›`, which is what keeps the title out of it.
+const PROJECT = String.raw`(?:\[[^\]\n]*\][^\S\n]+›[^\S\n]+)?`;
+const TEST_FILE = String.raw`((?:[A-Za-z]:[\\/])?[^\s:›\[][^:\n›]*?)`;
+export const HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*(\d+)\)[^\S\n]+${PROJECT}${TEST_FILE}:(\d+):(\d+)[^\S\n]+›`,
   { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`(?:[─—-]{3,}[^\S\n]*)?$` });
-// The throw's own location is more precise than the test's, and is what you want.
-const AT_RE = /^[^\S\n]*at[^\S\n]+(\S+?):(\d+):(\d+)[^\S\n]*$/;
+// The throw's own location is more precise than the test's, and is what you want. It is a
+// frame with no function, `at /app/my tests/a.spec.js:3:17`, read from its end as every V8
+// frame is - see v8Frame - so its path is read whole.
+const throwAt = (line) => {
+  const frame = v8Frame(line);
+  return frame && !frame.closed ? frame : null;
+};
 // The excerpt marks the offending line with a chevron.
 const MARKED_RE = /^[^\S\n]*>[^\S\n]*(\d+)[^\S\n]*\|[^\S\n]?(.*)$/;
 // The marked line is the one that threw, so its number is the throw's line. Taking the
@@ -55,7 +69,7 @@ const MAX_MESSAGE = 4;
 //
 // The document names no tool - `<testsuites id="" name="">` - so what makes a body
 // Playwright's is that heading, with its chevron and its rule.
-export const JUNIT_HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*()(\S+?):(\d+):(\d+)[^\S\n]+›`,
+export const JUNIT_HEAD_RE = pinnedMessage(String.raw`^[^\S\n]*()${PROJECT}${TEST_FILE}:(\d+):(\d+)[^\S\n]+›`,
   { separator: String.raw`[^\S\n]*`, least: 0, tail: String.raw`[─—-]{3,}[^\S\n]*$` });
 // A self-closing `<error .../>` has no body, and must not be read as an opening tag: its
 // "body" then ran to the next `</error>` in the log, which was the first of Playwright's -
@@ -121,8 +135,8 @@ function blocks(lines, headRe, place = (start, end) => [start, end]) {
       if (lines[j].trim()) end = j + 1;
       // the `at` inside the block is where it actually threw, which beats the test's
       // own declaration line
-      const at = lines[j].match(AT_RE);
-      if (at) { file = at[1]; line = +at[2]; col = +at[3]; continue; }
+      const at = throwAt(lines[j]);
+      if (at) { file = at.file; line = at.line; col = at.col; continue; }
       const mark = lines[j].match(MARKED_RE);
       if (mark) { marked.push({ n: +mark[1], text: mark[2].trim() }); continue; }
       if (GUTTER_RE.test(lines[j]) || CARET_RE.test(lines[j]) || ARTIFACT_RE.test(lines[j])) continue;

@@ -1,0 +1,4 @@
+# command-line-arguments [command-line-arguments.test]
+my pkg/a_test.go:6:28: undefined: undefinedThing
+FAIL	command-line-arguments [build failed]
+FAIL
