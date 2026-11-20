@@ -795,6 +795,14 @@ try {
     ["`>` for `&gt;` in a value", every((t) => t.replaceAll("&gt;", ">"))],
     ["a first attribute holding `>`", every((t) => t.replace(/^(<[\w:.-]+)/, '$1 note="a => b"'))],
     ["a last attribute holding `>`", every((t) => t.replace(/[^\S\n]*\/?>$/, (end) => ` note="a => b"${end}`))],
+    // XML allows space after an end tag's name, and a line break: `</testcase >`. Not in a
+    // CDATA section, whose text is a message's and not markup.
+    ["space in a closing tag", (t) => t.replace(/(<!\[CDATA\[[\s\S]*?\]\]>)|<\/([A-Za-z_][\w:.-]*)>/g, (all, cdata, name) => cdata ?? `</${name} >`)],
+    ["a line break in a closing tag", (t) => t.replace(/(<!\[CDATA\[[\s\S]*?\]\]>)|<\/([A-Za-z_][\w:.-]*)>/g, (all, cdata, name) => cdata ?? `</${name}\n>`)],
+    // ...and text before the root that holds what reads like a test case, in a processing
+    // instruction or a document type's entity, is not one.
+    ["a processing instruction holding a tag", (t) => t.replace(/^(<\?xml[^>]*\?>\n?)?/, (decl) => `${decl}<?note <testcase name="fake" classname="x"><failure message="fake"/></testcase> ?>\n`)],
+    ["an entity holding a tag", (t) => t.replace(/^(<\?xml[^>]*\?>\n?)?/, (decl) => `${decl}<!DOCTYPE r [<!ENTITY e "<testcase name='fake'><failure message='fake'/></testcase>">]>\n`)],
   ];
   const reports = readdirSync(join(here, "fixtures")).filter((name) => /<(?:testsuites?|checkstyle|TestRun)\b/.test(fx(name)));
   assert.ok(reports.length >= 20, `only ${reports.length} XML reports among the fixtures`);
