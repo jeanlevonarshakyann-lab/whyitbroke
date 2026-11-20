@@ -247,6 +247,16 @@ if (argv.length === 0) {
     const { text, truncated, lines } = capture.finish();
     report(text, 0, truncated, null, lines);
   });
+  // A log that cannot be read to its end - a disk that fails under a redirected file, a
+  // share that goes away - ends with an error and not with an end. Nothing listened for
+  // it, and an error nothing listens for is one node throws: the run ended in node's own
+  // stack trace, and what had already been read, failures and all, was not reported. What
+  // was read is read; that it is not the whole log is said, and the exit status says it too.
+  process.stdin.on("error", (e) => {
+    process.stderr.write(`whyitbroke: the log could not be read to its end (${e.code ?? e.message}); this is what was read of it\n`);
+    const { text, truncated, lines } = capture.finish();
+    report(text, 1, truncated, null, lines);
+  });
 } else {
   // A failed spawn can throw before it returns a child, or emit an error afterward.
   // Both paths must report the command that failed and preserve exit code 127.
