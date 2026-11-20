@@ -199,12 +199,14 @@ test("an element is read to its closing tag, or to the next one when it was cut"
 
 test("a `>` inside a tag's quoted value is masked, and only there, in linear time", () => {
   assert.equal(xmlStructure(`<a x="1>2" y = '3>4' z="5"/>b > c</a>`), `<a x="1 2" y = '3 4' z="5"/>b > c</a>`);
+  // An end tag with space in it is written tight, and the space after it.
+  assert.equal(xmlStructure("<a>x</a >y</b\n\t>"), "<a>x</a> y</b>\n\t");
   // Text that holds a quote and a `>` is not a tag, and neither is a tag XML would not read.
   for (const text of [`if (a = "b" > c) "d"`, `x="a>b"`, `<a>b="c>d"</a>`, `<a x="1>2" <b>`, `<a x="1<2>3">`, `< a x="1>2">`]) {
     assert.equal(xmlStructure(text), text, text);
   }
   for (const hostile of [`x="a>b" `.repeat(100_000), `<a${` x="a>b"`.repeat(100_000)} !`, `<a x="a>`.repeat(100_000), `="> `.repeat(100_000),
-    `<a${` x="a>b"`.repeat(100_000)}>`]) {
+    `<a${` x="a>b"`.repeat(100_000)}>`, `</a${" ".repeat(400_000)}`, "</a \n".repeat(100_000), "</a \n>".repeat(100_000)]) {
     const started = Date.now();
     const structure = xmlStructure(hostile);
     const elapsed = Date.now() - started;

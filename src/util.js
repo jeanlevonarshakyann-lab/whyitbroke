@@ -350,7 +350,21 @@ export function xmlStructure(text) {
     out.push(text.slice(start, end).replace(/[^\r\n]/g, " "));
     at = end;
   }
-  return quotedTagEndsMasked(out.join(""));
+  return closingTagsTight(quotedTagEndsMasked(out.join("")));
+}
+
+// An end tag with space after its name, which XML allows: `</testcase >`, `</failure\n>`.
+const LOOSE_CLOSE = /<\/([A-Za-z_:][\w:.-]*)([ \t\r\n]+)>/g;
+/** `text` with each end tag written `</name>`, the space XML allows inside it moved to after
+ *  it, without moving any offsets.
+ *
+ *  Every reader finds an element's end as `</name>`, and `</testcase >` is the same end:
+ *  read as nothing, a report written that way lost every test in it, or the report. In the
+ *  copy elements are found in, the `>` comes straight after the name and the space after
+ *  the `>`; a line break in it stays a line break. What is taken from the copy is where an
+ *  element's parts begin and end, and its body ends where its end tag begins, as before. */
+function closingTagsTight(text) {
+  return text.includes("</") ? text.replace(LOOSE_CLOSE, (_, name, space) => `</${name}>${space}`) : text;
 }
 
 // A quoted attribute value that holds a `>`: what the first `>` of a tag otherwise ends.
