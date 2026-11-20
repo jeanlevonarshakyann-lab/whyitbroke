@@ -39,6 +39,12 @@ const CASES = [
       assert.match(r.failures[0].message, /^cannot use 42 \(untyped int constant\)/);
       assert.doesNotMatch(r.failures[0].message, /^vet: /, "the prefix is not part of the message");
     } },
+  // A real `gofmt -d` on a file in a folder with a space in its name. Its header names the
+  // file twice, `diff my pkg/c.go.orig my pkg/c.go`, and read as two paths with no space in
+  // them it was no header, and the diff went unread.
+  { file: "gofmt_spaced_folder_fail.txt", tool: "gofmt", n: 1, check: (r) => {
+      assert.deepEqual([r.failures[0].file, r.failures[0].line], ["my pkg/c.go", 3]);
+    } },
   // Real runs of go 1.27 on files named on the command line, in a folder with a space in its
   // name. go heads them `# command-line-arguments` and writes each path as it was given it,
   // `my pkg/b.go:3:15:`. A relative path was read with no space in it, so the build was no
@@ -559,7 +565,7 @@ try {
   assert.equal(gofmt.detect(`diff x.go.orig x.go\n${hunk}`), true);
   const claimed = readdirSync(join(here, "fixtures")).sort()
     .filter((n) => { try { return gofmt.detect(fx(n)); } catch { return false; } });
-  assert.deepEqual(claimed, ["gofmt_fail.txt", "gofmt_hunks_fail.txt"]);
+  assert.deepEqual(claimed, ["gofmt_fail.txt", "gofmt_hunks_fail.txt", "gofmt_spaced_folder_fail.txt"]);
   console.log("  ok   gofmt reads its own diffs and nobody else's");
   pass++;
 } catch (e) { console.log(`  FAIL gofmt diff shape\n       ${e.message}`); fail++; }
