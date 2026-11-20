@@ -28,7 +28,7 @@
 // fetch from a registry, a daemon or a cluster are skipped too unless `--network` is given,
 // so that a run measures the readers and not the network. `--only <name>` runs one tool,
 // and `--verbose` prints every failure read.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -55,8 +55,46 @@ const PLACES = [
 /** Does this case reach past the machine? Its own setup installs something, its command
  *  is fetched by npx, or it is one of the tools whose failing command is a download. */
 const FETCHES = new Set(["pip", "bundle", "composer", "uv", "poetry", "mvn", "gradle", "docker", "dotnet", "kubectl", "terraform"]);
-const reaches = (name, argv, setup) => FETCHES.has(name) || argv[0] === "npx" ||
-  (!!setup && ["npm", "bundle", "composer", "pip"].includes(setup[0]));
+const reaches = (name, argv, setup) => FETCHES.has(name) ||
+  (argv[0] === "npx" && !installedGlobally(setup)) ||
+  (!!setup && ["npm", "bundle", "composer", "pip"].includes(setup[0]) && !installedGlobally(setup));
+
+// A test runner installed globally is one that need not be fetched: an `npm install` that
+// asks only for packages npm already holds globally is done by linking them into the
+// project, each with its commands, so `npx` finds them there and fetches nothing.
+// `@playwright/test` is one line, `module.exports = require("playwright/test")`, and the
+// `playwright` package holds the rest - so where only that is installed, that line is
+// what is written.
+const GLOBAL = (() => {
+  const r = spawnSync("npm", ["root", "-g"], { encoding: "utf8" });
+  return r.status === 0 ? r.stdout.trim() : null;
+})();
+const PROVIDED_BY = { "@playwright/test": "playwright" };
+const wanted = (setup) => (setup?.[0] === "npm" && setup[1] === "install" ? setup.slice(2).filter((a) => !a.startsWith("-")) : null);
+function installedGlobally(setup) {
+  const packages = wanted(setup);
+  return !!GLOBAL && !!packages?.length && packages.every((name) => existsSync(join(GLOBAL, name)) || existsSync(join(GLOBAL, PROVIDED_BY[name] ?? name)));
+}
+function linkGlobal(setup, root) {
+  const modules = join(root, "node_modules"), bin = join(modules, ".bin");
+  mkdirSync(bin, { recursive: true });
+  const link = (name) => {
+    const from = join(GLOBAL, name), to = join(modules, name);
+    mkdirSync(dirname(to), { recursive: true });
+    if (!existsSync(to)) symlinkSync(from, to, "dir");
+    const declared = JSON.parse(readFileSync(join(from, "package.json"), "utf8")).bin;
+    const commands = typeof declared === "string" ? { [name.split("/").pop()]: declared } : declared ?? {};
+    for (const [command, path] of Object.entries(commands)) if (!existsSync(join(bin, command))) symlinkSync(join(from, path), join(bin, command));
+  };
+  for (const name of wanted(setup)) {
+    if (existsSync(join(GLOBAL, name))) { link(name); continue; }
+    const provider = PROVIDED_BY[name];
+    link(provider);
+    mkdirSync(join(modules, name), { recursive: true });
+    writeFileSync(join(modules, name, "package.json"), JSON.stringify({ name, main: "index.js" }));
+    writeFileSync(join(modules, name, "index.js"), `module.exports = require("${provider}/test");\n`);
+  }
+}
 
 /** The project written under `segments` of a new temporary directory, and its report. */
 const FOLDER = "my folder";
@@ -76,7 +114,8 @@ function run(given, argv, setup, segments, naming = false) {
       mkdirSync(join(root, dirname(path)), { recursive: true });
       writeFileSync(join(root, path), body);
     }
-    if (setup) {
+    if (setup && !network && installedGlobally(setup)) linkGlobal(setup, root);
+    else if (setup) {
       const r = spawnSync(setup[0], setup.slice(1), { cwd: root, timeout: 300000 });
       if (r.error || r.status !== 0) return { state: "setup" };
     }

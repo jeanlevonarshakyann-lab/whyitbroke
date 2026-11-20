@@ -126,7 +126,8 @@ bounded.
   one with letters outside ASCII, named to the tool by its full path, and with its file in
   a folder with a space, has to read as it did under a plain name. A tool that does not
   print the same thing twice is not held to what differs. Commands that fetch from a
-  registry are skipped unless it is run with `--network`.
+  registry are skipped unless it is run with `--network` - except a test runner npm already
+  holds globally, which is linked into the project instead of fetched.
 - Run `npm test` before submitting changes. `test/guarantees.js` runs first and pins the
   two promises everything else is subordinate to: the exit code is the command's own,
   and a command that failed is never presented as anything else. If a change makes those

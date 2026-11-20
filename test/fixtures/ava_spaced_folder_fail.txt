@@ -1,0 +1,22 @@
+
+  ✘ [fail]: adds
+  ─
+
+  adds
+
+  test/a.js:2
+
+   1: import test from "ava";                
+   2: test("adds", t => { t.is(1 + 1, 3); });
+   3:                                        
+
+  Difference (- actual, + expected):
+
+  - 2
+  + 3
+
+  › file:///home/dev/My%20Project/shop%20app/test/a.js:2:23
+
+  ─
+
+  1 test failed
